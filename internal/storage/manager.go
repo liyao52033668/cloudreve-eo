@@ -63,3 +63,12 @@ func (m *StoragePolicyManager) GetDriver(policy string) (StorageDriver, error) {
 	}
 	return driver, nil
 }
+
+// NewTestStoragePolicyManager 使用预置驱动构造管理器，供单测注入 mock，避免访问真实对象存储。
+func NewTestStoragePolicyManager(policy string, driver StorageDriver) *StoragePolicyManager {
+	return &StoragePolicyManager{
+		defaultDriver: driver,
+		defaultPolicy: policy,
+		drivers:       map[string]StorageDriver{policy: driver},
+	}
+}
