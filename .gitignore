@@ -1,10 +1,8 @@
 # Dependencies
 node_modules/
-web/node_modules/
 
 # Build output
-web/dist/
-bin/
+dist/
 
 # Database
 *.db

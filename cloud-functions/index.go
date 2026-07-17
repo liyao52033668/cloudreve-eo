@@ -85,8 +85,8 @@ func main() {
 	publicShares.GET("/:code", shareHandler.Get)
 	publicShares.GET("/:code/download", shareHandler.Download)
 
-	fmt.Printf("Cloudreve-EO 启动中，端口: %s\n", cfg.Server.Port)
-	if err := r.Run(":" + cfg.Server.Port); err != nil {
+	fmt.Printf("Cloudreve-EO 启动中\n")
+	if err := r.Run(":9000"); err != nil {
 		log.Fatalf("启动服务失败: %v", err)
 	}
 }

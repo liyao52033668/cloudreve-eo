@@ -1,13 +1,17 @@
 {
-  "name": "web",
+  "name": "cloudreve-eo",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "edgeone dev",
+    "dev:frontend": "vite",
+    "dev:backend": "cd cloud-functions && go run index.go",
     "build": "tsc -b && vite build",
+    "build:all": "npm run build && cd cloud-functions && go build -o ../dist/server index.go",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "edgeone deploy"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
@@ -22,6 +26,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "edgeone": "latest",
     "oxlint": "^1.71.0",
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
