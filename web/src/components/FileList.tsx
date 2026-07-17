@@ -1,9 +1,10 @@
 import { Table, Button, Dropdown, Modal, Input, message, Space } from 'antd'
-import { FolderOutlined, FileOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined } from '@ant-design/icons'
+import { FolderOutlined, FileOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { FileItem } from '../api/files'
 import { deleteFile, renameFile, getDownloadURL } from '../api/files'
 import { useState } from 'react'
+import ShareModal from './ShareModal'
 
 interface Props {
   files: FileItem[]
@@ -14,6 +15,7 @@ interface Props {
 export default function FileList({ files, onRefresh, onOpenDir }: Props) {
   const [renameModal, setRenameModal] = useState<{ visible: boolean; file?: FileItem }>({ visible: false })
   const [newName, setNewName] = useState('')
+  const [shareFile, setShareFile] = useState<FileItem | null>(null)
 
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '-'
@@ -80,11 +82,13 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
         <Dropdown menu={{
           items: [
             ...(!record.is_dir ? [{ key: 'download', label: '下载', icon: <DownloadOutlined /> }] : []),
+            ...(!record.is_dir ? [{ key: 'share', label: '分享', icon: <ShareAltOutlined /> }] : []),
             { key: 'rename', label: '重命名', icon: <EditOutlined /> },
             { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
           ],
           onClick: ({ key }) => {
             if (key === 'download') handleDownload(record)
+            else if (key === 'share') { setShareFile(record) }
             else if (key === 'rename') { setRenameModal({ visible: true, file: record }); setNewName(record.name) }
             else if (key === 'delete') handleDelete(record)
           },
@@ -101,6 +105,11 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
       <Modal title="重命名" open={renameModal.visible} onOk={handleRename} onCancel={() => setRenameModal({ visible: false })}>
         <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
       </Modal>
+      <ShareModal
+        open={!!shareFile}
+        fileId={shareFile?.id ?? null}
+        onClose={() => setShareFile(null)}
+      />
     </>
   )
 }
