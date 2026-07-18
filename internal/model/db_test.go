@@ -30,7 +30,13 @@ func TestInitDB_SQLiteSuccess(t *testing.T) {
 	}
 
 	// Tables should exist after AutoMigrate.
-	for _, name := range []string{"users", "files", "shares"} {
+	for _, name := range []string{
+		"cloudreve_users",
+		"cloudreve_files",
+		"cloudreve_shares",
+		"cloudreve_settings",
+		"cloudreve_storage_policies",
+	} {
 		if !DB.Migrator().HasTable(name) {
 			t.Errorf("expected table %q to exist after AutoMigrate", name)
 		}

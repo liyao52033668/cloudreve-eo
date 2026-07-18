@@ -7,9 +7,13 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 var DB *gorm.DB
+
+// tablePrefix 全部业务表统一前缀，避免与同库其它应用冲突。
+const tablePrefix = "cloudreve_"
 
 func InitDB(cfg *config.Config) error {
 	var dialector gorm.Dialector
@@ -23,7 +27,11 @@ func InitDB(cfg *config.Config) error {
 		return fmt.Errorf("不支持的数据库驱动: %s", cfg.DB.Driver)
 	}
 
-	db, err := gorm.Open(dialector, &gorm.Config{})
+	db, err := gorm.Open(dialector, &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{
+			TablePrefix: tablePrefix,
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("连接数据库失败: %w", err)
 	}
