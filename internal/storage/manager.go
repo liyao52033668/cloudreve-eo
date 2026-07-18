@@ -11,12 +11,15 @@ import (
 
 // PolicyInfo 对外暴露的存储策略信息（不含密钥）。
 type PolicyInfo struct {
-	ID           uint   `json:"id,omitempty"`
-	Name         string `json:"name"`
-	Type         string `json:"type"` // 当前固定 "s3"
-	Bucket       string `json:"bucket,omitempty"`
-	Endpoint     string `json:"endpoint,omitempty"`
-	Region       string `json:"region,omitempty"`
+	ID             uint   `json:"id,omitempty"`
+	Name           string `json:"name"`
+	Type           string `json:"type"` // 当前固定 "s3"
+	Bucket         string `json:"bucket,omitempty"`
+	Endpoint       string `json:"endpoint,omitempty"`
+	Region         string `json:"region,omitempty"`
+	ForcePathStyle bool   `json:"force_path_style"`
+	// BasePath 对象键前缀，上传时拼到 storage_key 前面。
+	BasePath     string `json:"base_path,omitempty"`
 	IsDefault    bool   `json:"is_default"`
 	DefaultQuota int64  `json:"default_quota"`
 }
@@ -59,21 +62,23 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 	// 各策略相互独立：某一条初始化失败不影响其它策略加载。
 	var loadErrs []string
 	for _, p := range list {
-		driver, err := NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey)
+		driver, err := NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle)
 		if err != nil {
 			loadErrs = append(loadErrs, fmt.Sprintf("%s: %v", p.Name, err))
 			continue
 		}
 		drivers[p.Name] = driver
 		infos[p.Name] = PolicyInfo{
-			ID:           p.ID,
-			Name:         p.Name,
-			Type:         p.Type,
-			Bucket:       p.Bucket,
-			Endpoint:     p.Endpoint,
-			Region:       p.Region,
-			IsDefault:    p.IsDefault,
-			DefaultQuota: p.DefaultQuota,
+			ID:             p.ID,
+			Name:           p.Name,
+			Type:           p.Type,
+			Bucket:         p.Bucket,
+			Endpoint:       p.Endpoint,
+			Region:         p.Region,
+			ForcePathStyle: p.ForcePathStyle,
+			BasePath:       p.BasePath,
+			IsDefault:      p.IsDefault,
+			DefaultQuota:   p.DefaultQuota,
 		}
 		if p.IsDefault {
 			defaultName = p.Name

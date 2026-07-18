@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
@@ -53,6 +54,9 @@ func (s *FileService) GetUploadURL(userID uint, fileName string, contentType str
 	}
 
 	key := fmt.Sprintf("%d/%s", userID, uuid.New().String())
+	if info, ok := s.storageMgr.GetPolicyInfo(resolved); ok && info.BasePath != "" {
+		key = strings.Trim(info.BasePath, "/") + "/" + key
+	}
 	url, err := driver.GenerateUploadURL(key, contentType, 30*time.Minute)
 	if err != nil {
 		return "", "", "", err

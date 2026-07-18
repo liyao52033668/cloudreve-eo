@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
+	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 )
@@ -20,6 +20,8 @@ func InitDB(cfg *config.Config) error {
 
 	switch cfg.DB.Driver {
 	case "sqlite":
+		// glebarez/sqlite 基于 modernc.org/sqlite，纯 Go、无需 CGO。
+		// EdgeOne / 交叉编译常为 CGO_ENABLED=0，不能使用 mattn/go-sqlite3。
 		dialector = sqlite.Open(cfg.DB.DSN)
 	case "postgres":
 		dialector = postgres.Open(cfg.DB.DSN)

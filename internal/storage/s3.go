@@ -18,8 +18,10 @@ type S3Driver struct {
 }
 
 // NewS3Driver 创建 S3 兼容存储驱动。
-// endpoint 非空时使用自定义端点（MinIO/COS 等），并启用 path-style。
-func NewS3Driver(endpoint, region, bucket, accessKey, secretKey string) (*S3Driver, error) {
+// endpoint 非空时使用自定义端点（MinIO/COS 等）。
+// forcePathStyle 为 true 时使用 path-style（http://endpoint/bucket/key），
+// false 时使用 virtual-hosted（http://bucket.endpoint/key）；MinIO 与部分私有 S3 通常需开启。
+func NewS3Driver(endpoint, region, bucket, accessKey, secretKey string, forcePathStyle bool) (*S3Driver, error) {
 	resolver := aws.EndpointResolverWithOptionsFunc(
 		func(service, reg string, options ...interface{}) (aws.Endpoint, error) {
 			if endpoint != "" {
@@ -41,7 +43,7 @@ func NewS3Driver(endpoint, region, bucket, accessKey, secretKey string) (*S3Driv
 	}
 
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.UsePathStyle = true
+		o.UsePathStyle = forcePathStyle
 	})
 
 	return &S3Driver{client: client, bucket: bucket}, nil

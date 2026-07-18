@@ -53,6 +53,8 @@ const emptyForm: PolicyForm = {
   bucket: '',
   access_key: '',
   secret_key: '',
+  force_path_style: true,
+  base_path: '',
   is_default: false,
   default_quota: 0,
 }
@@ -137,6 +139,8 @@ export default function StoragePolicies() {
         bucket: p.bucket,
         access_key: p.access_key,
         secret_key: '', // 留空表示不修改
+        force_path_style: p.force_path_style !== false,
+        base_path: p.base_path || '',
         is_default: p.is_default,
         default_quota_gib: (p.default_quota || 0) / GiB,
       })
@@ -162,6 +166,8 @@ export default function StoragePolicies() {
         bucket: values.bucket,
         access_key: values.access_key,
         secret_key: values.secret_key || '',
+        force_path_style: values.force_path_style !== false,
+        base_path: (values.base_path || '').trim().replace(/^\/+|\/+$/g, ''),
         is_default: !!values.is_default,
         default_quota: Math.round(gib * GiB),
       }
@@ -304,6 +310,14 @@ export default function StoragePolicies() {
                           {p.region || '—'}
                         </div>
                         <div>
+                          <Text type="secondary">上传路径：</Text>
+                          {p.base_path ? `/${p.base_path}/` : '（bucket 根）'}
+                        </div>
+                        <div>
+                          <Text type="secondary">Path Style：</Text>
+                          {p.force_path_style !== false ? '强制开启' : '关闭（virtual-hosted）'}
+                        </div>
+                        <div>
                           <Text type="secondary">Access Key：</Text>
                           {p.access_key ? `${p.access_key.slice(0, 4)}••••` : '—'}
                         </div>
@@ -377,6 +391,21 @@ export default function StoragePolicies() {
           </Form.Item>
           <Form.Item name="region" label="Region" extra="部分服务商必填，默认 us-east-1">
             <Input placeholder="us-east-1" />
+          </Form.Item>
+          <Form.Item
+            name="base_path"
+            label="上传路径（前缀）"
+            extra="对象保存在该目录下，如 uploads 或 cloudreve/prod；留空表示 bucket 根目录。实际键：{前缀}/{用户ID}/{uuid}"
+          >
+            <Input placeholder="例如 uploads 或 cloudreve/prod" allowClear />
+          </Form.Item>
+          <Form.Item
+            name="force_path_style"
+            label="强制 ForcePathStyle"
+            valuePropName="checked"
+            extra="MinIO 与多数私有/兼容 S3 需开启；AWS 官方 S3 可关闭（virtual-hosted）。"
+          >
+            <Switch checkedChildren="开" unCheckedChildren="关" />
           </Form.Item>
           <Form.Item
             name="access_key"

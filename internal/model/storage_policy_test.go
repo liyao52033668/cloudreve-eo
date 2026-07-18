@@ -119,3 +119,44 @@ func TestStoragePolicy_DefaultQuotaPerPolicy(t *testing.T) {
 	}
 }
 
+
+func TestStoragePolicy_ForcePathStyleAndBasePath(t *testing.T) {
+	setupPolicyDB(t)
+
+	p := &StoragePolicy{
+		Name: "minio", Type: "s3", Endpoint: "http://127.0.0.1:9000",
+		Region: "us-east-1", Bucket: "b", AccessKey: "ak", SecretKey: "sk",
+		ForcePathStyle: true, BasePath: "uploads/prod", DefaultQuota: 1024,
+	}
+	if err := CreateStoragePolicy(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := GetStoragePolicyByID(p.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.ForcePathStyle {
+		t.Error("ForcePathStyle should be true")
+	}
+	if got.BasePath != "uploads/prod" {
+		t.Errorf("BasePath = %q", got.BasePath)
+	}
+
+	upd := &StoragePolicy{
+		Name: "minio", Endpoint: got.Endpoint, Region: got.Region, Bucket: got.Bucket,
+		AccessKey: got.AccessKey, ForcePathStyle: false, BasePath: "data", DefaultQuota: 1024,
+	}
+	if err := UpdateStoragePolicy(p.ID, upd, false); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, err = GetStoragePolicyByID(p.ID)
+	if err != nil {
+		t.Fatalf("get after update: %v", err)
+	}
+	if got.ForcePathStyle {
+		t.Error("ForcePathStyle should be false after update")
+	}
+	if got.BasePath != "data" {
+		t.Errorf("BasePath after update = %q", got.BasePath)
+	}
+}

@@ -16,7 +16,7 @@ func NewEdgeOneDriver(bucket, secretID, secretKey string) (*EdgeOneDriver, error
 	// EdgeOne 对象存储兼容 S3 协议
 	// endpoint 格式根据实际 EdgeOne 文档配置
 	endpoint := fmt.Sprintf("https://cos.%s.myqcloud.com", bucket)
-	s3Driver, err := NewS3Driver(endpoint, "", bucket, secretID, secretKey)
+	s3Driver, err := NewS3Driver(endpoint, "", bucket, secretID, secretKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("初始化 EdgeOne 驱动失败: %w", err)
 	}

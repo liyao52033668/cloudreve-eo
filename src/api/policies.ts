@@ -22,6 +22,8 @@ export interface StoragePolicyAdmin {
   bucket: string
   access_key: string
   secret_key_hint: string
+  force_path_style: boolean
+  base_path: string
   is_default: boolean
   default_quota: number
   created_at?: string
@@ -37,6 +39,8 @@ export interface StoragePolicyDetail {
   bucket: string
   access_key: string
   secret_key: string
+  force_path_style: boolean
+  base_path: string
   is_default: boolean
   default_quota: number
 }
@@ -48,6 +52,10 @@ export interface PolicyForm {
   bucket: string
   access_key: string
   secret_key: string
+  /** 强制 path-style（MinIO / 部分私有 S3 需要） */
+  force_path_style: boolean
+  /** 上传目录前缀，对象键 = base_path/userID/uuid */
+  base_path: string
   is_default: boolean
   /** 该策略下每用户默认配额（字节） */
   default_quota: number

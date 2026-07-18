@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	"strings"
+	"os"
 	"fmt"
 	"log"
 
@@ -53,6 +56,7 @@ func main() {
 	policyHandler := handler.NewPolicyHandler(storageMgr)
 
 	r := gin.Default()
+	r.Use(__edgeonePagesMiddleware())
 
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
@@ -65,16 +69,17 @@ func main() {
 		c.Next()
 	})
 
-	api := r.Group("/api")
-
-	auth := api.Group("/auth")
+	// EdgeOne Makers：入口文件名 api.go 决定 URL 前缀 /api，
+	// 请求到达 Gin 前会剥离 /api。因此路由不要再写 /api 前缀。
+	// 前端仍访问 /api/auth/register、/api/files 等。
+	auth := r.Group("/auth")
 	auth.POST("/register", authHandler.Register)
 	auth.POST("/login", authHandler.Login)
 
 	// 公开站点信息（注册开关等，无需登录）
-	api.GET("/site", settingHandler.GetPublicSite)
+	r.GET("/site", settingHandler.GetPublicSite)
 
-	protected := api.Group("")
+	protected := r.Group("")
 	protected.Use(middleware.JWTAuth(jwtSecrets))
 	{
 		files := protected.Group("/files")
@@ -117,14 +122,51 @@ func main() {
 		}
 	}
 
-	publicShares := api.Group("/shares")
+	publicShares := r.Group("/shares")
 	publicShares.GET("/:code", shareHandler.Get)
 	publicShares.GET("/:code/download", shareHandler.Download)
 
-	// EdgeOne Makers 构建时会注入端口适配；本地 makers dev 也按此约定监听。
-	// 平台文档推荐标准写法 r.Run(":9000")，勿改为独立进程式启动。
+	// EdgeOne Makers 构建时会注入端口适配与 /api 前缀剥离；本地 makers dev 也按此约定。
+	// 平台文档推荐标准写法 http.ListenAndServe(":" + __edgeoneGetPort("9000"), __edgeoneStripPrefix("/api", r))，勿改为独立进程式启动。
 	fmt.Printf("Cloudreve-EO 启动中\n")
-	if err := r.Run(":9000"); err != nil {
+	if err := http.ListenAndServe(":" + __edgeoneGetPort("9000"), __edgeoneStripPrefix("/api", r)); err != nil {
 		log.Fatalf("启动服务失败: %v", err)
 	}
+}
+
+
+// __edgeoneGetPort 从环境变量 PORT 获取端口，如果未设置则使用默认值
+// 由 EdgeOne Makers CLI 自动注入
+func __edgeoneGetPort(defaultPort string) string {
+	if port := os.Getenv("PORT"); port != "" {
+		return port
+	}
+	return defaultPort
+}
+
+
+// __edgeoneStripPrefix 类似 http.StripPrefix，但确保 strip 后空路径变为 "/"
+// 避免框架收到空路径后做 301 redirect
+// 由 EdgeOne Makers CLI 自动注入
+func __edgeoneStripPrefix(prefix string, h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(r.URL.Path, prefix)
+		rp := strings.TrimPrefix(r.URL.RawPath, prefix)
+		if len(p) < len(r.URL.Path) && (r.URL.RawPath == "" || len(rp) < len(r.URL.RawPath)) {
+			if p == "" {
+				p = "/"
+			}
+			if rp == "" && r.URL.RawPath != "" {
+				rp = "/"
+			}
+			r2 := *r
+			urlCopy := *r.URL
+			urlCopy.Path = p
+			urlCopy.RawPath = rp
+			r2.URL = &urlCopy
+			h.ServeHTTP(w, &r2)
+		} else {
+			http.NotFound(w, r)
+		}
+	})
 }

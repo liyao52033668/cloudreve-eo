@@ -32,9 +32,10 @@ export default function Files() {
   const loadFiles = useCallback(async () => {
     try {
       const res = await listFiles(currentDir)
-      setFiles(res.data.files)
-    } catch {
-      message.error('加载文件列表失败')
+      setFiles(res.data.files || [])
+    } catch (err: any) {
+      if (err?.response?.status === 401) return // client 拦截器会跳登录
+      message.error(err?.response?.data?.error || '加载文件列表失败')
     }
   }, [currentDir])
 
@@ -44,7 +45,7 @@ export default function Files() {
       setPolicies(res.data.policies || [])
       setSelectedPolicy(res.data.default || res.data.policies?.[0]?.name || '')
     } catch {
-      // 单策略或旧后端时列表接口失败可忽略，上传仍走默认
+      // 尚未配置策略时接口可能为空/失败，上传前再提示
     }
   }, [])
 
@@ -53,10 +54,16 @@ export default function Files() {
       const res = await getProfile()
       setIsAdmin(!!res.data.user?.is_admin)
       localStorage.setItem('user', JSON.stringify(res.data.user))
-    } catch {
-      // 未登录时由 client 拦截器跳转
+    } catch (err: any) {
+      if (err?.response?.status === 401) return
+      // token 无效或用户不存在时清掉本地状态
+      if (err?.response?.status === 404) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        navigate('/login', { replace: true })
+      }
     }
-  }, [])
+  }, [navigate])
 
   useEffect(() => { loadFiles() }, [loadFiles])
   useEffect(() => { loadPolicies() }, [loadPolicies])
@@ -120,8 +127,8 @@ export default function Files() {
   }))
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529' }}>
+    <Layout style={{ minHeight: '100vh', width: '100%' }}>
+      <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529', padding: '0 24px' }}>
         <span style={{ color: '#fff', fontSize: 18 }}>Cloudreve-EO</span>
         <Space>
           {isAdmin && (
@@ -149,7 +156,7 @@ export default function Files() {
           </Button>
         </Space>
       </Header>
-      <Content style={{ padding: '24px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+      <Content style={{ padding: 24, width: '100%', maxWidth: 1400, margin: '0 auto', flex: 1 }}>
         <Breadcrumb style={{ marginBottom: 16 }} items={breadcrumb.map(b => ({ title: b.title, key: b.id }))} />
         <Space style={{ marginBottom: 16 }} wrap>
           {policyOptions.length > 0 && (

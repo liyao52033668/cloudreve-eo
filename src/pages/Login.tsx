@@ -12,6 +12,11 @@ export default function Login() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    // 已登录则直接进首页
+    if (localStorage.getItem('token')) {
+      navigate('/', { replace: true })
+      return
+    }
     let cancelled = false
     getSiteInfo().then((info) => {
       if (!cancelled) setAllowRegister(info.allow_register)
@@ -19,7 +24,7 @@ export default function Login() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [navigate])
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true)

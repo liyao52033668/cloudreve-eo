@@ -32,17 +32,19 @@ func (h *PolicyHandler) ListPublic(c *gin.Context) {
 
 // adminPolicyView 管理端展示（密钥脱敏）。
 type adminPolicyView struct {
-	ID            uint   `json:"id"`
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	Endpoint      string `json:"endpoint"`
-	Region        string `json:"region"`
-	Bucket        string `json:"bucket"`
-	AccessKey     string `json:"access_key"`
-	SecretKeyHint string `json:"secret_key_hint"` // 仅提示是否已配置，不回显明文
-	IsDefault     bool   `json:"is_default"`
-	DefaultQuota  int64  `json:"default_quota"`
-	CreatedAt     string `json:"created_at,omitempty"`
+	ID             uint   `json:"id"`
+	Name           string `json:"name"`
+	Type           string `json:"type"`
+	Endpoint       string `json:"endpoint"`
+	Region         string `json:"region"`
+	Bucket         string `json:"bucket"`
+	AccessKey      string `json:"access_key"`
+	SecretKeyHint  string `json:"secret_key_hint"` // 仅提示是否已配置，不回显明文
+	ForcePathStyle bool   `json:"force_path_style"`
+	BasePath       string `json:"base_path"`
+	IsDefault      bool   `json:"is_default"`
+	DefaultQuota   int64  `json:"default_quota"`
+	CreatedAt      string `json:"created_at,omitempty"`
 }
 
 func toAdminView(p *model.StoragePolicy) adminPolicyView {
@@ -51,17 +53,19 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		hint = "••••••••"
 	}
 	return adminPolicyView{
-		ID:            p.ID,
-		Name:          p.Name,
-		Type:          p.Type,
-		Endpoint:      p.Endpoint,
-		Region:        p.Region,
-		Bucket:        p.Bucket,
-		AccessKey:     p.AccessKey,
-		SecretKeyHint: hint,
-		IsDefault:     p.IsDefault,
-		DefaultQuota:  p.DefaultQuota,
-		CreatedAt:     p.CreatedAt.Format("2006-01-02 15:04:05"),
+		ID:             p.ID,
+		Name:           p.Name,
+		Type:           p.Type,
+		Endpoint:       p.Endpoint,
+		Region:         p.Region,
+		Bucket:         p.Bucket,
+		AccessKey:      p.AccessKey,
+		SecretKeyHint:  hint,
+		ForcePathStyle: p.ForcePathStyle,
+		BasePath:       p.BasePath,
+		IsDefault:      p.IsDefault,
+		DefaultQuota:   p.DefaultQuota,
+		CreatedAt:      p.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 }
 
@@ -99,14 +103,16 @@ func (h *PolicyHandler) GetAdmin(c *gin.Context) {
 }
 
 type policyBody struct {
-	Name      string `json:"name" binding:"required,min=1,max=64"`
-	Endpoint  string `json:"endpoint" binding:"required"`
-	Region    string `json:"region"`
-	Bucket    string `json:"bucket" binding:"required"`
-	AccessKey string `json:"access_key" binding:"required"`
-	SecretKey string `json:"secret_key"`
-	IsDefault    bool  `json:"is_default"`
-	DefaultQuota int64 `json:"default_quota"`
+	Name           string `json:"name" binding:"required,min=1,max=64"`
+	Endpoint       string `json:"endpoint" binding:"required"`
+	Region         string `json:"region"`
+	Bucket         string `json:"bucket" binding:"required"`
+	AccessKey      string `json:"access_key" binding:"required"`
+	SecretKey      string `json:"secret_key"`
+	ForcePathStyle *bool  `json:"force_path_style"` // nil 时默认 true（兼容旧客户端）
+	BasePath       string `json:"base_path"`
+	IsDefault      bool   `json:"is_default"`
+	DefaultQuota   int64  `json:"default_quota"`
 }
 
 // Create POST /api/admin/storage/policies
@@ -129,16 +135,22 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		return
 	}
 
+	forcePath := true
+	if req.ForcePathStyle != nil {
+		forcePath = *req.ForcePathStyle
+	}
 	p := &model.StoragePolicy{
-		Name:         req.Name,
-		Type:         "s3",
-		Endpoint:     strings.TrimSpace(req.Endpoint),
-		Region:       strings.TrimSpace(req.Region),
-		Bucket:       strings.TrimSpace(req.Bucket),
-		AccessKey:    strings.TrimSpace(req.AccessKey),
-		SecretKey:    req.SecretKey,
-		IsDefault:    req.IsDefault,
-		DefaultQuota: req.DefaultQuota,
+		Name:           req.Name,
+		Type:           "s3",
+		Endpoint:       strings.TrimSpace(req.Endpoint),
+		Region:         strings.TrimSpace(req.Region),
+		Bucket:         strings.TrimSpace(req.Bucket),
+		AccessKey:      strings.TrimSpace(req.AccessKey),
+		SecretKey:      req.SecretKey,
+		ForcePathStyle: forcePath,
+		BasePath:       normalizeBasePath(req.BasePath),
+		IsDefault:      req.IsDefault,
+		DefaultQuota:   req.DefaultQuota,
 	}
 	if err := model.CreateStoragePolicy(p); err != nil {
 		msg := err.Error()
@@ -177,16 +189,22 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		return
 	}
 
+	forcePath := true
+	if req.ForcePathStyle != nil {
+		forcePath = *req.ForcePathStyle
+	}
 	updates := &model.StoragePolicy{
-		Name:         req.Name,
-		Type:         "s3",
-		Endpoint:     strings.TrimSpace(req.Endpoint),
-		Region:       strings.TrimSpace(req.Region),
-		Bucket:       strings.TrimSpace(req.Bucket),
-		AccessKey:    strings.TrimSpace(req.AccessKey),
-		SecretKey:    req.SecretKey,
-		IsDefault:    req.IsDefault,
-		DefaultQuota: req.DefaultQuota,
+		Name:           req.Name,
+		Type:           "s3",
+		Endpoint:       strings.TrimSpace(req.Endpoint),
+		Region:         strings.TrimSpace(req.Region),
+		Bucket:         strings.TrimSpace(req.Bucket),
+		AccessKey:      strings.TrimSpace(req.AccessKey),
+		SecretKey:      req.SecretKey,
+		ForcePathStyle: forcePath,
+		BasePath:       normalizeBasePath(req.BasePath),
+		IsDefault:      req.IsDefault,
+		DefaultQuota:   req.DefaultQuota,
 	}
 	if err := model.UpdateStoragePolicy(uint(id), updates, req.SecretKey != ""); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -252,3 +270,28 @@ func (h *PolicyHandler) SetDefault(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已设为默认策略"})
 }
+
+// normalizeBasePath 去掉首尾 / 与多余空白；禁止 .. 等路径穿越。
+func normalizeBasePath(p string) string {
+	p = strings.TrimSpace(p)
+	p = strings.Trim(p, "/")
+	if p == "" {
+		return ""
+	}
+	// 统一为正斜杠、折叠重复斜杠，并拒绝包含 .. 的路径
+	parts := strings.Split(p, "/")
+	clean := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			// 丢弃上级引用，避免对象键逃出前缀目录
+			continue
+		}
+		clean = append(clean, part)
+	}
+	return strings.Join(clean, "/")
+}
+

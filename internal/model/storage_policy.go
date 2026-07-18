@@ -17,6 +17,10 @@ type StoragePolicy struct {
 	Bucket    string    `gorm:"size:255;not null" json:"bucket"`
 	AccessKey string    `gorm:"size:255;not null" json:"access_key"`
 	SecretKey string    `gorm:"size:255;not null" json:"secret_key"`
+	// ForcePathStyle 强制 path-style 访问（MinIO / 部分私有 S3 需要）；false 时用 virtual-hosted。
+	ForcePathStyle bool `gorm:"not null;default:true" json:"force_path_style"`
+	// BasePath 对象键前缀（上传目录），如 uploads 或 cloudreve/prod；空表示 bucket 根。
+	BasePath string `gorm:"size:255" json:"base_path"`
 	IsDefault    bool      `gorm:"not null;default:false" json:"is_default"`
 	// DefaultQuota 该策略下每个用户的默认配额（字节）；0 表示未配置/不可用。
 	DefaultQuota int64     `gorm:"not null;default:0" json:"default_quota"`
@@ -101,6 +105,8 @@ func UpdateStoragePolicy(id uint, updates *StoragePolicy, updateSecret bool) err
 	existing.Region = updates.Region
 	existing.Bucket = updates.Bucket
 	existing.AccessKey = updates.AccessKey
+	existing.ForcePathStyle = updates.ForcePathStyle
+	existing.BasePath = updates.BasePath
 	existing.DefaultQuota = updates.DefaultQuota
 	if updateSecret && updates.SecretKey != "" {
 		existing.SecretKey = updates.SecretKey
