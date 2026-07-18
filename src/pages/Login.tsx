@@ -1,18 +1,32 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Form, Input, Button, Card, message } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useNavigate, Link } from 'react-router-dom'
 import { login } from '../api/auth'
+import { getSiteInfo } from '../api/settings'
 
 export default function Login() {
   const [loading, setLoading] = useState(false)
+  // null = 加载中；true = 显示注册入口；false = 隐藏
+  const [allowRegister, setAllowRegister] = useState<boolean | null>(null)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    let cancelled = false
+    getSiteInfo().then((info) => {
+      if (!cancelled) setAllowRegister(info.allow_register)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true)
     try {
       const res = await login(values)
       localStorage.setItem('token', res.data.token)
+      localStorage.setItem('user', JSON.stringify(res.data.user))
       message.success('登录成功')
       navigate('/')
     } catch (err: any) {
@@ -37,9 +51,12 @@ export default function Login() {
               登录
             </Button>
           </Form.Item>
-          <div style={{ textAlign: 'center' }}>
-            没有账号？<Link to="/register">去注册</Link>
-          </div>
+          {/* 仅当明确允许注册时显示入口；关闭注册时直接隐藏 */}
+          {allowRegister === true && (
+            <div style={{ textAlign: 'center' }}>
+              没有账号？<Link to="/register">去注册</Link>
+            </div>
+          )}
         </Form>
       </Card>
     </div>

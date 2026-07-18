@@ -19,14 +19,29 @@ func NewAuthService(cfg *config.Config) *AuthService {
 }
 
 func (s *AuthService) Register(username, password string) (*model.User, error) {
+	allowed, err := model.IsRegisterAllowed()
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, errors.New("当前未开放注册")
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("密码加密失败: %w", err)
 	}
 
+	// 首个注册用户自动成为管理员（可管理 JWT 主密钥等）。
+	var count int64
+	if err := model.DB.Model(&model.User{}).Count(&count).Error; err != nil {
+		return nil, fmt.Errorf("检查用户数量失败: %w", err)
+	}
+
 	user := &model.User{
 		Username:     username,
 		PasswordHash: string(hash),
+		IsAdmin:      count == 0,
 		StorageQuota: s.cfg.Storage.DefaultQuota,
 	}
 

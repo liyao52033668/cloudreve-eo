@@ -9,6 +9,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+
+type staticSecret string
+
+func (s staticSecret) Get() string { return string(s) }
+
 func TestGenerateToken_ParsesUserID(t *testing.T) {
 	const secret = "test-secret"
 	const userID uint = 42
@@ -44,7 +49,7 @@ func TestJWTAuth_InvalidToken(t *testing.T) {
 	const secret = "test-secret"
 
 	r := gin.New()
-	r.GET("/protected", JWTAuth(secret), func(c *gin.Context) {
+	r.GET("/protected", JWTAuth(staticSecret(secret)), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
@@ -87,7 +92,7 @@ func TestJWTAuth_ValidTokenSetsUserID(t *testing.T) {
 
 	var gotUserID any
 	r := gin.New()
-	r.GET("/protected", JWTAuth(secret), func(c *gin.Context) {
+	r.GET("/protected", JWTAuth(staticSecret(secret)), func(c *gin.Context) {
 		gotUserID, _ = c.Get("user_id")
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})

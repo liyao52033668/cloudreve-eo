@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -12,6 +13,11 @@ import (
 type Claims struct {
 	UserID uint `json:"user_id"`
 	jwt.RegisteredClaims
+}
+
+// SecretProvider 运行时提供 JWT 密钥（支持热轮转）。
+type SecretProvider interface {
+	Get() string
 }
 
 func GenerateToken(userID uint, secret string) (string, error) {
@@ -26,7 +32,8 @@ func GenerateToken(userID uint, secret string) (string, error) {
 	return token.SignedString([]byte(secret))
 }
 
-func JWTAuth(secret string) gin.HandlerFunc {
+// JWTAuth 使用 SecretProvider 校验 Bearer Token，支持密钥热更新。
+func JWTAuth(secrets SecretProvider) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -42,6 +49,7 @@ func JWTAuth(secret string) gin.HandlerFunc {
 			return
 		}
 
+		secret := secrets.Get()
 		claims := &Claims{}
 		token, err := jwt.ParseWithClaims(parts[1], claims, func(t *jwt.Token) (interface{}, error) {
 			return []byte(secret), nil
@@ -53,6 +61,20 @@ func JWTAuth(secret string) gin.HandlerFunc {
 		}
 
 		c.Set("user_id", claims.UserID)
+		c.Next()
+	}
+}
+
+// RequireAdmin 要求当前用户为管理员（须在 JWTAuth 之后使用）。
+func RequireAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		ok, err := model.IsUserAdmin(userID)
+		if err != nil || !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})
+			c.Abort()
+			return
+		}
 		c.Next()
 	}
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select } from 'antd'
-import { UploadOutlined, FolderAddOutlined, LogoutOutlined } from '@ant-design/icons'
+import { UploadOutlined, FolderAddOutlined, LogoutOutlined, SettingOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import {
   listFiles,
@@ -11,6 +11,7 @@ import {
   type FileItem,
   type StoragePolicy,
 } from '../api/files'
+import { getProfile } from '../api/user'
 import { useNavigate } from 'react-router-dom'
 
 const { Header, Content } = Layout
@@ -25,6 +26,7 @@ export default function Files() {
   const [dirName, setDirName] = useState('')
   const [policies, setPolicies] = useState<StoragePolicy[]>([])
   const [selectedPolicy, setSelectedPolicy] = useState<string>('')
+  const [isAdmin, setIsAdmin] = useState(false)
   const navigate = useNavigate()
 
   const loadFiles = useCallback(async () => {
@@ -46,8 +48,19 @@ export default function Files() {
     }
   }, [])
 
+  const loadProfile = useCallback(async () => {
+    try {
+      const res = await getProfile()
+      setIsAdmin(!!res.data.user?.is_admin)
+      localStorage.setItem('user', JSON.stringify(res.data.user))
+    } catch {
+      // 未登录时由 client 拦截器跳转
+    }
+  }, [])
+
   useEffect(() => { loadFiles() }, [loadFiles])
   useEffect(() => { loadPolicies() }, [loadPolicies])
+  useEffect(() => { loadProfile() }, [loadProfile])
 
   const handleOpenDir = async (dirId: number) => {
     setCurrentDir(dirId)
@@ -97,6 +110,7 @@ export default function Files() {
 
   const handleLogout = () => {
     localStorage.removeItem('token')
+    localStorage.removeItem('user')
     navigate('/login')
   }
 
@@ -109,7 +123,21 @@ export default function Files() {
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529' }}>
         <span style={{ color: '#fff', fontSize: 18 }}>Cloudreve-EO</span>
-        <Button icon={<LogoutOutlined />} type="text" style={{ color: '#fff' }} onClick={handleLogout}>退出</Button>
+        <Space>
+          {isAdmin && (
+            <Button
+              icon={<SettingOutlined />}
+              type="text"
+              style={{ color: '#fff' }}
+              onClick={() => navigate('/settings')}
+            >
+              参数设置
+            </Button>
+          )}
+          <Button icon={<LogoutOutlined />} type="text" style={{ color: '#fff' }} onClick={handleLogout}>
+            退出
+          </Button>
+        </Space>
       </Header>
       <Content style={{ padding: '24px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
         <Breadcrumb style={{ marginBottom: 16 }} items={breadcrumb.map(b => ({ title: b.title, key: b.id }))} />

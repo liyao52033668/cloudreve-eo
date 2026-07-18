@@ -19,13 +19,19 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	if cfg.JWT.Secret == "" {
-		log.Fatal("JWT_SECRET 环境变量未设置")
-	}
-
 	if err := model.InitDB(cfg); err != nil {
 		log.Fatalf("初始化数据库失败: %v", err)
 	}
+
+	// JWT 主密钥：库中已有 > 环境变量引导写入 > 自动生成
+	jwtSecret, err := model.EnsureJWTSecret(cfg.JWT.Secret)
+	if err != nil {
+		log.Fatalf("初始化 JWT 密钥失败: %v", err)
+	}
+	if cfg.JWT.Secret == "" {
+		log.Printf("JWT 主密钥已从数据库加载或自动生成（无需环境变量）")
+	}
+	jwtSecrets := service.NewJWTSecretStore(jwtSecret)
 
 	storageMgr, err := storage.NewStoragePolicyManager(cfg)
 	if err != nil {
@@ -36,10 +42,11 @@ func main() {
 	fileService := service.NewFileService(storageMgr)
 	shareService := service.NewShareService(storageMgr)
 
-	authHandler := handler.NewAuthHandler(authService, cfg.JWT.Secret)
+	authHandler := handler.NewAuthHandler(authService, jwtSecrets)
 	fileHandler := handler.NewFileHandler(fileService)
 	shareHandler := handler.NewShareHandler(shareService)
 	userHandler := handler.NewUserHandler()
+	settingHandler := handler.NewSettingHandler(jwtSecrets)
 
 	r := gin.Default()
 
@@ -60,8 +67,11 @@ func main() {
 	auth.POST("/register", authHandler.Register)
 	auth.POST("/login", authHandler.Login)
 
+	// 公开站点信息（注册开关等，无需登录）
+	api.GET("/site", settingHandler.GetPublicSite)
+
 	protected := api.Group("")
-	protected.Use(middleware.JWTAuth(cfg.JWT.Secret))
+	protected.Use(middleware.JWTAuth(jwtSecrets))
 	{
 		files := protected.Group("/files")
 		files.GET("", fileHandler.List)
@@ -81,6 +91,15 @@ func main() {
 		user := protected.Group("/user")
 		user.GET("/profile", userHandler.Profile)
 		user.PUT("/password", userHandler.ChangePassword)
+
+		// 管理员：参数设置（JWT 主密钥、注册开关）
+		admin := protected.Group("")
+		admin.Use(middleware.RequireAdmin())
+		{
+			admin.GET("/settings/security", settingHandler.GetSecurity)
+			admin.POST("/settings/security/rotate-jwt", settingHandler.RotateJWTSecret)
+			admin.PUT("/settings/register", settingHandler.UpdateRegister)
+		}
 	}
 
 	publicShares := api.Group("/shares")

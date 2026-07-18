@@ -10,13 +10,13 @@ import (
 
 type AuthHandler struct {
 	authService *service.AuthService
-	jwtSecret   string
+	secrets     middleware.SecretProvider
 }
 
-func NewAuthHandler(authService *service.AuthService, jwtSecret string) *AuthHandler {
+func NewAuthHandler(authService *service.AuthService, secrets middleware.SecretProvider) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
-		jwtSecret:   jwtSecret,
+		secrets:     secrets,
 	}
 }
 
@@ -39,11 +39,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	user, err := h.authService.Register(req.Username, req.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if err.Error() == "当前未开放注册" {
+			status = http.StatusForbidden
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 
-	token, err := middleware.GenerateToken(user.ID, h.jwtSecret)
+	token, err := middleware.GenerateToken(user.ID, h.secrets.Get())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成令牌失败"})
 		return
@@ -68,7 +72,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := middleware.GenerateToken(user.ID, h.jwtSecret)
+	token, err := middleware.GenerateToken(user.ID, h.secrets.Get())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成令牌失败"})
 		return

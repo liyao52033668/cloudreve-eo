@@ -51,11 +51,23 @@ func TestAuthService_Register_Success(t *testing.T) {
 	if user.StorageQuota != cfg.Storage.DefaultQuota {
 		t.Errorf("StorageQuota = %d, want %d", user.StorageQuota, cfg.Storage.DefaultQuota)
 	}
+	if !user.IsAdmin {
+		t.Error("first registered user should be admin")
+	}
 	if user.PasswordHash == "" || user.PasswordHash == "password123" {
 		t.Error("password should be bcrypt-hashed, not plaintext")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte("password123")); err != nil {
 		t.Errorf("stored hash does not match password: %v", err)
+	}
+
+	// 第二个用户不应为管理员
+	user2, err := svc.Register("bob", "password123")
+	if err != nil {
+		t.Fatalf("second Register() error = %v", err)
+	}
+	if user2.IsAdmin {
+		t.Error("second registered user should not be admin")
 	}
 }
 
@@ -72,6 +84,27 @@ func TestAuthService_Register_DuplicateUsername(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "创建用户失败") {
 		t.Errorf("error = %q, want substring 创建用户失败", err.Error())
+	}
+}
+
+func TestAuthService_Register_Disabled(t *testing.T) {
+	cfg := setupTestDB(t)
+	svc := NewAuthService(cfg)
+
+	// 先注册首个管理员
+	if _, err := svc.Register("admin", "password123"); err != nil {
+		t.Fatalf("first Register() error = %v", err)
+	}
+	if err := model.SetAllowRegister(false); err != nil {
+		t.Fatalf("SetAllowRegister: %v", err)
+	}
+
+	_, err := svc.Register("newbie", "password123")
+	if err == nil {
+		t.Fatal("Register() expected error when disabled")
+	}
+	if !strings.Contains(err.Error(), "当前未开放注册") {
+		t.Errorf("error = %q, want 当前未开放注册", err.Error())
 	}
 }
 

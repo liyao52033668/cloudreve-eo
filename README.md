@@ -76,11 +76,9 @@ edgeone makers env pull
 
 ### 4. 配置应用环境变量
 
-至少需要 `JWT_SECRET`，以及一套可用的 S3 兼容存储。可用 CLI 写入远程，再 `env pull` 到本地：
+至少需要一套可用的 S3 兼容存储。JWT 主密钥会在首次启动时自动生成并写入数据库，**不必**配置 `JWT_SECRET`。可用 CLI 写入远程，再 `env pull` 到本地：
 
 ```bash
-edgeone makers env set JWT_SECRET "请替换为足够长的随机密钥"
-
 edgeone makers env set DEFAULT_STORAGE s3
 edgeone makers env set S3_ENDPOINT "https://你的-s3-endpoint"
 edgeone makers env set S3_REGION "ap-guangzhou"
@@ -92,6 +90,8 @@ edgeone makers env set S3_SECRET_KEY "your-secret-key"
 edgeone makers env set DB_DRIVER sqlite
 edgeone makers env set DB_DSN cloudreve.db
 edgeone makers env set DEFAULT_QUOTA 1073741824
+# 可选：仅在数据库尚无密钥时，用环境变量引导写入（一般不需要）
+# edgeone makers env set JWT_SECRET "your-bootstrap-secret"
 
 # 查看 / 同步到本地
 edgeone makers env ls
@@ -149,11 +149,18 @@ edgeone makers deploy -t <token>
 
 ### 必填
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `JWT_SECRET` | JWT 签名密钥；未设置时服务拒绝启动 | （无） |
+使用 S3 作为默认存储时，需配置下方 S3 相关变量（`DEFAULT_STORAGE` 默认为 `s3`）。  
+JWT 主密钥会自动生成，见「JWT 与管理员」。
 
-使用 S3 作为默认存储时，还需配置下方 S3 相关变量（`DEFAULT_STORAGE` 默认为 `s3`）。
+### JWT 与管理员
+
+| 行为 | 说明 |
+|------|------|
+| 自动生成 | 启动时若数据库 `settings` 表中无 `jwt_secret`，则生成 32 字节随机密钥并持久化 |
+| `JWT_SECRET` 环境变量 | **可选**。仅当库中尚无密钥时作为 bootstrap 写入；库中已有则忽略 |
+| 查看 / 轮转 | 管理员登录后打开前端 **参数设置**，可查看当前主密钥并一键轮转 |
+| 首个用户 | 系统中第一个注册用户自动成为管理员（`is_admin=true`） |
+| 轮转效果 | 轮转后所有既有登录令牌立即失效，用户需重新登录 |
 
 ### 服务与配额
 
@@ -161,6 +168,7 @@ edgeone makers deploy -t <token>
 |------|------|--------|
 | `PORT` | 服务端口（EdgeOne / Makers 运行时会注入；Cloud Function 入口优先读此变量） | `8080`（config 默认）；入口未设置时回退 `9000` |
 | `DEFAULT_QUOTA` | 新用户默认存储配额（字节） | `1073741824`（1 GiB） |
+| `JWT_SECRET` | （可选）首次启动时引导写入的 JWT 主密钥；库中已有则忽略 | 自动生成 |
 
 ### 数据库
 
@@ -249,7 +257,6 @@ COS / MinIO / R2 等应走上方 **S3 兼容** 配置，不要单独当成「Edg
 **S3（COS / MinIO 等）+ SQLite：**
 
 ```bash
-edgeone makers env set JWT_SECRET "change-me-in-production"
 edgeone makers env set DB_DRIVER sqlite
 edgeone makers env set DB_DSN cloudreve.db
 edgeone makers env set DEFAULT_STORAGE s3
@@ -332,8 +339,22 @@ cloudreve-eo/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/user/profile` | 当前用户与存储用量 |
+| GET | `/user/profile` | 当前用户与存储用量（含 `is_admin`） |
 | PUT | `/user/password` | 修改密码 |
+
+### 站点（公开）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/site` | 站点公开信息（如 `allow_register`） |
+
+### 管理员设置（需登录且 `is_admin`）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/settings/security` | 查看 JWT 主密钥与注册开关 |
+| POST | `/settings/security/rotate-jwt` | 轮转 JWT 主密钥（旧令牌立即失效） |
+| PUT | `/settings/register` | 设置是否允许新用户注册 `{"allow_register":true}` |
 
 ### 上传流程
 
@@ -375,4 +396,4 @@ cloudreve-eo/
 
 ## 许可证
 
-本项目为简化参考实现。请妥善保管 `JWT_SECRET` 与对象存储密钥，勿提交到版本库。
+本项目为简化参考实现。请妥善保管 JWT 主密钥（参数设置页可见）与对象存储密钥，勿提交到版本库。

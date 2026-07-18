@@ -15,6 +15,7 @@ export interface AuthResponse {
   user: {
     id: number
     username: string
+    is_admin: boolean
     storage_quota: number
     storage_used: number
   }

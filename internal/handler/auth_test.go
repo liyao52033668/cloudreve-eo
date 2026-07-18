@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/cloudreve-eo/cloudreve-eo/internal/service"
 	"bytes"
 	"encoding/json"
 	"net/http"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
-	"github.com/cloudreve-eo/cloudreve-eo/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -36,7 +36,7 @@ func setupAuthHandler(t *testing.T) (*AuthHandler, *gin.Engine) {
 	}
 
 	svc := service.NewAuthService(cfg)
-	h := NewAuthHandler(svc, cfg.JWT.Secret)
+	h := NewAuthHandler(svc, service.NewJWTSecretStore(cfg.JWT.Secret))
 
 	r := gin.New()
 	r.POST("/api/auth/register", h.Register)
