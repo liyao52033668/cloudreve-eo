@@ -30,4 +30,4 @@ Thumbs.db
 # Logs
 *.log
 .superpowers
-.edgeone/cloud-functions
+.edgeone
