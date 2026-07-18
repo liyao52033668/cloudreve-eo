@@ -148,7 +148,7 @@ export default function Settings() {
               showIcon
               style={{ marginBottom: 16 }}
               message="JWT 主密钥用于签发登录令牌"
-              description="首次启动时会自动生成并写入数据库；也可通过环境变量 JWT_SECRET 引导写入（仅在库中尚无密钥时生效）。请勿泄露主密钥。"
+              description="首次启动时会自动生成并写入数据库。请勿泄露主密钥；轮转后所有用户需重新登录。"
             />
             <Paragraph type="secondary" style={{ marginBottom: 8 }}>
               当前 JWT 主密钥

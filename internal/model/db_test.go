@@ -44,8 +44,8 @@ func TestInitDB_SQLiteSuccess(t *testing.T) {
 	if user.ID == 0 {
 		t.Error("expected user.ID to be assigned")
 	}
-	if user.StorageQuota != 1073741824 {
-		t.Errorf("StorageQuota = %d, want default 1073741824", user.StorageQuota)
+	if user.StorageQuota != 0 {
+		t.Errorf("StorageQuota = %d, want default 0", user.StorageQuota)
 	}
 	if user.StorageUsed != 0 {
 		t.Errorf("StorageUsed = %d, want default 0", user.StorageUsed)

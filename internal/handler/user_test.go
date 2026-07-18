@@ -26,9 +26,6 @@ func setupUserHandler(t *testing.T) (*UserHandler, *gin.Engine, *model.User) {
 			Driver: "sqlite",
 			DSN:    filepath.Join(t.TempDir(), "handler_user.db"),
 		},
-		Storage: config.StorageConfig{
-			DefaultQuota: 1073741824,
-		},
 	}
 	if err := model.InitDB(cfg); err != nil {
 		t.Fatalf("InitDB: %v", err)
@@ -42,13 +39,13 @@ func setupUserHandler(t *testing.T) (*UserHandler, *gin.Engine, *model.User) {
 	user := &model.User{
 		Username:     "profileuser",
 		PasswordHash: string(hash),
-		StorageQuota: cfg.Storage.DefaultQuota,
+		StorageQuota: 1073741824,
 	}
 	if err := model.DB.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
-	h := NewUserHandler()
+	h := NewUserHandler(nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("user_id", user.ID)
@@ -91,7 +88,7 @@ func TestUserHandler_Profile_UserNotFound_Returns404(t *testing.T) {
 
 	// Override middleware user_id to a non-existent id
 	r = gin.New()
-	h := NewUserHandler()
+	h := NewUserHandler(nil)
 	r.Use(func(c *gin.Context) {
 		c.Set("user_id", user.ID+9999)
 		c.Next()

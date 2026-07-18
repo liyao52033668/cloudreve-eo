@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select } from 'antd'
-import { UploadOutlined, FolderAddOutlined, LogoutOutlined, SettingOutlined } from '@ant-design/icons'
+import { UploadOutlined, FolderAddOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import {
   listFiles,
@@ -125,14 +125,24 @@ export default function Files() {
         <span style={{ color: '#fff', fontSize: 18 }}>Cloudreve-EO</span>
         <Space>
           {isAdmin && (
-            <Button
-              icon={<SettingOutlined />}
-              type="text"
-              style={{ color: '#fff' }}
-              onClick={() => navigate('/settings')}
-            >
-              参数设置
-            </Button>
+            <>
+              <Button
+                icon={<CloudServerOutlined />}
+                type="text"
+                style={{ color: '#fff' }}
+                onClick={() => navigate('/storage-policies')}
+              >
+                存储策略
+              </Button>
+              <Button
+                icon={<SettingOutlined />}
+                type="text"
+                style={{ color: '#fff' }}
+                onClick={() => navigate('/settings')}
+              >
+                参数设置
+              </Button>
+            </>
           )}
           <Button icon={<LogoutOutlined />} type="text" style={{ color: '#fff' }} onClick={handleLogout}>
             退出

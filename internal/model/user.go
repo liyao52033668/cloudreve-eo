@@ -7,7 +7,7 @@ type User struct {
 	Username     string    `gorm:"uniqueIndex;size:64;not null" json:"username"`
 	PasswordHash string    `gorm:"size:128;not null" json:"-"`
 	IsAdmin      bool      `gorm:"not null;default:false" json:"is_admin"`
-	StorageQuota int64     `gorm:"not null;default:1073741824" json:"storage_quota"`
+	StorageQuota int64     `gorm:"not null;default:0" json:"storage_quota"`
 	StorageUsed  int64     `gorm:"not null;default:0" json:"storage_used"`
 	CreatedAt    time.Time `json:"created_at"`
 }

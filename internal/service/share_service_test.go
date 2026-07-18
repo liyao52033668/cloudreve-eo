@@ -20,10 +20,6 @@ func setupShareService(t *testing.T) (*ShareService, *mockStorageDriver, *model.
 			Driver: "sqlite",
 			DSN:    filepath.Join(t.TempDir(), "share_service.db"),
 		},
-		Storage: config.StorageConfig{
-			Default:      "s3",
-			DefaultQuota: 1073741824,
-		},
 	}
 	if err := model.InitDB(cfg); err != nil {
 		t.Fatalf("InitDB: %v", err)
@@ -32,7 +28,7 @@ func setupShareService(t *testing.T) (*ShareService, *mockStorageDriver, *model.
 	user := &model.User{
 		Username:     "shareuser",
 		PasswordHash: "hash",
-		StorageQuota: cfg.Storage.DefaultQuota,
+		StorageQuota: 1073741824,
 	}
 	if err := model.DB.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)

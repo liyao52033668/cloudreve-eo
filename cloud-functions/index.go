@@ -23,30 +23,34 @@ func main() {
 		log.Fatalf("初始化数据库失败: %v", err)
 	}
 
-	// JWT 主密钥：库中已有 > 环境变量引导写入 > 自动生成
-	jwtSecret, err := model.EnsureJWTSecret(cfg.JWT.Secret)
+	// JWT 主密钥：库中已有则加载，否则自动生成写入库
+	jwtSecret, err := model.EnsureJWTSecret()
 	if err != nil {
 		log.Fatalf("初始化 JWT 密钥失败: %v", err)
 	}
-	if cfg.JWT.Secret == "" {
-		log.Printf("JWT 主密钥已从数据库加载或自动生成（无需环境变量）")
-	}
 	jwtSecrets := service.NewJWTSecretStore(jwtSecret)
 
-	storageMgr, err := storage.NewStoragePolicyManager(cfg)
+	// 存储策略仅来自数据库；空则管理员在前端「存储策略」页添加
+	storageMgr, err := storage.NewStoragePolicyManager()
 	if err != nil {
 		log.Fatalf("初始化存储失败: %v", err)
 	}
+	if n := len(storageMgr.ListPolicies()); n == 0 {
+		log.Printf("尚未配置存储策略，请管理员在前端「存储策略」页面添加 S3 兼容策略")
+	} else {
+		log.Printf("已加载 %d 个存储策略，默认: %s", n, storageMgr.DefaultPolicy())
+	}
 
-	authService := service.NewAuthService(cfg)
+	authService := service.NewAuthService()
 	fileService := service.NewFileService(storageMgr)
 	shareService := service.NewShareService(storageMgr)
 
 	authHandler := handler.NewAuthHandler(authService, jwtSecrets)
 	fileHandler := handler.NewFileHandler(fileService)
 	shareHandler := handler.NewShareHandler(shareService)
-	userHandler := handler.NewUserHandler()
+	userHandler := handler.NewUserHandler(storageMgr)
 	settingHandler := handler.NewSettingHandler(jwtSecrets)
+	policyHandler := handler.NewPolicyHandler(storageMgr)
 
 	r := gin.Default()
 
@@ -83,7 +87,8 @@ func main() {
 		files.PUT("/:id/rename", fileHandler.Rename)
 		files.PUT("/:id/move", fileHandler.Move)
 
-		protected.GET("/storage/policies", fileHandler.ListStoragePolicies)
+		// 用户侧：列出可用策略（上传选择，不含密钥）
+		protected.GET("/storage/policies", policyHandler.ListPublic)
 
 		shares := protected.Group("/shares")
 		shares.POST("", shareHandler.Create)
@@ -92,13 +97,23 @@ func main() {
 		user.GET("/profile", userHandler.Profile)
 		user.PUT("/password", userHandler.ChangePassword)
 
-		// 管理员：参数设置（JWT 主密钥、注册开关）
+		// 管理员：参数设置 + 存储策略 CRUD
 		admin := protected.Group("")
 		admin.Use(middleware.RequireAdmin())
 		{
 			admin.GET("/settings/security", settingHandler.GetSecurity)
 			admin.POST("/settings/security/rotate-jwt", settingHandler.RotateJWTSecret)
 			admin.PUT("/settings/register", settingHandler.UpdateRegister)
+
+			adminPolicies := admin.Group("/admin/storage/policies")
+			{
+				adminPolicies.GET("", policyHandler.ListAdmin)
+				adminPolicies.POST("", policyHandler.Create)
+				adminPolicies.GET("/:id", policyHandler.GetAdmin)
+				adminPolicies.PUT("/:id", policyHandler.Update)
+				adminPolicies.DELETE("/:id", policyHandler.Delete)
+				adminPolicies.POST("/:id/default", policyHandler.SetDefault)
+			}
 		}
 	}
 

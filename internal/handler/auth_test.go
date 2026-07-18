@@ -26,17 +26,13 @@ func setupAuthHandler(t *testing.T) (*AuthHandler, *gin.Engine) {
 			Driver: "sqlite",
 			DSN:    filepath.Join(t.TempDir(), "handler_auth.db"),
 		},
-		Storage: config.StorageConfig{
-			DefaultQuota: 1073741824,
-		},
-		JWT: config.JWTConfig{Secret: "handler-test-secret"},
 	}
 	if err := model.InitDB(cfg); err != nil {
 		t.Fatalf("InitDB: %v", err)
 	}
 
-	svc := service.NewAuthService(cfg)
-	h := NewAuthHandler(svc, service.NewJWTSecretStore(cfg.JWT.Secret))
+	svc := service.NewAuthService()
+	h := NewAuthHandler(svc, service.NewJWTSecretStore("handler-test-secret"))
 
 	r := gin.New()
 	r.POST("/api/auth/register", h.Register)

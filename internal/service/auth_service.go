@@ -4,18 +4,15 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
-type AuthService struct {
-	cfg *config.Config
-}
+type AuthService struct{}
 
-func NewAuthService(cfg *config.Config) *AuthService {
-	return &AuthService{cfg: cfg}
+func NewAuthService() *AuthService {
+	return &AuthService{}
 }
 
 func (s *AuthService) Register(username, password string) (*model.User, error) {
@@ -38,11 +35,12 @@ func (s *AuthService) Register(username, password string) (*model.User, error) {
 		return nil, fmt.Errorf("检查用户数量失败: %w", err)
 	}
 
+	// 配额按各 S3 存储策略分别配置；用户级 StorageQuota 字段保留兼容，固定为 0。
 	user := &model.User{
 		Username:     username,
 		PasswordHash: string(hash),
 		IsAdmin:      count == 0,
-		StorageQuota: s.cfg.Storage.DefaultQuota,
+		StorageQuota: 0,
 	}
 
 	if err := model.DB.Create(user).Error; err != nil {

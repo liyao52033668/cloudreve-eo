@@ -67,6 +67,23 @@ func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, stora
 		return nil, err
 	}
 
+	if size < 0 {
+		return nil, errors.New("文件大小无效")
+	}
+	info, ok := s.storageMgr.GetPolicyInfo(resolved)
+	if !ok {
+		return nil, fmt.Errorf("存储策略 %s 不存在", resolved)
+	}
+	var used int64
+	if err := model.DB.Model(&model.File{}).
+		Where("user_id = ? AND storage_policy = ? AND is_dir = ?", userID, resolved, false).
+		Select("COALESCE(SUM(size), 0)").Scan(&used).Error; err != nil {
+		return nil, fmt.Errorf("统计已用容量失败: %w", err)
+	}
+	if used+size > info.DefaultQuota {
+		return nil, errors.New("存储配额不足")
+	}
+
 	file := &model.File{
 		UserID:        userID,
 		ParentID:      parentID,

@@ -26,7 +26,7 @@ func setupSettingDB(t *testing.T) {
 func TestEnsureJWTSecret_AutoGenerate(t *testing.T) {
 	setupSettingDB(t)
 
-	secret, err := EnsureJWTSecret("")
+	secret, err := EnsureJWTSecret()
 	if err != nil {
 		t.Fatalf("EnsureJWTSecret() error = %v", err)
 	}
@@ -35,7 +35,7 @@ func TestEnsureJWTSecret_AutoGenerate(t *testing.T) {
 	}
 
 	// 再次调用应返回同一密钥
-	again, err := EnsureJWTSecret("ignored-env")
+	again, err := EnsureJWTSecret()
 	if err != nil {
 		t.Fatalf("second EnsureJWTSecret() error = %v", err)
 	}
@@ -44,23 +44,10 @@ func TestEnsureJWTSecret_AutoGenerate(t *testing.T) {
 	}
 }
 
-func TestEnsureJWTSecret_BootstrapFromEnv(t *testing.T) {
-	setupSettingDB(t)
-
-	const envSecret = "bootstrap-from-env-secret"
-	secret, err := EnsureJWTSecret(envSecret)
-	if err != nil {
-		t.Fatalf("EnsureJWTSecret() error = %v", err)
-	}
-	if secret != envSecret {
-		t.Errorf("secret = %q, want %q", secret, envSecret)
-	}
-}
-
 func TestRotateJWTSecret(t *testing.T) {
 	setupSettingDB(t)
 
-	old, err := EnsureJWTSecret("old-secret")
+	old, err := EnsureJWTSecret()
 	if err != nil {
 		t.Fatalf("EnsureJWTSecret() error = %v", err)
 	}
@@ -130,3 +117,4 @@ func TestIsRegisterAllowed_DefaultAndToggle(t *testing.T) {
 		t.Error("expected true after enable")
 	}
 }
+

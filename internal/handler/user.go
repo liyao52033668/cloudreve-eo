@@ -4,14 +4,24 @@ import (
 	"net/http"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/storage"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type UserHandler struct{}
+type UserHandler struct {
+	mgr *storage.StoragePolicyManager
+}
 
-func NewUserHandler() *UserHandler {
-	return &UserHandler{}
+func NewUserHandler(mgr *storage.StoragePolicyManager) *UserHandler {
+	return &UserHandler{mgr: mgr}
+}
+
+type policyUsage struct {
+	Name         string `json:"name"`
+	IsDefault    bool   `json:"is_default"`
+	DefaultQuota int64  `json:"default_quota"`
+	Used         int64  `json:"used"`
 }
 
 func (h *UserHandler) Profile(c *gin.Context) {
@@ -21,7 +31,27 @@ func (h *UserHandler) Profile(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"user": user})
+
+	policies := make([]policyUsage, 0)
+	if h.mgr != nil {
+		for _, info := range h.mgr.ListPolicies() {
+			var used int64
+			_ = model.DB.Model(&model.File{}).
+				Where("user_id = ? AND storage_policy = ? AND is_dir = ?", userID, info.Name, false).
+				Select("COALESCE(SUM(size), 0)").Scan(&used).Error
+			policies = append(policies, policyUsage{
+				Name:         info.Name,
+				IsDefault:    info.IsDefault,
+				DefaultQuota: info.DefaultQuota,
+				Used:         used,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user":             user,
+		"storage_policies": policies,
+	})
 }
 
 type changePasswordRequest struct {

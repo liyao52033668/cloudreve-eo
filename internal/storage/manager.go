@@ -3,109 +3,136 @@ package storage
 import (
 	"fmt"
 	"sort"
+	"strings"
+	"sync"
 
-	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
 )
 
 // PolicyInfo 对外暴露的存储策略信息（不含密钥）。
 type PolicyInfo struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"` // 当前固定 "s3"
-	Bucket    string `json:"bucket,omitempty"`
-	Endpoint  string `json:"endpoint,omitempty"`
-	IsDefault bool   `json:"is_default"`
+	ID           uint   `json:"id,omitempty"`
+	Name         string `json:"name"`
+	Type         string `json:"type"` // 当前固定 "s3"
+	Bucket       string `json:"bucket,omitempty"`
+	Endpoint     string `json:"endpoint,omitempty"`
+	Region       string `json:"region,omitempty"`
+	IsDefault    bool   `json:"is_default"`
+	DefaultQuota int64  `json:"default_quota"`
 }
 
-// StoragePolicyManager 管理多个存储策略及其对应驱动。
+// StoragePolicyManager 管理多个存储策略及其对应驱动，支持从数据库热重载。
+// 策略仅来自前端写入的数据库，无环境变量引导。
 type StoragePolicyManager struct {
+	mu            sync.RWMutex
 	defaultDriver StorageDriver
 	defaultPolicy string
 	drivers       map[string]StorageDriver
 	infos         map[string]PolicyInfo
 }
 
-// NewStoragePolicyManager 根据配置初始化可用的存储驱动。
-// 仅支持 S3 兼容策略；可同时注册多套（来自 S3_POLICIES 或单套 S3_*）。
-func NewStoragePolicyManager(cfg *config.Config) (*StoragePolicyManager, error) {
+// NewStoragePolicyManager 从数据库加载策略；库为空时管理器为空，管理员需在前端添加。
+func NewStoragePolicyManager() (*StoragePolicyManager, error) {
 	mgr := &StoragePolicyManager{
-		drivers:       make(map[string]StorageDriver),
-		infos:         make(map[string]PolicyInfo),
-		defaultPolicy: cfg.Storage.Default,
+		drivers: make(map[string]StorageDriver),
+		infos:   make(map[string]PolicyInfo),
 	}
-
-	policies := cfg.S3List
-	if len(policies) == 0 && cfg.S3.Bucket != "" {
-		// 兼容仅填了 S3 字段、未走 Load 解析的测试构造
-		p := cfg.S3
-		if p.Name == "" {
-			p.Name = "s3"
-		}
-		policies = []config.S3Config{p}
+	if err := mgr.ReloadFromDB(); err != nil {
+		return nil, err
 	}
-
-	for _, p := range policies {
-		name := p.Name
-		if name == "" {
-			name = "s3"
-		}
-		driver, err := NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey)
-		if err != nil {
-			return nil, fmt.Errorf("初始化 S3 策略 %q 失败: %w", name, err)
-		}
-		mgr.drivers[name] = driver
-		mgr.infos[name] = PolicyInfo{
-			Name:     name,
-			Type:     "s3",
-			Bucket:   p.Bucket,
-			Endpoint: p.Endpoint,
-		}
-	}
-
-	if len(mgr.drivers) == 0 {
-		return nil, fmt.Errorf("未配置任何 S3 存储策略（请设置 S3_POLICIES 或 S3_BUCKET 等）")
-	}
-
-	// 默认策略：优先 DEFAULT_STORAGE；否则取第一个已注册策略
-	if mgr.defaultPolicy == "" {
-		mgr.defaultPolicy = firstPolicyName(mgr.drivers)
-	}
-	driver, ok := mgr.drivers[mgr.defaultPolicy]
-	if !ok {
-		return nil, fmt.Errorf("默认存储策略 %q 未配置", mgr.defaultPolicy)
-	}
-	mgr.defaultDriver = driver
-
-	for name, info := range mgr.infos {
-		info.IsDefault = name == mgr.defaultPolicy
-		mgr.infos[name] = info
-	}
-
 	return mgr, nil
 }
 
-func firstPolicyName(drivers map[string]StorageDriver) string {
-	names := make([]string, 0, len(drivers))
-	for n := range drivers {
-		names = append(names, n)
+// ReloadFromDB 从数据库重新加载全部策略并重建驱动（热更新）。
+// 库中无策略时不报错，仅清空运行时映射。
+func (m *StoragePolicyManager) ReloadFromDB() error {
+	list, err := model.ListStoragePolicies()
+	if err != nil {
+		return fmt.Errorf("读取存储策略失败: %w", err)
 	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		return ""
+
+	drivers := make(map[string]StorageDriver, len(list))
+	infos := make(map[string]PolicyInfo, len(list))
+	var defaultName string
+	var defaultDriver StorageDriver
+
+	// 各策略相互独立：某一条初始化失败不影响其它策略加载。
+	var loadErrs []string
+	for _, p := range list {
+		driver, err := NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey)
+		if err != nil {
+			loadErrs = append(loadErrs, fmt.Sprintf("%s: %v", p.Name, err))
+			continue
+		}
+		drivers[p.Name] = driver
+		infos[p.Name] = PolicyInfo{
+			ID:           p.ID,
+			Name:         p.Name,
+			Type:         p.Type,
+			Bucket:       p.Bucket,
+			Endpoint:     p.Endpoint,
+			Region:       p.Region,
+			IsDefault:    p.IsDefault,
+			DefaultQuota: p.DefaultQuota,
+		}
+		if p.IsDefault {
+			defaultName = p.Name
+			defaultDriver = driver
+		}
 	}
-	return names[0]
+	if len(loadErrs) > 0 {
+		// 全部失败时返回错误；部分失败则继续，仅记录信息到 error 链的最后返回 nil 让服务可启动。
+		if len(drivers) == 0 {
+			return fmt.Errorf("全部存储策略初始化失败: %s", strings.Join(loadErrs, "; "))
+		}
+		// 部分成功：保留可用策略。失败项不进入 drivers，前端仍可在管理页看到并修正。
+		fmt.Printf("部分存储策略初始化失败（已跳过）: %s\n", strings.Join(loadErrs, "; "))
+	}
+
+	if defaultName == "" && len(drivers) > 0 {
+		// 默认策略未成功加载时，取已加载中名称排序第一的作为运行时默认
+		names := make([]string, 0, len(drivers))
+		for name := range drivers {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		defaultName = names[0]
+		defaultDriver = drivers[defaultName]
+		info := infos[defaultName]
+		info.IsDefault = true
+		infos[defaultName] = info
+	}
+
+	m.mu.Lock()
+	m.drivers = drivers
+	m.infos = infos
+	m.defaultPolicy = defaultName
+	m.defaultDriver = defaultDriver
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *StoragePolicyManager) DefaultDriver() StorageDriver {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.defaultDriver
 }
 
 func (m *StoragePolicyManager) DefaultPolicy() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.defaultPolicy
 }
 
 func (m *StoragePolicyManager) GetDriver(policy string) (StorageDriver, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if policy == "" {
 		policy = m.defaultPolicy
+	}
+	if policy == "" {
+		return nil, fmt.Errorf("未配置任何存储策略，请管理员在「存储策略」中添加")
 	}
 	driver, ok := m.drivers[policy]
 	if !ok {
@@ -116,7 +143,13 @@ func (m *StoragePolicyManager) GetDriver(policy string) (StorageDriver, error) {
 
 // ResolvePolicy 校验策略名；空字符串返回默认策略。
 func (m *StoragePolicyManager) ResolvePolicy(policy string) (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if policy == "" {
+		if m.defaultPolicy == "" {
+			return "", fmt.Errorf("未配置任何存储策略，请管理员在「存储策略」中添加")
+		}
 		return m.defaultPolicy, nil
 	}
 	if _, ok := m.drivers[policy]; !ok {
@@ -127,6 +160,9 @@ func (m *StoragePolicyManager) ResolvePolicy(policy string) (string, error) {
 
 // ListPolicies 返回已配置策略列表（默认策略排前，其余按名称排序）。
 func (m *StoragePolicyManager) ListPolicies() []PolicyInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	list := make([]PolicyInfo, 0, len(m.infos))
 	for _, info := range m.infos {
 		list = append(list, info)
@@ -140,6 +176,17 @@ func (m *StoragePolicyManager) ListPolicies() []PolicyInfo {
 	return list
 }
 
+// GetPolicyInfo 返回策略公开信息；不存在时 ok=false。
+func (m *StoragePolicyManager) GetPolicyInfo(policy string) (PolicyInfo, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if policy == "" {
+		policy = m.defaultPolicy
+	}
+	info, ok := m.infos[policy]
+	return info, ok
+}
+
 // NewTestStoragePolicyManager 使用预置驱动构造管理器，供单测注入 mock。
 func NewTestStoragePolicyManager(policy string, driver StorageDriver) *StoragePolicyManager {
 	return &StoragePolicyManager{
@@ -147,7 +194,8 @@ func NewTestStoragePolicyManager(policy string, driver StorageDriver) *StoragePo
 		defaultPolicy: policy,
 		drivers:       map[string]StorageDriver{policy: driver},
 		infos: map[string]PolicyInfo{
-			policy: {Name: policy, Type: "s3", IsDefault: true},
+			// 单测默认给足够大的配额，避免无关用例因配额失败
+			policy: {Name: policy, Type: "s3", IsDefault: true, DefaultQuota: 1 << 40},
 		},
 	}
 }
@@ -156,12 +204,24 @@ func NewTestStoragePolicyManager(policy string, driver StorageDriver) *StoragePo
 func NewTestStoragePolicyManagerMulti(defaultPolicy string, drivers map[string]StorageDriver) *StoragePolicyManager {
 	infos := make(map[string]PolicyInfo, len(drivers))
 	for name := range drivers {
-		infos[name] = PolicyInfo{Name: name, Type: "s3", IsDefault: name == defaultPolicy}
+		infos[name] = PolicyInfo{Name: name, Type: "s3", IsDefault: name == defaultPolicy, DefaultQuota: 1 << 40}
 	}
 	return &StoragePolicyManager{
 		defaultDriver: drivers[defaultPolicy],
 		defaultPolicy: defaultPolicy,
 		drivers:       drivers,
 		infos:         infos,
+	}
+}
+
+// NewTestStoragePolicyManagerWithQuota 单测用：指定策略配额。
+func NewTestStoragePolicyManagerWithQuota(policy string, driver StorageDriver, quota int64) *StoragePolicyManager {
+	return &StoragePolicyManager{
+		defaultDriver: driver,
+		defaultPolicy: policy,
+		drivers:       map[string]StorageDriver{policy: driver},
+		infos: map[string]PolicyInfo{
+			policy: {Name: policy, Type: "s3", IsDefault: true, DefaultQuota: quota},
+		},
 	}
 }

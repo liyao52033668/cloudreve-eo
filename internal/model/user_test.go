@@ -20,7 +20,7 @@ func TestUser_FieldsAndTags(t *testing.T) {
 		{"Username", reflect.String, `uniqueIndex;size:64;not null`, "username", nil},
 		{"PasswordHash", reflect.String, `size:128;not null`, "-", nil},
 		{"IsAdmin", reflect.Bool, `not null;default:false`, "is_admin", nil},
-		{"StorageQuota", reflect.Int64, `not null;default:1073741824`, "storage_quota", nil},
+		{"StorageQuota", reflect.Int64, `not null;default:0`, "storage_quota", nil},
 		{"StorageUsed", reflect.Int64, `not null;default:0`, "storage_used", nil},
 		{"CreatedAt", reflect.Struct, "", "created_at", reflect.TypeOf(time.Time{})},
 	}

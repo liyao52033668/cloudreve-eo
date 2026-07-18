@@ -20,6 +20,7 @@ export interface StoragePolicy {
   bucket?: string
   endpoint?: string
   is_default: boolean
+  default_quota?: number
 }
 
 export const listFiles = (parentId: number = 0) =>

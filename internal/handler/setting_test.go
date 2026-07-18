@@ -28,13 +28,12 @@ func setupSettingHandler(t *testing.T) (*gin.Engine, *service.JWTSecretStore, *m
 			Driver: "sqlite",
 			DSN:    filepath.Join(t.TempDir(), "handler_setting.db"),
 		},
-		Storage: config.StorageConfig{DefaultQuota: 1073741824},
 	}
 	if err := model.InitDB(cfg); err != nil {
 		t.Fatalf("InitDB: %v", err)
 	}
 
-	secret, err := model.EnsureJWTSecret("test-jwt-secret")
+	secret, err := model.EnsureJWTSecret()
 	if err != nil {
 		t.Fatalf("EnsureJWTSecret: %v", err)
 	}
@@ -186,3 +185,4 @@ func TestSettingHandler_UpdateRegister(t *testing.T) {
 		t.Error("allow_register should be false")
 	}
 }
+

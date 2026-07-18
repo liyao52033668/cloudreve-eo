@@ -76,22 +76,12 @@ edgeone makers env pull
 
 ### 4. 配置应用环境变量
 
-至少需要一套可用的 S3 兼容存储。JWT 主密钥会在首次启动时自动生成并写入数据库，**不必**配置 `JWT_SECRET`。可用 CLI 写入远程，再 `env pull` 到本地：
+仅基础设施可走环境变量；**JWT 主密钥**与 **S3 存储策略**一律在前端管理，不从环境变量引导。
 
 ```bash
-edgeone makers env set DEFAULT_STORAGE s3
-edgeone makers env set S3_ENDPOINT "https://你的-s3-endpoint"
-edgeone makers env set S3_REGION "ap-guangzhou"
-edgeone makers env set S3_BUCKET "your-bucket"
-edgeone makers env set S3_ACCESS_KEY "your-access-key"
-edgeone makers env set S3_SECRET_KEY "your-secret-key"
-
-# 可选
+# 可选（均有默认值）
 edgeone makers env set DB_DRIVER sqlite
 edgeone makers env set DB_DSN cloudreve.db
-edgeone makers env set DEFAULT_QUOTA 1073741824
-# 可选：仅在数据库尚无密钥时，用环境变量引导写入（一般不需要）
-# edgeone makers env set JWT_SECRET "your-bootstrap-secret"
 
 # 查看 / 同步到本地
 edgeone makers env ls
@@ -99,6 +89,8 @@ edgeone makers env pull
 ```
 
 也可直接编辑本地 `.env` 做开发调试；线上生效仍建议用 `edgeone makers env set`。
+
+**首次使用（库为空）**：注册首个账号（自动成为管理员）→ **参数设置** 查看/轮转 JWT 与注册开关 → **存储策略** 添加互相独立的 S3 兼容策略并配置各策略的每用户默认配额 → 即可上传。
 
 ### 5. 本地开发
 
@@ -135,7 +127,8 @@ edgeone makers deploy -t <token>
 
 ## 环境变量
 
-业务配置由 `internal/config/config.go` 从环境变量加载。  
+基础设施配置由 `internal/config/config.go` 从环境变量加载（数据库、端口）。  
+JWT / 存储策略（含每策略配额）等业务项只写数据库，由前端页面操作。  
 在 EdgeOne 上通过 Makers 环境变量注入；本地开发由 `edgeone makers dev` + `.env` 提供。
 
 ### 管理命令
@@ -149,26 +142,47 @@ edgeone makers deploy -t <token>
 
 ### 必填
 
-使用 S3 作为默认存储时，需配置下方 S3 相关变量（`DEFAULT_STORAGE` 默认为 `s3`）。  
-JWT 主密钥会自动生成，见「JWT 与管理员」。
+无强制环境变量。JWT 与存储策略均在前端配置；见下方「JWT 与管理员」「存储策略」。
 
 ### JWT 与管理员
 
 | 行为 | 说明 |
 |------|------|
 | 自动生成 | 启动时若数据库 `settings` 表中无 `jwt_secret`，则生成 32 字节随机密钥并持久化 |
-| `JWT_SECRET` 环境变量 | **可选**。仅当库中尚无密钥时作为 bootstrap 写入；库中已有则忽略 |
+| 环境变量 | **不支持**。不从 `JWT_SECRET` 读取或引导 |
 | 查看 / 轮转 | 管理员登录后打开前端 **参数设置**，可查看当前主密钥并一键轮转 |
 | 首个用户 | 系统中第一个注册用户自动成为管理员（`is_admin=true`） |
 | 轮转效果 | 轮转后所有既有登录令牌立即失效，用户需重新登录 |
 
-### 服务与配额
+### 存储策略（仅前端配置）
+
+与 Cloudreve 一致：管理员在 **存储策略** 页面添加 / 编辑 / 删除 S3 兼容策略，配置写入数据库并热加载，**无需环境变量、无需重启**。初次启动库为空，需自行在页面添加。
+
+| 行为 | 说明 |
+|------|------|
+| 添加策略 | 名称、Bucket、Endpoint、Region、Access Key、Secret Key、每用户默认配额、是否默认 |
+| 每策略配额 | `default_quota` 按策略独立；用量按用户+策略统计；`0` 表示未配置/不可用 |
+| 默认策略 | 上传未指定时使用；删除默认策略时自动提升另一条 |
+| 上传选择 | 用户端文件页可下拉选择已配置策略 |
+| 策略独立 | 每套 S3 使用独立凭证、驱动与配额；某条初始化失败不影响其它策略 |
+| 环境变量 | **不支持**。不从 `S3_*` / `S3_POLICIES` / `DEFAULT_QUOTA` 引导 |
+
+### 服务
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `PORT` | 服务端口（EdgeOne / Makers 运行时会注入；Cloud Function 入口优先读此变量） | `8080`（config 默认）；入口未设置时回退 `9000` |
-| `DEFAULT_QUOTA` | 新用户默认存储配额（字节） | `1073741824`（1 GiB） |
-| `JWT_SECRET` | （可选）首次启动时引导写入的 JWT 主密钥；库中已有则忽略 | 自动生成 |
+
+### 用户配额（跟随存储策略）
+
+配额不是全局设置，而是**每个 S3 存储策略各自配置**的 `default_quota`（字节）：
+
+| 行为 | 说明 |
+|------|------|
+| 配置入口 | 管理员 **存储策略** → 添加/编辑策略 →「每用户默认配额」 |
+| 未设置 / 为 0 | 该策略下用户不可上传（配额不足） |
+| 计量方式 | 按 `(user_id, storage_policy)` 汇总 `files.size`，与其它策略互不影响 |
+| 用户字段 | `users.storage_quota` 固定为 `0`（兼容保留）；`storage_used` 仍为跨策略总用量 |
 
 ### 数据库
 
@@ -184,88 +198,20 @@ edgeone makers env set DB_DRIVER postgres
 edgeone makers env set DB_DSN "host=127.0.0.1 user=cloudreve password=secret dbname=cloudreve port=5432 sslmode=disable"
 ```
 
-### 存储策略（仅 S3 兼容，支持多套）
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DEFAULT_STORAGE` | 默认策略名（须与某套策略的 `name` 一致） | 单套时为 `s3`；多套且未设置时为列表第一项 |
-| `S3_POLICIES` | **多套** S3 配置，JSON 数组（推荐） | （空） |
-| `S3_ENDPOINT` 等 | **单套**兼容写法，见下 | （空） |
-
-#### 方式 A：多套策略（推荐）
-
-环境变量 `S3_POLICIES` 为 JSON 数组，每项：
-
-| 字段 | 说明 |
-|------|------|
-| `name` | 策略标识（写入 `files.storage_policy`，上传时选择用） |
-| `endpoint` | S3 端点 |
-| `region` | 区域 |
-| `bucket` | 桶名 |
-| `access_key` | Access Key |
-| `secret_key` | Secret Key |
-
-```bash
-edgeone makers env set DEFAULT_STORAGE minio
-edgeone makers env set S3_POLICIES '[
-  {"name":"minio","endpoint":"http://127.0.0.1:9001","region":"us-east-1","bucket":"cloudreve","access_key":"minioadmin","secret_key":"minioadmin"},
-  {"name":"cos","endpoint":"https://cos.ap-guangzhou.myqcloud.com","region":"ap-guangzhou","bucket":"your-bucket","access_key":"AKID...","secret_key":"..."}
-]'
-```
-
-- 可同时注册多套；上传时前端下拉选择，或 API 传 `storage_policy`
-- 下载 / 删除按文件记录的 `storage_policy` 路由到对应驱动
-- 列表接口：`GET /api/storage/policies`（需登录）
-
-#### 方式 B：单套（兼容旧环境变量）
-
-未设置 `S3_POLICIES` 时，使用下列变量，策略名固定为 `s3`：
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `S3_ENDPOINT` | 端点 URL（MinIO / COS / R2 等） | （空） |
-| `S3_REGION` | 区域 | （空） |
-| `S3_BUCKET` | 桶名（非空才会注册该策略） | （空） |
-| `S3_ACCESS_KEY` | Access Key | （空） |
-| `S3_SECRET_KEY` | Secret Key | （空） |
-
 #### EdgeOne Blob（说明，当前未接入）
 
 EdgeOne 侧文件存储是 **Blob**，不是 COS。  
-COS / MinIO / R2 等应走上方 **S3 兼容** 配置，不要单独当成「EdgeOne 存储」。
+COS / MinIO / R2 等应走 **S3 兼容** 策略（前端添加），不要单独当成「EdgeOne 存储」。
 
-官方说明（[Blob 存储 / Node.js SDK](https://cloud.tencent.com/document/product/1552/131425)）：
-
-- **当前仅提供 Node.js SDK**：`@edgeone/pages-blob`
-- 其他运行时（含 Go）的 SDK **仍在开发中**
-- 预签名上传：`store.createUploadUrl(key, { expireSeconds, contentType })`，客户端 PUT 直传
-- 适用于 Makers Cloud Functions（Node）；不建议当公网图床 / 通用 CDN
-
-本仓库后端是 **Go + Gin Cloud Function**，因此：
-
-| 项 | 状态 |
-|----|------|
-| 真正的 Blob 驱动 | **未实现**（无官方 Go SDK，不能直接 `import @edgeone/pages-blob`） |
-| 仓库里的 `internal/storage/edgeone.go` | **错误实现**：误把 EdgeOne 当成 COS S3 兼容端点，应忽略 / 待删除或重写 |
-| `EDGEONE_BUCKET` / `EDGEONE_SECRET_ID` / `EDGEONE_SECRET_KEY` | 配置项遗留，**不对应**真实 Blob 用法（Blob 用 store 名 + 项目内凭证） |
-| 现阶段可用存储 | 请使用 **`DEFAULT_STORAGE=s3`** + `S3_*` |
-
-若以后要支持 Blob，可选方向：旁路 Node Cloud Function 调 Blob SDK、HTTP 调 Blob API（若有公开接口）、或等官方 Go SDK。
+官方说明（[Blob 存储 / Node.js SDK](https://cloud.tencent.com/document/product/1552/131425)）：仅 Node SDK；本仓库为 Go，Blob 驱动尚未实现。
 
 ### 配置示例
 
-**S3（COS / MinIO 等）+ SQLite：**
+**SQLite（推荐最小配置；JWT/存储策略在前端配置）：**
 
 ```bash
 edgeone makers env set DB_DRIVER sqlite
 edgeone makers env set DB_DSN cloudreve.db
-edgeone makers env set DEFAULT_STORAGE s3
-edgeone makers env set S3_ENDPOINT "https://cos.ap-guangzhou.myqcloud.com"
-edgeone makers env set S3_REGION ap-guangzhou
-edgeone makers env set S3_BUCKET your-bucket
-edgeone makers env set S3_ACCESS_KEY your-secret-id
-edgeone makers env set S3_SECRET_KEY your-secret-key
-edgeone makers env set DEFAULT_QUOTA 1073741824
 
 edgeone makers env pull
 ```
@@ -325,7 +271,7 @@ cloudreve-eo/
 | DELETE | `/files/:id` | 删除文件/文件夹 |
 | PUT | `/files/:id/rename` | 重命名 |
 | PUT | `/files/:id/move` | 移动 |
-| GET | `/storage/policies` | 列出已配置的存储策略（供上传选择） |
+| GET | `/storage/policies` | 列出已配置的存储策略（供上传选择，无密钥） |
 
 ### 分享
 
@@ -339,7 +285,7 @@ cloudreve-eo/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/user/profile` | 当前用户与存储用量（含 `is_admin`） |
+| GET | `/user/profile` | 当前用户 + 各存储策略用量/配额（含 `is_admin`） |
 | PUT | `/user/password` | 修改密码 |
 
 ### 站点（公开）
@@ -355,6 +301,12 @@ cloudreve-eo/
 | GET | `/settings/security` | 查看 JWT 主密钥与注册开关 |
 | POST | `/settings/security/rotate-jwt` | 轮转 JWT 主密钥（旧令牌立即失效） |
 | PUT | `/settings/register` | 设置是否允许新用户注册 `{"allow_register":true}` |
+| GET | `/admin/storage/policies` | 列出全部存储策略（密钥脱敏，含 `default_quota`） |
+| POST | `/admin/storage/policies` | 添加 S3 兼容策略（含 `default_quota`） |
+| GET | `/admin/storage/policies/:id` | 策略详情（含密钥，编辑用） |
+| PUT | `/admin/storage/policies/:id` | 更新策略（`secret_key` 空则不改） |
+| DELETE | `/admin/storage/policies/:id` | 删除策略 |
+| POST | `/admin/storage/policies/:id/default` | 设为默认策略 |
 
 ### 上传流程
 

@@ -4,6 +4,7 @@ import Register from './pages/Register'
 import Files from './pages/Files'
 import ShareView from './pages/ShareView'
 import Settings from './pages/Settings'
+import StoragePolicies from './pages/StoragePolicies'
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/" element={<Files />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/storage-policies" element={<StoragePolicies />} />
         <Route path="/share/:code" element={<ShareView />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

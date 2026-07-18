@@ -50,10 +50,6 @@ func setupFileHandler(t *testing.T) (*FileHandler, *gin.Engine, *model.User) {
 			Driver: "sqlite",
 			DSN:    filepath.Join(t.TempDir(), "handler_file.db"),
 		},
-		Storage: config.StorageConfig{
-			Default:      "s3",
-			DefaultQuota: 1073741824,
-		},
 	}
 	if err := model.InitDB(cfg); err != nil {
 		t.Fatalf("InitDB: %v", err)
@@ -62,7 +58,7 @@ func setupFileHandler(t *testing.T) (*FileHandler, *gin.Engine, *model.User) {
 	user := &model.User{
 		Username:     "handleruser",
 		PasswordHash: "hash",
-		StorageQuota: cfg.Storage.DefaultQuota,
+		StorageQuota: 1073741824,
 	}
 	if err := model.DB.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)

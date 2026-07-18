@@ -10,7 +10,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func setupTestDB(t *testing.T) *config.Config {
+func setupTestDB(t *testing.T) {
 	t.Helper()
 	model.DB = nil
 	t.Cleanup(func() { model.DB = nil })
@@ -20,20 +20,15 @@ func setupTestDB(t *testing.T) *config.Config {
 			Driver: "sqlite",
 			DSN:    filepath.Join(t.TempDir(), "auth.db"),
 		},
-		Storage: config.StorageConfig{
-			DefaultQuota: 2 * 1024 * 1024 * 1024, // 2GB for tests
-		},
-		JWT: config.JWTConfig{Secret: "test-secret"},
 	}
 	if err := model.InitDB(cfg); err != nil {
 		t.Fatalf("InitDB: %v", err)
 	}
-	return cfg
 }
 
 func TestAuthService_Register_Success(t *testing.T) {
-	cfg := setupTestDB(t)
-	svc := NewAuthService(cfg)
+	setupTestDB(t)
+	svc := NewAuthService()
 
 	user, err := svc.Register("alice", "password123")
 	if err != nil {
@@ -48,8 +43,8 @@ func TestAuthService_Register_Success(t *testing.T) {
 	if user.Username != "alice" {
 		t.Errorf("Username = %q, want alice", user.Username)
 	}
-	if user.StorageQuota != cfg.Storage.DefaultQuota {
-		t.Errorf("StorageQuota = %d, want %d", user.StorageQuota, cfg.Storage.DefaultQuota)
+	if user.StorageQuota != 0 {
+		t.Errorf("StorageQuota = %d, want 0 when unset", user.StorageQuota)
 	}
 	if !user.IsAdmin {
 		t.Error("first registered user should be admin")
@@ -72,8 +67,8 @@ func TestAuthService_Register_Success(t *testing.T) {
 }
 
 func TestAuthService_Register_DuplicateUsername(t *testing.T) {
-	cfg := setupTestDB(t)
-	svc := NewAuthService(cfg)
+	setupTestDB(t)
+	svc := NewAuthService()
 
 	if _, err := svc.Register("bob", "password123"); err != nil {
 		t.Fatalf("first Register() error = %v", err)
@@ -88,8 +83,8 @@ func TestAuthService_Register_DuplicateUsername(t *testing.T) {
 }
 
 func TestAuthService_Register_Disabled(t *testing.T) {
-	cfg := setupTestDB(t)
-	svc := NewAuthService(cfg)
+	setupTestDB(t)
+	svc := NewAuthService()
 
 	// 先注册首个管理员
 	if _, err := svc.Register("admin", "password123"); err != nil {
@@ -109,8 +104,8 @@ func TestAuthService_Register_Disabled(t *testing.T) {
 }
 
 func TestAuthService_Login_Success(t *testing.T) {
-	cfg := setupTestDB(t)
-	svc := NewAuthService(cfg)
+	setupTestDB(t)
+	svc := NewAuthService()
 
 	created, err := svc.Register("carol", "secret999")
 	if err != nil {
@@ -130,8 +125,8 @@ func TestAuthService_Login_Success(t *testing.T) {
 }
 
 func TestAuthService_Login_WrongPassword(t *testing.T) {
-	cfg := setupTestDB(t)
-	svc := NewAuthService(cfg)
+	setupTestDB(t)
+	svc := NewAuthService()
 
 	if _, err := svc.Register("dave", "correct-pass"); err != nil {
 		t.Fatalf("Register() error = %v", err)
@@ -147,8 +142,8 @@ func TestAuthService_Login_WrongPassword(t *testing.T) {
 }
 
 func TestAuthService_Login_UserNotFound(t *testing.T) {
-	cfg := setupTestDB(t)
-	svc := NewAuthService(cfg)
+	setupTestDB(t)
+	svc := NewAuthService()
 
 	_, err := svc.Login("nobody", "whatever")
 	if err == nil {
@@ -158,3 +153,4 @@ func TestAuthService_Login_UserNotFound(t *testing.T) {
 		t.Errorf("error = %q, want 用户名或密码错误", err.Error())
 	}
 }
+

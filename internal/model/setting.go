@@ -75,8 +75,8 @@ func GenerateJWTSecret() (string, error) {
 }
 
 // EnsureJWTSecret 保证库中存在 JWT 密钥并返回。
-// 优先级：库中已有 > 环境变量 bootstrap 写入库 > 自动生成并写入库。
-func EnsureJWTSecret(envSecret string) (string, error) {
+// 库中已有则直接使用；否则自动生成并写入库（不读环境变量）。
+func EnsureJWTSecret() (string, error) {
 	val, err := GetSetting(SettingKeyJWTSecret)
 	if err == nil && val != "" {
 		return val, nil
@@ -85,15 +85,10 @@ func EnsureJWTSecret(envSecret string) (string, error) {
 		return "", fmt.Errorf("读取 JWT 密钥失败: %w", err)
 	}
 
-	secret := envSecret
-	if secret == "" {
-		generated, genErr := GenerateJWTSecret()
-		if genErr != nil {
-			return "", genErr
-		}
-		secret = generated
+	secret, genErr := GenerateJWTSecret()
+	if genErr != nil {
+		return "", genErr
 	}
-
 	if err := SetSetting(SettingKeyJWTSecret, secret); err != nil {
 		return "", fmt.Errorf("保存 JWT 密钥失败: %w", err)
 	}
@@ -111,3 +106,4 @@ func RotateJWTSecret() (string, error) {
 	}
 	return secret, nil
 }
+

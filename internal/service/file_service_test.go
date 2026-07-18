@@ -57,10 +57,6 @@ func setupFileService(t *testing.T) (*FileService, *mockStorageDriver, *model.Us
 			Driver: "sqlite",
 			DSN:    filepath.Join(t.TempDir(), "file_service.db"),
 		},
-		Storage: config.StorageConfig{
-			Default:      "s3",
-			DefaultQuota: 1073741824,
-		},
 	}
 	if err := model.InitDB(cfg); err != nil {
 		t.Fatalf("InitDB: %v", err)
@@ -69,7 +65,7 @@ func setupFileService(t *testing.T) (*FileService, *mockStorageDriver, *model.Us
 	user := &model.User{
 		Username:     "fileuser",
 		PasswordHash: "hash",
-		StorageQuota: cfg.Storage.DefaultQuota,
+		StorageQuota: 1073741824,
 		StorageUsed:  0,
 	}
 	if err := model.DB.Create(user).Error; err != nil {
@@ -348,5 +344,63 @@ func TestFileService_Move_TargetNotFound(t *testing.T) {
 	}
 	if err.Error() != "目标文件夹不存在" {
 		t.Errorf("error = %q, want 目标文件夹不存在", err.Error())
+	}
+}
+
+func TestFileService_UploadCallback_PerPolicyQuota(t *testing.T) {
+	model.DB = nil
+	t.Cleanup(func() { model.DB = nil })
+
+	cfg := &config.Config{
+		DB: config.DBConfig{
+			Driver: "sqlite",
+			DSN:    filepath.Join(t.TempDir(), "quota.db"),
+		},
+	}
+	if err := model.InitDB(cfg); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	user := &model.User{Username: "quser", PasswordHash: "h", StorageQuota: 0}
+	if err := model.DB.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	mockA := newMockStorageDriver()
+	mockB := newMockStorageDriver()
+
+	// A 配额 1000：已占用 800 后再传 300 应失败，传 200 应成功
+	svcA := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("a", mockA, 1000))
+	if err := model.DB.Create(&model.File{
+		UserID: user.ID, ParentID: 0, Name: "old.bin", IsDir: false,
+		Size: 800, StorageKey: "k1", StoragePolicy: "a",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, err := svcA.UploadCallback(user.ID, 0, "new.bin", "k2", 300, "application/octet-stream", "a")
+	if err == nil || err.Error() != "存储配额不足" {
+		t.Fatalf("expected 存储配额不足, got %v", err)
+	}
+	f, err := svcA.UploadCallback(user.ID, 0, "ok.bin", "k3", 200, "application/octet-stream", "a")
+	if err != nil {
+		t.Fatalf("UploadCallback 200: %v", err)
+	}
+	if f.Size != 200 || f.StoragePolicy != "a" {
+		t.Errorf("file = %+v", f)
+	}
+
+	// B 配额独立且很大：不受 A 已用容量影响
+	svcB := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("b", mockB, 1<<40))
+	fb, err := svcB.UploadCallback(user.ID, 0, "b.bin", "kb", 5000, "application/octet-stream", "b")
+	if err != nil {
+		t.Fatalf("policy b upload: %v", err)
+	}
+	if fb.StoragePolicy != "b" {
+		t.Errorf("policy = %s", fb.StoragePolicy)
+	}
+
+	// A 的 used 不应计入 B：A 仍满（800+200）
+	_, err = svcA.UploadCallback(user.ID, 0, "one.bin", "k4", 1, "application/octet-stream", "a")
+	if err == nil || err.Error() != "存储配额不足" {
+		t.Fatalf("expected a still full after b upload, got %v", err)
 	}
 }

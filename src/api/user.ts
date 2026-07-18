@@ -9,5 +9,17 @@ export interface UserProfile {
   created_at?: string
 }
 
+export interface UserStoragePolicyUsage {
+  name: string
+  is_default: boolean
+  default_quota: number
+  used: number
+}
+
+export interface ProfileResponse {
+  user: UserProfile
+  storage_policies?: UserStoragePolicyUsage[]
+}
+
 export const getProfile = () =>
-  client.get<{ user: UserProfile }>('/user/profile')
+  client.get<ProfileResponse>('/user/profile')
