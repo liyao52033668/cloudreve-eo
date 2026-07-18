@@ -73,6 +73,8 @@ func main() {
 		files.PUT("/:id/rename", fileHandler.Rename)
 		files.PUT("/:id/move", fileHandler.Move)
 
+		protected.GET("/storage/policies", fileHandler.ListStoragePolicies)
+
 		shares := protected.Group("/shares")
 		shares.POST("", shareHandler.Create)
 
@@ -85,6 +87,8 @@ func main() {
 	publicShares.GET("/:code", shareHandler.Get)
 	publicShares.GET("/:code/download", shareHandler.Download)
 
+	// EdgeOne Makers 构建时会注入端口适配；本地 makers dev 也按此约定监听。
+	// 平台文档推荐标准写法 r.Run(":9000")，勿改为独立进程式启动。
 	fmt.Printf("Cloudreve-EO 启动中\n")
 	if err := r.Run(":9000"); err != nil {
 		log.Fatalf("启动服务失败: %v", err)

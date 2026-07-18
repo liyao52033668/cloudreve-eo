@@ -139,7 +139,7 @@ func TestFileService_Mkdir(t *testing.T) {
 func TestFileService_GetUploadURL(t *testing.T) {
 	svc, mock, user := setupFileService(t)
 
-	url, key, err := svc.GetUploadURL(user.ID, "report.pdf", "application/pdf")
+	url, key, policy, err := svc.GetUploadURL(user.ID, "report.pdf", "application/pdf", "")
 	if err != nil {
 		t.Fatalf("GetUploadURL: %v", err)
 	}
@@ -148,6 +148,9 @@ func TestFileService_GetUploadURL(t *testing.T) {
 	}
 	if key == "" {
 		t.Error("expected non-empty storage key")
+	}
+	if policy != "s3" {
+		t.Errorf("policy = %q, want s3", policy)
 	}
 	wantPrefix := fmt.Sprintf("%d/", user.ID)
 	if !strings.HasPrefix(key, wantPrefix) {
@@ -161,7 +164,7 @@ func TestFileService_GetUploadURL(t *testing.T) {
 func TestFileService_UploadCallback(t *testing.T) {
 	svc, _, user := setupFileService(t)
 
-	file, err := svc.UploadCallback(user.ID, 0, "doc.txt", "1/abc-key", 1024, "text/plain")
+	file, err := svc.UploadCallback(user.ID, 0, "doc.txt", "1/abc-key", 1024, "text/plain", "")
 	if err != nil {
 		t.Fatalf("UploadCallback: %v", err)
 	}

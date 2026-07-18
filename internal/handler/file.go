@@ -50,9 +50,10 @@ func (h *FileHandler) Mkdir(c *gin.Context) {
 }
 
 type uploadRequest struct {
-	FileName    string `json:"file_name" binding:"required"`
-	ContentType string `json:"content_type" binding:"required"`
-	ParentID    uint   `json:"parent_id"`
+	FileName      string `json:"file_name" binding:"required"`
+	ContentType   string `json:"content_type" binding:"required"`
+	ParentID      uint   `json:"parent_id"`
+	StoragePolicy string `json:"storage_policy"` // 可选，空则使用默认策略
 }
 
 func (h *FileHandler) Upload(c *gin.Context) {
@@ -63,20 +64,25 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	url, key, err := h.fileService.GetUploadURL(userID, req.FileName, req.ContentType)
+	url, key, policy, err := h.fileService.GetUploadURL(userID, req.FileName, req.ContentType, req.StoragePolicy)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"upload_url": url, "storage_key": key})
+	c.JSON(http.StatusOK, gin.H{
+		"upload_url":      url,
+		"storage_key":     key,
+		"storage_policy":  policy,
+	})
 }
 
 type uploadCallbackRequest struct {
-	FileName   string `json:"file_name" binding:"required"`
-	StorageKey string `json:"storage_key" binding:"required"`
-	Size       int64  `json:"size" binding:"required"`
-	MimeType   string `json:"mime_type"`
-	ParentID   uint   `json:"parent_id"`
+	FileName      string `json:"file_name" binding:"required"`
+	StorageKey    string `json:"storage_key" binding:"required"`
+	Size          int64  `json:"size" binding:"required"`
+	MimeType      string `json:"mime_type"`
+	ParentID      uint   `json:"parent_id"`
+	StoragePolicy string `json:"storage_policy"` // 可选，应与获取 URL 时一致
 }
 
 func (h *FileHandler) UploadCallback(c *gin.Context) {
@@ -87,12 +93,25 @@ func (h *FileHandler) UploadCallback(c *gin.Context) {
 		return
 	}
 
-	file, err := h.fileService.UploadCallback(userID, req.ParentID, req.FileName, req.StorageKey, req.Size, req.MimeType)
+	file, err := h.fileService.UploadCallback(userID, req.ParentID, req.FileName, req.StorageKey, req.Size, req.MimeType, req.StoragePolicy)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"file": file})
+}
+
+// ListStoragePolicies GET /api/storage/policies
+func (h *FileHandler) ListStoragePolicies(c *gin.Context) {
+	policies := h.fileService.ListStoragePolicies()
+	defaultName := ""
+	for _, p := range policies {
+		if p.IsDefault {
+			defaultName = p.Name
+			break
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"policies": policies, "default": defaultName})
 }
 
 func (h *FileHandler) Download(c *gin.Context) {

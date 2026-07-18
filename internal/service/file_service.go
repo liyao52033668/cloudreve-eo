@@ -40,18 +40,33 @@ func (s *FileService) Mkdir(userID uint, parentID uint, name string) (*model.Fil
 	return dir, nil
 }
 
-func (s *FileService) GetUploadURL(userID uint, fileName string, contentType string) (string, string, error) {
-	key := fmt.Sprintf("%d/%s", userID, uuid.New().String())
-	driver := s.storageMgr.DefaultDriver()
+// GetUploadURL 生成上传预签名 URL。
+// policy 为空时使用默认策略；返回 uploadURL, storageKey, resolvedPolicy。
+func (s *FileService) GetUploadURL(userID uint, fileName string, contentType string, policy string) (string, string, string, error) {
+	resolved, err := s.storageMgr.ResolvePolicy(policy)
+	if err != nil {
+		return "", "", "", err
+	}
+	driver, err := s.storageMgr.GetDriver(resolved)
+	if err != nil {
+		return "", "", "", err
+	}
 
+	key := fmt.Sprintf("%d/%s", userID, uuid.New().String())
 	url, err := driver.GenerateUploadURL(key, contentType, 30*time.Minute)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return url, key, nil
+	return url, key, resolved, nil
 }
 
-func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, storageKey string, size int64, mimeType string) (*model.File, error) {
+// UploadCallback 写入文件记录。policy 必须与获取上传 URL 时使用的策略一致。
+func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, storageKey string, size int64, mimeType string, policy string) (*model.File, error) {
+	resolved, err := s.storageMgr.ResolvePolicy(policy)
+	if err != nil {
+		return nil, err
+	}
+
 	file := &model.File{
 		UserID:        userID,
 		ParentID:      parentID,
@@ -60,10 +75,10 @@ func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, stora
 		Size:          size,
 		MimeType:      mimeType,
 		StorageKey:    storageKey,
-		StoragePolicy: s.storageMgr.DefaultPolicy(),
+		StoragePolicy: resolved,
 	}
 
-	err := model.DB.Transaction(func(tx *gorm.DB) error {
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(file).Error; err != nil {
 			return err
 		}
@@ -155,4 +170,9 @@ func (s *FileService) Move(userID uint, fileID uint, newParentID uint) error {
 		return errors.New("文件不存在")
 	}
 	return result.Error
+}
+
+// ListStoragePolicies 返回当前可用的存储策略（供上传时选择）。
+func (s *FileService) ListStoragePolicies() []storage.PolicyInfo {
+	return s.storageMgr.ListPolicies()
 }

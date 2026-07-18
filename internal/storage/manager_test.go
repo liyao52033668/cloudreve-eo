@@ -70,14 +70,30 @@ func TestNewStoragePolicyManager_MissingDefaultPolicy(t *testing.T) {
 		Storage: config.StorageConfig{
 			Default: "edgeone",
 		},
-		// EdgeOne not configured yet in Task 3
+		// 未配置任何 S3 策略
 	}
 
 	_, err := NewStoragePolicyManager(cfg)
 	if err == nil {
 		t.Fatal("expected error when default policy is not available")
 	}
-	if !strings.Contains(err.Error(), "edgeone") {
-		t.Errorf("error %q should mention default policy", err.Error())
+	if !strings.Contains(err.Error(), "S3") && !strings.Contains(err.Error(), "edgeone") {
+		t.Errorf("error %q should mention missing storage", err.Error())
+	}
+}
+
+func TestNewStoragePolicyManager_DefaultNotInList(t *testing.T) {
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Default: "missing"},
+		S3List: []config.S3Config{
+			{Name: "minio", Endpoint: "http://localhost:9001", Region: "us-east-1", Bucket: "a", AccessKey: "ak", SecretKey: "sk"},
+		},
+	}
+	_, err := NewStoragePolicyManager(cfg)
+	if err == nil {
+		t.Fatal("expected error when default policy not registered")
+	}
+	if !strings.Contains(err.Error(), "missing") {
+		t.Errorf("error %q should mention default policy name", err.Error())
 	}
 }

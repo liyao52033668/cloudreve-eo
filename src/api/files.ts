@@ -14,26 +14,51 @@ export interface FileItem {
   updated_at: string
 }
 
+export interface StoragePolicy {
+  name: string
+  type: string
+  bucket?: string
+  endpoint?: string
+  is_default: boolean
+}
+
 export const listFiles = (parentId: number = 0) =>
   client.get<{ files: FileItem[] }>('/files', { params: { parent_id: parentId } })
 
 export const mkdir = (parentId: number, name: string) =>
   client.post('/files/mkdir', { parent_id: parentId, name })
 
-export const getUploadURL = (fileName: string, contentType: string, parentId: number = 0) =>
-  client.post<{ upload_url: string; storage_key: string }>('/files/upload', {
+export const listStoragePolicies = () =>
+  client.get<{ policies: StoragePolicy[]; default: string }>('/storage/policies')
+
+export const getUploadURL = (
+  fileName: string,
+  contentType: string,
+  parentId: number = 0,
+  storagePolicy?: string,
+) =>
+  client.post<{ upload_url: string; storage_key: string; storage_policy: string }>('/files/upload', {
     file_name: fileName,
     content_type: contentType,
     parent_id: parentId,
+    storage_policy: storagePolicy || undefined,
   })
 
-export const uploadCallback = (fileName: string, storageKey: string, size: number, mimeType: string, parentId: number = 0) =>
+export const uploadCallback = (
+  fileName: string,
+  storageKey: string,
+  size: number,
+  mimeType: string,
+  parentId: number = 0,
+  storagePolicy?: string,
+) =>
   client.post('/files/upload/callback', {
     file_name: fileName,
     storage_key: storageKey,
     size,
     mime_type: mimeType,
     parent_id: parentId,
+    storage_policy: storagePolicy || undefined,
   })
 
 export const getDownloadURL = (fileId: number) =>

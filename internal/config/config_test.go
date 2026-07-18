@@ -226,6 +226,7 @@ func clearConfigEnv(t *testing.T) {
 		"EDGEONE_BUCKET",
 		"EDGEONE_SECRET_ID",
 		"EDGEONE_SECRET_KEY",
+		"S3_POLICIES",
 		"PORT",
 		"DEFAULT_QUOTA",
 	}

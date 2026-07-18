@@ -1,8 +1,12 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Frontend build output
 dist/
+
+# EdgeOne Makers 构建产物与本地凭证（源码在 cloud-functions/ + internal/）
+.edgeone/
+!.edgeone/.gitkeep
 
 # Database
 *.db
@@ -25,3 +29,5 @@ Thumbs.db
 
 # Logs
 *.log
+.superpowers
+.edgeone/cloud-functions
