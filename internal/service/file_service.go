@@ -413,19 +413,51 @@ func (s *FileService) Rename(userID uint, fileID uint, newName string) error {
 }
 
 func (s *FileService) Move(userID uint, fileID uint, newParentID uint) error {
+	var file model.File
+	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("文件不存在")
+		}
+		return err
+	}
+	if file.ParentID == newParentID {
+		return nil
+	}
+	if file.ID == newParentID {
+		return errors.New("不能移动到自身")
+	}
+
 	if newParentID != 0 {
 		var parent model.File
 		if err := model.DB.Where("id = ? AND user_id = ? AND is_dir = ?", newParentID, userID, true).First(&parent).Error; err != nil {
 			return errors.New("目标文件夹不存在")
 		}
+
+		// 文件夹不能移入自己的子目录，否则会形成循环目录结构。
+		if file.IsDir {
+			visited := make(map[uint]struct{})
+			current := parent
+			for {
+				if current.ID == file.ID {
+					return errors.New("不能将文件夹移动到其子目录")
+				}
+				if current.ParentID == 0 {
+					break
+				}
+				if _, ok := visited[current.ID]; ok {
+					return errors.New("目标目录结构异常")
+				}
+				visited[current.ID] = struct{}{}
+				if err := model.DB.Where("id = ? AND user_id = ? AND is_dir = ?", current.ParentID, userID, true).First(&current).Error; err != nil {
+					return errors.New("目标文件夹路径不存在")
+				}
+			}
+		}
 	}
-	result := model.DB.Model(&model.File{}).
+
+	return model.DB.Model(&model.File{}).
 		Where("id = ? AND user_id = ?", fileID, userID).
-		Update("parent_id", newParentID)
-	if result.RowsAffected == 0 {
-		return errors.New("文件不存在")
-	}
-	return result.Error
+		Update("parent_id", newParentID).Error
 }
 
 // ListStoragePolicies 返回当前可用的存储策略（供上传时选择）。

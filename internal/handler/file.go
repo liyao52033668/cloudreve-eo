@@ -82,9 +82,9 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"upload_url":      url,
-		"storage_key":     key,
-		"storage_policy":  policy,
+		"upload_url":     url,
+		"storage_key":    key,
+		"storage_policy": policy,
 	})
 }
 
@@ -278,7 +278,7 @@ func (h *FileHandler) Rename(c *gin.Context) {
 }
 
 type moveRequest struct {
-	ParentID uint `json:"parent_id" binding:"required"`
+	ParentID uint `json:"parent_id"`
 }
 
 func (h *FileHandler) Move(c *gin.Context) {

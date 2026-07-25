@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Alert, Card, Progress, Typography } from 'antd'
-import { UploadOutlined, FolderAddOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined } from '@ant-design/icons'
+import { UploadOutlined, FolderAddOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import {
   listFiles,
@@ -47,6 +47,7 @@ export default function Files() {
   const [uploadTasks, setUploadTasks] = useState<Record<string, UploadTask>>({})
   // 非空时进入「按策略查看」模式：跨目录展示该策略下全部文件
   const [viewPolicy, setViewPolicy] = useState<string>('')
+  const [searchKeyword, setSearchKeyword] = useState('')
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const resumeTargetRef = useRef<UploadSessionInfo | null>(null)
   const navigate = useNavigate()
@@ -101,14 +102,54 @@ export default function Files() {
   useEffect(() => { loadProfile() }, [loadProfile])
   useEffect(() => { loadSessions() }, [loadSessions])
 
-  const handleOpenDir = async (dirId: number) => {
+  const handleOpenDir = (dirId: number) => {
+    setSearchKeyword('')
+    setViewPolicy('')
     setCurrentDir(dirId)
     if (dirId === 0) {
       setBreadcrumb([{ title: '根目录', id: 0 }])
-    } else {
-      setBreadcrumb(prev => [...prev, { title: files.find(f => f.id === dirId)?.name || '', id: dirId }])
+      return
     }
+    const existingIdx = breadcrumb.findIndex(b => b.id === dirId)
+    if (existingIdx >= 0) {
+      setBreadcrumb(breadcrumb.slice(0, existingIdx + 1))
+      return
+    }
+    const name = files.find(f => f.id === dirId)?.name || ''
+    setBreadcrumb(prev => [...prev, { title: name, id: dirId }])
   }
+
+  const handleBreadcrumbClick = (index: number) => {
+    const target = breadcrumb[index]
+    if (!target || target.id === currentDir) return
+    setSearchKeyword('')
+    setViewPolicy('')
+    setCurrentDir(target.id)
+    setBreadcrumb(breadcrumb.slice(0, index + 1))
+  }
+
+  const handleGoUp = () => {
+    if (breadcrumb.length <= 1) return
+    const parent = breadcrumb[breadcrumb.length - 2]
+    setSearchKeyword('')
+    setViewPolicy('')
+    setCurrentDir(parent.id)
+    setBreadcrumb(breadcrumb.slice(0, -1))
+  }
+
+  const handleGoHome = () => {
+    setViewPolicy('')
+    setCurrentDir(0)
+    setBreadcrumb([{ title: '根目录', id: 0 }])
+    setSearchKeyword('')
+    navigate('/')
+  }
+
+  const filteredFiles = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase()
+    if (!kw) return files
+    return files.filter(f => f.name.toLowerCase().includes(kw))
+  }, [files, searchKeyword])
 
   const handleMkdir = async () => {
     if (!dirName) return
@@ -361,7 +402,12 @@ export default function Files() {
   return (
     <Layout style={{ minHeight: '100vh', width: '100%' }}>
       <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529', padding: '0 24px' }}>
-        <span style={{ color: '#fff', fontSize: 18 }}>Cloudreve-EO</span>
+        <span
+          style={{ color: '#fff', fontSize: 18, cursor: 'pointer', userSelect: 'none' }}
+          onClick={handleGoHome}
+        >
+          Cloudreve-EO
+        </span>
         <Space>
           {isAdmin && (
             <>
@@ -392,10 +438,26 @@ export default function Files() {
         {viewPolicy ? (
           <Space style={{ marginBottom: 16 }}>
             <Typography.Text strong>存储策略「{viewPolicy}」的全部文件（跨目录）</Typography.Text>
-            <Button size="small" onClick={() => setViewPolicy('')}>返回目录浏览</Button>
+            <Button size="small" onClick={() => { setViewPolicy(''); setSearchKeyword('') }}>返回目录浏览</Button>
           </Space>
         ) : (
-          <Breadcrumb style={{ marginBottom: 16 }} items={breadcrumb.map(b => ({ title: b.title, key: b.id }))} />
+          <Space style={{ marginBottom: 16 }} wrap>
+            {currentDir !== 0 && (
+              <Button icon={<ArrowLeftOutlined />} onClick={handleGoUp}>
+                返回上一级
+              </Button>
+            )}
+            <Breadcrumb
+              items={breadcrumb.map((b, index) => ({
+                key: b.id,
+                title: index === breadcrumb.length - 1 ? (
+                  b.title
+                ) : (
+                  <a onClick={() => handleBreadcrumbClick(index)}>{b.title}</a>
+                ),
+              }))}
+            />
+          </Space>
         )}
         {Object.keys(uploadTasks).length > 0 && (
           <Card size="small" title="上传任务" style={{ marginBottom: 16 }}>
@@ -459,12 +521,23 @@ export default function Files() {
           <Select
             style={{ minWidth: 200 }}
             value={viewPolicy}
-            onChange={(v) => setViewPolicy(v || '')}
+            onChange={(v) => {
+              setViewPolicy(v || '')
+              setSearchKeyword('')
+            }}
             options={[
               { value: '', label: '按目录浏览' },
               ...policies.map((p) => ({ value: p.name, label: p.name })),
             ]}
             placeholder="按策略查看"
+          />
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="搜索文件名"
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            style={{ width: 220 }}
           />
           {!viewPolicy && (
             <>
@@ -484,7 +557,7 @@ export default function Files() {
             </>
           )}
         </Space>
-        <FileList files={files} onRefresh={loadFiles} onOpenDir={handleOpenDir} />
+        <FileList files={filteredFiles} onRefresh={loadFiles} onOpenDir={handleOpenDir} />
       </Content>
       <Modal title="新建文件夹" open={mkdirModal} onOk={handleMkdir} onCancel={() => setMkdirModal(false)}>
         <Input value={dirName} onChange={(e) => setDirName(e.target.value)} placeholder="文件夹名称" />
