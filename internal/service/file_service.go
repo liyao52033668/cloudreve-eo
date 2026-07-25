@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,10 +21,32 @@ func NewFileService(mgr *storage.StoragePolicyManager) *FileService {
 	return &FileService{storageMgr: mgr}
 }
 
+// buildStorageKey 生成对象键：{basePath/}userID/uuid{.ext}，保留原文件扩展名便于在存储桶中识别与预览。
+func (s *FileService) buildStorageKey(userID uint, policy string, fileName string) string {
+	ext := strings.ToLower(filepath.Ext(fileName))
+	if len(ext) > 16 || strings.ContainsAny(ext, "/\\?#%") {
+		ext = ""
+	}
+	key := fmt.Sprintf("%d/%s%s", userID, uuid.New().String(), ext)
+	if info, ok := s.storageMgr.GetPolicyInfo(policy); ok && info.BasePath != "" {
+		key = strings.Trim(info.BasePath, "/") + "/" + key
+	}
+	return key
+}
+
 func (s *FileService) ListFiles(userID uint, parentID uint) ([]model.File, error) {
 	var files []model.File
 	err := model.DB.Where("user_id = ? AND parent_id = ?", userID, parentID).
 		Order("is_dir DESC, name ASC").
+		Find(&files).Error
+	return files, err
+}
+
+// ListFilesByPolicy 跨目录列出用户在某存储策略下的全部文件（不含文件夹）。
+func (s *FileService) ListFilesByPolicy(userID uint, policy string) ([]model.File, error) {
+	var files []model.File
+	err := model.DB.Where("user_id = ? AND storage_policy = ? AND is_dir = ?", userID, policy, false).
+		Order("name ASC").
 		Find(&files).Error
 	return files, err
 }
@@ -53,10 +76,7 @@ func (s *FileService) GetUploadURL(userID uint, fileName string, contentType str
 		return "", "", "", err
 	}
 
-	key := fmt.Sprintf("%d/%s", userID, uuid.New().String())
-	if info, ok := s.storageMgr.GetPolicyInfo(resolved); ok && info.BasePath != "" {
-		key = strings.Trim(info.BasePath, "/") + "/" + key
-	}
+	key := s.buildStorageKey(userID, resolved, fileName)
 	url, err := driver.GenerateUploadURL(key, contentType, 30*time.Minute)
 	if err != nil {
 		return "", "", "", err
@@ -182,10 +202,7 @@ func (s *FileService) InitMultipartUpload(userID uint, fileName, contentType str
 		return nil, fmt.Errorf("文件过大：分片数 %d 超过上限 %d，请调大策略分片大小", partCount, maxMultipartParts)
 	}
 
-	key := fmt.Sprintf("%d/%s", userID, uuid.New().String())
-	if info, ok := s.storageMgr.GetPolicyInfo(resolved); ok && info.BasePath != "" {
-		key = strings.Trim(info.BasePath, "/") + "/" + key
-	}
+	key := s.buildStorageKey(userID, resolved, fileName)
 
 	uploadID, err := driver.InitMultipartUpload(key, contentType)
 	if err != nil {
@@ -328,7 +345,8 @@ func (s *FileService) AbortMultipartUpload(userID uint, storageKey, uploadID str
 	return nil
 }
 
-func (s *FileService) GetDownloadURL(userID uint, fileID uint) (string, error) {
+// GetDownloadURL 生成下载/预览 URL。preview 为 true 时内联展示（图片预览等），否则强制附件下载。
+func (s *FileService) GetDownloadURL(userID uint, fileID uint, preview bool) (string, error) {
 	var file model.File
 	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -344,7 +362,11 @@ func (s *FileService) GetDownloadURL(userID uint, fileID uint) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return driver.GenerateDownloadURL(file.StorageKey, 30*time.Minute)
+	attachmentName := file.Name
+	if preview {
+		attachmentName = ""
+	}
+	return driver.GenerateDownloadURL(file.StorageKey, attachmentName, 30*time.Minute)
 }
 
 func (s *FileService) Delete(userID uint, fileID uint) error {

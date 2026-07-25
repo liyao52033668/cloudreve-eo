@@ -36,7 +36,7 @@ func (m *mockStorageDriver) GenerateUploadURL(key string, contentType string, ex
 	return url, nil
 }
 
-func (m *mockStorageDriver) GenerateDownloadURL(key string, expire time.Duration) (string, error) {
+func (m *mockStorageDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
 	url := "https://download.example.com/" + key
 	m.downloadURLs[key] = url
 	return url, nil
@@ -225,7 +225,7 @@ func TestFileService_GetDownloadURL_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	url, err := svc.GetDownloadURL(user.ID, f.ID)
+	url, err := svc.GetDownloadURL(user.ID, f.ID, false)
 	if err != nil {
 		t.Fatalf("GetDownloadURL: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestFileService_GetDownloadURL_Success(t *testing.T) {
 func TestFileService_GetDownloadURL_NotFound(t *testing.T) {
 	svc, _, user := setupFileService(t)
 
-	_, err := svc.GetDownloadURL(user.ID, 99999)
+	_, err := svc.GetDownloadURL(user.ID, 99999, false)
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -257,7 +257,7 @@ func TestFileService_GetDownloadURL_Directory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := svc.GetDownloadURL(user.ID, dir.ID)
+	_, err := svc.GetDownloadURL(user.ID, dir.ID, false)
 	if err == nil {
 		t.Fatal("expected error when downloading directory")
 	}

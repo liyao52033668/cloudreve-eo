@@ -27,8 +27,8 @@ func (d *EdgeOneDriver) GenerateUploadURL(key string, contentType string, expire
 	return d.s3.GenerateUploadURL(key, contentType, expire)
 }
 
-func (d *EdgeOneDriver) GenerateDownloadURL(key string, expire time.Duration) (string, error) {
-	return d.s3.GenerateDownloadURL(key, expire)
+func (d *EdgeOneDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
+	return d.s3.GenerateDownloadURL(key, fileName, expire)
 }
 
 func (d *EdgeOneDriver) Delete(key string) error {

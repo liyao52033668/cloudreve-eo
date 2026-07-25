@@ -73,7 +73,7 @@ func TestS3Driver_GenerateDownloadURL(t *testing.T) {
 		t.Fatalf("NewS3Driver: %v", err)
 	}
 
-	url, err := driver.GenerateDownloadURL("user/1/file.txt", 15*time.Minute)
+	url, err := driver.GenerateDownloadURL("user/1/file.txt", "", 15*time.Minute)
 	if err != nil {
 		t.Fatalf("GenerateDownloadURL error: %v", err)
 	}

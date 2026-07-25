@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -63,12 +64,19 @@ func (d *S3Driver) GenerateUploadURL(key string, contentType string, expire time
 	return result.URL, nil
 }
 
-func (d *S3Driver) GenerateDownloadURL(key string, expire time.Duration) (string, error) {
+func (d *S3Driver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
 	presigner := s3.NewPresignClient(d.client)
-	result, err := presigner.PresignGetObject(context.Background(), &s3.GetObjectInput{
+	input := &s3.GetObjectInput{
 		Bucket: aws.String(d.bucket),
 		Key:    aws.String(key),
-	}, s3.WithPresignExpires(expire))
+	}
+	if fileName != "" {
+		// RFC 5987 编码，支持中文等非 ASCII 文件名
+		input.ResponseContentDisposition = aws.String(
+			fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)),
+		)
+	}
+	result, err := presigner.PresignGetObject(context.Background(), input, s3.WithPresignExpires(expire))
 	if err != nil {
 		return "", fmt.Errorf("生成下载 URL 失败: %w", err)
 	}

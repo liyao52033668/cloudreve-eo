@@ -12,7 +12,7 @@ func (m *mockDriver) GenerateUploadURL(key string, contentType string, expire ti
 	return "upload://" + key + "?" + contentType, nil
 }
 
-func (m *mockDriver) GenerateDownloadURL(key string, expire time.Duration) (string, error) {
+func (m *mockDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
 	return "download://" + key, nil
 }
 
@@ -62,7 +62,7 @@ func TestStorageDriver_InterfaceContract(t *testing.T) {
 		t.Fatal("GenerateUploadURL returned empty URL")
 	}
 
-	downloadURL, err := d.GenerateDownloadURL("obj/key", time.Minute)
+	downloadURL, err := d.GenerateDownloadURL("obj/key", "a.txt", time.Minute)
 	if err != nil {
 		t.Fatalf("GenerateDownloadURL error: %v", err)
 	}

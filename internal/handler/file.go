@@ -19,8 +19,19 @@ func NewFileHandler(fs *service.FileService) *FileHandler {
 
 func (h *FileHandler) List(c *gin.Context) {
 	userID := c.GetUint("user_id")
-	parentID, _ := strconv.ParseUint(c.Query("parent_id"), 10, 32)
 
+	// policy 非空时跨目录返回该策略下全部文件；否则按目录浏览
+	if policy := c.Query("policy"); policy != "" {
+		files, err := h.fileService.ListFilesByPolicy(userID, policy)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"files": files})
+		return
+	}
+
+	parentID, _ := strconv.ParseUint(c.Query("parent_id"), 10, 32)
 	files, err := h.fileService.ListFiles(userID, uint(parentID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -225,8 +236,9 @@ func (h *FileHandler) ListStoragePolicies(c *gin.Context) {
 func (h *FileHandler) Download(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	fileID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	preview := c.Query("preview") == "1"
 
-	url, err := h.fileService.GetDownloadURL(userID, uint(fileID))
+	url, err := h.fileService.GetDownloadURL(userID, uint(fileID), preview)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

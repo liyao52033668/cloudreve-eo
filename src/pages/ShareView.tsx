@@ -38,7 +38,13 @@ export default function ShareView() {
     if (!code) return
     try {
       const res = await getShareDownload(code, password || undefined)
-      window.open(res.data.download_url, '_blank')
+      // 下载 URL 已带 Content-Disposition: attachment，跳转即触发浏览器下载
+      const a = document.createElement('a')
+      a.href = res.data.download_url
+      a.download = file?.name || ''
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
     } catch {
       message.error('获取下载链接失败')
     }

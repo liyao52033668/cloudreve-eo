@@ -88,7 +88,7 @@ func (s *ShareService) GetDownloadURL(code string, password string) (string, err
 	if err != nil {
 		return "", err
 	}
-	url, err := driver.GenerateDownloadURL(file.StorageKey, 30*time.Minute)
+	url, err := driver.GenerateDownloadURL(file.StorageKey, file.Name, 30*time.Minute)
 	if err != nil {
 		return "", err
 	}

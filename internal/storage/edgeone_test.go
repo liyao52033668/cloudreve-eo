@@ -81,7 +81,7 @@ func TestEdgeOneDriver_GenerateDownloadURL_Delegates(t *testing.T) {
 		t.Fatalf("NewEdgeOneDriver: %v", err)
 	}
 
-	url, err := driver.GenerateDownloadURL("user/1/file.txt", 15*time.Minute)
+	url, err := driver.GenerateDownloadURL("user/1/file.txt", "file.txt", 15*time.Minute)
 	if err != nil {
 		t.Fatalf("GenerateDownloadURL error: %v", err)
 	}

@@ -26,6 +26,10 @@ export interface StoragePolicy {
 export const listFiles = (parentId: number = 0) =>
   client.get<{ files: FileItem[] }>('/files', { params: { parent_id: parentId } })
 
+/** 跨目录列出某存储策略下的全部文件 */
+export const listFilesByPolicy = (policy: string) =>
+  client.get<{ files: FileItem[] }>('/files', { params: { policy } })
+
 export const mkdir = (parentId: number, name: string) =>
   client.post('/files/mkdir', { parent_id: parentId, name })
 
@@ -149,8 +153,10 @@ export const resumeMultipartUpload = (storageKey: string) =>
     storage_key: storageKey,
   })
 
-export const getDownloadURL = (fileId: number) =>
-  client.get<{ download_url: string }>(`/files/${fileId}/download`)
+export const getDownloadURL = (fileId: number, preview = false) =>
+  client.get<{ download_url: string }>(`/files/${fileId}/download`, {
+    params: preview ? { preview: 1 } : undefined,
+  })
 
 export const deleteFile = (fileId: number) =>
   client.delete(`/files/${fileId}`)

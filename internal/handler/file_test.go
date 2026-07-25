@@ -25,7 +25,7 @@ func (m *mockStorageDriver) GenerateUploadURL(key string, contentType string, ex
 	return "https://upload.example.com/" + key, nil
 }
 
-func (m *mockStorageDriver) GenerateDownloadURL(key string, expire time.Duration) (string, error) {
+func (m *mockStorageDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
 	return "https://download.example.com/" + key, nil
 }
 
