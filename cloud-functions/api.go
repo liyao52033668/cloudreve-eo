@@ -56,7 +56,6 @@ func main() {
 	policyHandler := handler.NewPolicyHandler(storageMgr)
 
 	r := gin.Default()
-	r.Use(__edgeonePagesMiddleware())
 
 	r.Use(func(c *gin.Context) {
 		origin := c.GetHeader("Origin")

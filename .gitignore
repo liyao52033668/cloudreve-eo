@@ -7,6 +7,8 @@ dist/
 # EdgeOne Makers 构建产物与本地凭证（源码在 cloud-functions/ + internal/）
 .edgeone/
 !.edgeone/.gitkeep
+# Go framework 构建时由 EdgeOne CLI 临时生成并主动删除
+/cloud-functions/edgeone_pages_middleware.go
 
 # Database
 *.db
