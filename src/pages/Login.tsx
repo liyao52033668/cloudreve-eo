@@ -35,7 +35,12 @@ export default function Login() {
       message.success('登录成功')
       navigate('/')
     } catch (err: any) {
-      message.error(err.response?.data?.error || '登录失败')
+      const data = err?.response?.data
+      const backendMsg =
+        (typeof data?.error === 'string' && data.error) ||
+        (typeof data?.message === 'string' && data.message) ||
+        ''
+      message.error(backendMsg || '用户名或密码错误')
     } finally {
       setLoading(false)
     }

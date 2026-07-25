@@ -17,9 +17,17 @@ client.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
+      const url = String(error.config?.url ?? '')
+      // 登录/注册接口的 401 表示凭据错误，交由页面提示，不触发全局登出跳转
+      const isAuthCredentialRequest =
+        url.includes('/auth/login') || url.includes('/auth/register')
+      if (!isAuthCredentialRequest) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login'
+        }
+      }
     }
     return Promise.reject(error)
   }

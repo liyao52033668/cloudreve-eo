@@ -40,3 +40,193 @@ body {
   min-height: 100%;
   width: 100%;
 }
+
+/* 文件管理页：两层响应式工具栏 */
+.files-toolbar {
+  margin-bottom: 16px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.files-toolbar__top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  min-height: 56px;
+}
+
+.files-toolbar__context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.files-toolbar__context-text {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.files-toolbar__policy-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.files-toolbar__policy-sep {
+  color: rgba(0, 0, 0, 0.25);
+  user-select: none;
+}
+
+.files-toolbar__policy-name {
+  max-width: min(240px, 40vw);
+}
+
+.files-toolbar__breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.files-toolbar__location-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.files-toolbar__breadcrumb .ant-breadcrumb {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.files-toolbar__crumb-current {
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.files-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+}
+
+.files-toolbar__action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.files-toolbar__action-divider.ant-divider-vertical {
+  height: 1.6em;
+  margin-inline: 4px;
+  border-inline-start-color: #f0f0f0;
+}
+
+.files-toolbar__bottom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  background: #fafafa;
+}
+
+.files-toolbar__select-browse {
+  width: 160px;
+  flex: 0 0 auto;
+}
+
+.files-toolbar__select-policy {
+  width: 180px;
+  flex: 0 0 auto;
+}
+
+.files-toolbar__search {
+  flex: 1 1 220px;
+  min-width: 160px;
+  max-width: 100%;
+}
+
+.files-toolbar__search.ant-input-affix-wrapper,
+.files-toolbar__search.ant-input {
+  width: 100%;
+}
+
+.files-toolbar :focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 992px) {
+  .files-toolbar__top {
+    align-items: flex-start;
+  }
+
+  .files-toolbar__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .files-toolbar__top,
+  .files-toolbar__bottom {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .files-toolbar__context,
+  .files-toolbar__actions {
+    width: 100%;
+    flex: 1 1 auto;
+  }
+
+  .files-toolbar__actions {
+    justify-content: flex-start;
+  }
+
+  .files-toolbar__action-divider.ant-divider-vertical {
+    display: none;
+  }
+
+  .files-toolbar__action-group + .files-toolbar__action-group {
+    width: 100%;
+    padding-top: 8px;
+    border-top: 1px solid #f0f0f0;
+  }
+
+  .files-toolbar__select-browse,
+  .files-toolbar__select-policy,
+  .files-toolbar__search {
+    width: 100%;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .files-toolbar__policy-name {
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .files-toolbar * {
+    transition: none !important;
+  }
+}

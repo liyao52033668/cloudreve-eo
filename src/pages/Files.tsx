@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Alert, Card, Progress, Typography } from 'antd'
+import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Alert, Card, Progress, Typography, Divider } from 'antd'
 import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import {
@@ -540,6 +540,9 @@ export default function Files() {
     label: p.is_default ? `${p.name}（默认）` : p.name,
   }))
 
+  const activeSearch = searchKeyword.trim()
+  const canGoUp = !viewPolicy && !activeSearch && breadcrumb.length > 1
+
   return (
     <Layout style={{ minHeight: '100vh', width: '100%' }}>
       <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529', padding: '0 24px' }}>
@@ -576,37 +579,129 @@ export default function Files() {
         </Space>
       </Header>
       <Content style={{ padding: 24, width: '100%', maxWidth: 1400, margin: '0 auto', flex: 1 }}>
-        {searchKeyword.trim() ? (
-          <Space style={{ marginBottom: 16 }} wrap>
-            <Typography.Text strong>
-              {viewPolicy
-                ? `存储策略「${viewPolicy}」中全局搜索「${searchKeyword.trim()}」的结果`
-                : `全局搜索「${searchKeyword.trim()}」的结果`}
-            </Typography.Text>
-            <Button size="small" onClick={() => setSearchKeyword('')}>清除搜索</Button>
-          </Space>
-        ) : viewPolicy ? (
-          <Space style={{ marginBottom: 16 }}>
-            <Typography.Text strong>存储策略「{viewPolicy}」的全部文件（跨目录）</Typography.Text>
-            <Button size="small" onClick={() => { setViewPolicy(''); setSearchKeyword('') }}>返回目录浏览</Button>
-          </Space>
-        ) : currentDir !== 0 ? (
-          <Space style={{ marginBottom: 16 }} wrap>
-            <Button icon={<ArrowLeftOutlined />} onClick={handleGoUp}>
-              返回上一级
-            </Button>
-            <Breadcrumb
-              items={breadcrumb.map((b, index) => ({
-                key: b.id,
-                title: index === breadcrumb.length - 1 ? (
-                  b.title
-                ) : (
-                  <a onClick={() => handleBreadcrumbClick(index)}>{b.title}</a>
-                ),
-              }))}
+        <section className="files-toolbar" aria-label="文件浏览工具栏">
+          <div className="files-toolbar__top">
+            <div className="files-toolbar__context">
+              {activeSearch ? (
+                <>
+                  <Typography.Text strong className="files-toolbar__context-text" ellipsis={{ tooltip: true }}>
+                    {viewPolicy
+                      ? `存储策略「${viewPolicy}」中全局搜索「${activeSearch}」的结果`
+                      : `全局搜索「${activeSearch}」的结果`}
+                  </Typography.Text>
+                  <Button size="small" onClick={() => setSearchKeyword('')}>
+                    清除搜索
+                  </Button>
+                </>
+              ) : viewPolicy ? (
+                <>
+                  <div className="files-toolbar__policy-path" aria-label="当前存储策略范围">
+                    <Typography.Text type="secondary">存储策略</Typography.Text>
+                    <span className="files-toolbar__policy-sep" aria-hidden>/</span>
+                    <Typography.Text strong ellipsis={{ tooltip: true }} className="files-toolbar__policy-name">
+                      {viewPolicy}
+                    </Typography.Text>
+                    <span className="files-toolbar__policy-sep" aria-hidden>/</span>
+                    <Typography.Text>全部文件</Typography.Text>
+                  </div>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setViewPolicy('')
+                      setSearchKeyword('')
+                    }}
+                  >
+                    返回目录浏览
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {canGoUp && (
+                    <Button icon={<ArrowLeftOutlined />} onClick={handleGoUp}>
+                      返回上一级
+                    </Button>
+                  )}
+                  <div className="files-toolbar__breadcrumb">
+                    <Typography.Text type="secondary" className="files-toolbar__location-label">
+                      当前位置
+                    </Typography.Text>
+                    <Breadcrumb
+                      items={breadcrumb.map((b, index) => ({
+                        key: b.id,
+                        title: index === breadcrumb.length - 1 ? (
+                          <span className="files-toolbar__crumb-current">{b.title}</span>
+                        ) : (
+                          <a onClick={() => handleBreadcrumbClick(index)}>{b.title}</a>
+                        ),
+                      }))}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {!viewPolicy && (
+              <div className="files-toolbar__actions">
+                <div className="files-toolbar__action-group" role="group" aria-label="上传">
+                  <Upload beforeUpload={beforeUpload} showUploadList={false}>
+                    <Button icon={<UploadOutlined />} type="primary">
+                      上传文件
+                    </Button>
+                  </Upload>
+                  <Button icon={<FolderOpenOutlined />} onClick={() => folderInputRef.current?.click()}>
+                    上传文件夹
+                  </Button>
+                </div>
+                <Divider type="vertical" className="files-toolbar__action-divider" />
+                <div className="files-toolbar__action-group" role="group" aria-label="新建">
+                  <Button icon={<FileAddOutlined />} onClick={() => setNewFileModal(true)}>
+                    新建文件
+                  </Button>
+                  <Button icon={<FolderAddOutlined />} onClick={() => setMkdirModal(true)}>
+                    新建文件夹
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="files-toolbar__bottom">
+            <Select
+              className="files-toolbar__select-browse"
+              value={viewPolicy}
+              onChange={(v) => {
+                setViewPolicy(v || '')
+                setSearchKeyword('')
+              }}
+              options={[
+                { value: '', label: '按目录浏览' },
+                ...policies.map((p) => ({ value: p.name, label: p.name })),
+              ]}
+              placeholder="浏览方式"
+              aria-label="浏览方式"
             />
-          </Space>
-        ) : null}
+            {!viewPolicy && policyOptions.length > 0 && (
+              <Select
+                className="files-toolbar__select-policy"
+                value={selectedPolicy || undefined}
+                onChange={setSelectedPolicy}
+                options={policyOptions}
+                placeholder="上传存储策略"
+                aria-label="上传存储策略"
+              />
+            )}
+            <Input
+              className="files-toolbar__search"
+              allowClear
+              prefix={<SearchOutlined />}
+              placeholder="全局搜索文件名"
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              aria-label="全局搜索文件名"
+            />
+          </div>
+        </section>
+
         {Object.keys(uploadTasks).length > 0 && (
           <Card size="small" title="上传任务" style={{ marginBottom: 16 }}>
             <Space direction="vertical" style={{ width: '100%' }}>
@@ -673,52 +768,6 @@ export default function Files() {
           {...folderDirectoryInputProps}
           onChange={handleFolderSelected}
         />
-        <Space style={{ marginBottom: 16 }} wrap>
-          <Select
-            style={{ minWidth: 200 }}
-            value={viewPolicy}
-            onChange={(v) => {
-              setViewPolicy(v || '')
-              setSearchKeyword('')
-            }}
-            options={[
-              { value: '', label: '按目录浏览' },
-              ...policies.map((p) => ({ value: p.name, label: p.name })),
-            ]}
-            placeholder="按策略查看"
-          />
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="全局搜索文件名"
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            style={{ width: 220 }}
-          />
-          {!viewPolicy && (
-            <>
-              {policyOptions.length > 0 && (
-                <Select
-                  style={{ minWidth: 180 }}
-                  value={selectedPolicy || undefined}
-                  onChange={setSelectedPolicy}
-                  options={policyOptions}
-                  placeholder="存储策略"
-                />
-              )}
-              <Upload beforeUpload={beforeUpload} showUploadList={false}>
-                <Button icon={<UploadOutlined />} type="primary">上传文件</Button>
-              </Upload>
-              <Button icon={<FolderOpenOutlined />} onClick={() => folderInputRef.current?.click()}>
-                上传文件夹
-              </Button>
-              <Button icon={<FileAddOutlined />} onClick={() => setNewFileModal(true)}>
-                新建文件
-              </Button>
-              <Button icon={<FolderAddOutlined />} onClick={() => setMkdirModal(true)}>新建文件夹</Button>
-            </>
-          )}
-        </Space>
         <FileList files={files} onRefresh={loadFiles} onOpenDir={handleOpenDir} />
       </Content>
       <Modal title="新建文件夹" open={mkdirModal} onOk={handleMkdir} onCancel={() => setMkdirModal(false)}>
