@@ -24,6 +24,7 @@ export interface StoragePolicyAdmin {
   secret_key_hint: string
   force_path_style: boolean
   base_path: string
+  chunk_size: number
   is_default: boolean
   default_quota: number
   created_at?: string
@@ -41,6 +42,7 @@ export interface StoragePolicyDetail {
   secret_key: string
   force_path_style: boolean
   base_path: string
+  chunk_size: number
   is_default: boolean
   default_quota: number
 }
@@ -56,6 +58,8 @@ export interface PolicyForm {
   force_path_style: boolean
   /** 上传目录前缀，对象键 = base_path/userID/uuid */
   base_path: string
+  /** 分片大小（字节）；0 表示默认 25MB，非 0 时最小 5MB */
+  chunk_size: number
   is_default: boolean
   /** 该策略下每用户默认配额（字节） */
   default_quota: number
@@ -81,3 +85,6 @@ export const deletePolicy = (id: number) =>
 
 export const setDefaultPolicy = (id: number) =>
   client.post(`/admin/storage/policies/${id}/default`)
+
+export const setPolicyCORS = (id: number) =>
+  client.post(`/admin/storage/policies/${id}/cors`)

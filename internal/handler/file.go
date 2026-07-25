@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/service"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/storage"
 	"github.com/gin-gonic/gin"
 )
 
@@ -99,6 +100,113 @@ func (h *FileHandler) UploadCallback(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"file": file})
+}
+
+type multipartInitRequest struct {
+	FileName      string `json:"file_name" binding:"required"`
+	ContentType   string `json:"content_type" binding:"required"`
+	Size          int64  `json:"size" binding:"required"`
+	ParentID      uint   `json:"parent_id"`
+	StoragePolicy string `json:"storage_policy"`
+}
+
+// MultipartInit POST /api/files/upload/multipart —— 创建分片上传会话。
+func (h *FileHandler) MultipartInit(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var req multipartInitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	session, err := h.fileService.InitMultipartUpload(userID, req.FileName, req.ContentType, req.Size, req.ParentID, req.StoragePolicy)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"session": session})
+}
+
+// MultipartSessions GET /api/files/upload/multipart/sessions —— 列出可续传的会话。
+func (h *FileHandler) MultipartSessions(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	sessions, err := h.fileService.ListMultipartSessions(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"sessions": sessions})
+}
+
+type multipartResumeRequest struct {
+	StorageKey string `json:"storage_key" binding:"required"`
+}
+
+// MultipartResume POST /api/files/upload/multipart/resume —— 恢复会话：返回已传分片与新签名 URL。
+func (h *FileHandler) MultipartResume(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var req multipartResumeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	session, err := h.fileService.ResumeMultipartUpload(userID, req.StorageKey)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"session": session})
+}
+
+type multipartCompleteRequest struct {
+	FileName      string                  `json:"file_name" binding:"required"`
+	StorageKey    string                  `json:"storage_key" binding:"required"`
+	UploadID      string                  `json:"upload_id" binding:"required"`
+	Size          int64                   `json:"size" binding:"required"`
+	MimeType      string                  `json:"mime_type"`
+	ParentID      uint                    `json:"parent_id"`
+	StoragePolicy string                  `json:"storage_policy"`
+	Parts         []storage.CompletedPart `json:"parts" binding:"required"`
+}
+
+// MultipartComplete POST /api/files/upload/multipart/complete —— 合并分片并落库。
+func (h *FileHandler) MultipartComplete(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var req multipartCompleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	file, err := h.fileService.CompleteMultipartUpload(userID, req.ParentID, req.FileName, req.StorageKey, req.UploadID, req.Size, req.MimeType, req.StoragePolicy, req.Parts)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"file": file})
+}
+
+type multipartAbortRequest struct {
+	StorageKey    string `json:"storage_key" binding:"required"`
+	UploadID      string `json:"upload_id" binding:"required"`
+	StoragePolicy string `json:"storage_policy"`
+}
+
+// MultipartAbort POST /api/files/upload/multipart/abort —— 取消分片上传。
+func (h *FileHandler) MultipartAbort(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	var req multipartAbortRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.fileService.AbortMultipartUpload(userID, req.StorageKey, req.UploadID, req.StoragePolicy); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "已取消"})
 }
 
 // ListStoragePolicies GET /api/storage/policies

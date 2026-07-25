@@ -20,6 +20,8 @@ type PolicyInfo struct {
 	ForcePathStyle bool   `json:"force_path_style"`
 	// BasePath 对象键前缀，上传时拼到 storage_key 前面。
 	BasePath     string `json:"base_path,omitempty"`
+	// ChunkSize 分片大小（字节）；0 表示使用默认值。
+	ChunkSize    int64  `json:"chunk_size"`
 	IsDefault    bool   `json:"is_default"`
 	DefaultQuota int64  `json:"default_quota"`
 }
@@ -77,6 +79,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			Region:         p.Region,
 			ForcePathStyle: p.ForcePathStyle,
 			BasePath:       p.BasePath,
+			ChunkSize:      p.ChunkSize,
 			IsDefault:      p.IsDefault,
 			DefaultQuota:   p.DefaultQuota,
 		}

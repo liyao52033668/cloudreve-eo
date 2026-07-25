@@ -42,6 +42,7 @@ type adminPolicyView struct {
 	SecretKeyHint  string `json:"secret_key_hint"` // 仅提示是否已配置，不回显明文
 	ForcePathStyle bool   `json:"force_path_style"`
 	BasePath       string `json:"base_path"`
+	ChunkSize      int64  `json:"chunk_size"`
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
 	CreatedAt      string `json:"created_at,omitempty"`
@@ -63,6 +64,7 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		SecretKeyHint:  hint,
 		ForcePathStyle: p.ForcePathStyle,
 		BasePath:       p.BasePath,
+		ChunkSize:      p.ChunkSize,
 		IsDefault:      p.IsDefault,
 		DefaultQuota:   p.DefaultQuota,
 		CreatedAt:      p.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -111,6 +113,7 @@ type policyBody struct {
 	SecretKey      string `json:"secret_key"`
 	ForcePathStyle *bool  `json:"force_path_style"` // nil 时默认 true（兼容旧客户端）
 	BasePath       string `json:"base_path"`
+	ChunkSize      int64  `json:"chunk_size"` // 分片大小（字节）；0 用默认 25MB，非 0 时最小 5MB
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
 }
@@ -134,6 +137,10 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "默认配额不能为负数"})
 		return
 	}
+	if req.ChunkSize != 0 && req.ChunkSize < 5<<20 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "分片大小非 0 时至少为 5MB（S3 协议要求）"})
+		return
+	}
 
 	forcePath := true
 	if req.ForcePathStyle != nil {
@@ -149,6 +156,7 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		SecretKey:      req.SecretKey,
 		ForcePathStyle: forcePath,
 		BasePath:       normalizeBasePath(req.BasePath),
+		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,
 	}
@@ -188,6 +196,10 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "默认配额不能为负数"})
 		return
 	}
+	if req.ChunkSize != 0 && req.ChunkSize < 5<<20 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "分片大小非 0 时至少为 5MB（S3 协议要求）"})
+		return
+	}
 
 	forcePath := true
 	if req.ForcePathStyle != nil {
@@ -203,6 +215,7 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		SecretKey:      req.SecretKey,
 		ForcePathStyle: forcePath,
 		BasePath:       normalizeBasePath(req.BasePath),
+		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,
 	}
@@ -269,6 +282,34 @@ func (h *PolicyHandler) SetDefault(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已设为默认策略"})
+}
+
+// SetCORS POST /api/admin/storage/policies/:id/cors —— 为策略对应存储桶写入浏览器直传 CORS 规则。
+func (h *PolicyHandler) SetCORS(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效 ID"})
+		return
+	}
+	p, err := model.GetStoragePolicyByID(uint(id))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "策略不存在"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	driver, err := h.mgr.GetDriver(p.Name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := driver.SetBucketCORS(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "存储桶 CORS 已配置"})
 }
 
 // normalizeBasePath 去掉首尾 / 与多余空白；禁止 .. 等路径穿越。

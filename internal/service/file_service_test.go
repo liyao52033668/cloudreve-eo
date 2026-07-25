@@ -14,9 +14,13 @@ import (
 
 // mockStorageDriver 用于 FileService 单测，避免访问真实对象存储。
 type mockStorageDriver struct {
-	uploadURLs   map[string]string
-	downloadURLs map[string]string
-	deleted      []string
+	uploadURLs         map[string]string
+	downloadURLs       map[string]string
+	deleted            []string
+	multipartInits     []string
+	multipartCompleted []string
+	multipartAborted   []string
+	uploadedParts      []storage.CompletedPart
 }
 
 func newMockStorageDriver() *mockStorageDriver {
@@ -45,6 +49,33 @@ func (m *mockStorageDriver) Delete(key string) error {
 
 func (m *mockStorageDriver) GetSize(key string) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockStorageDriver) InitMultipartUpload(key string, contentType string) (string, error) {
+	m.multipartInits = append(m.multipartInits, key)
+	return "mock-upload-id", nil
+}
+
+func (m *mockStorageDriver) GenerateUploadPartURL(key string, uploadID string, partNumber int32, expire time.Duration) (string, error) {
+	return fmt.Sprintf("https://upload.example.com/%s?uploadId=%s&partNumber=%d", key, uploadID, partNumber), nil
+}
+
+func (m *mockStorageDriver) CompleteMultipartUpload(key string, uploadID string, parts []storage.CompletedPart) error {
+	m.multipartCompleted = append(m.multipartCompleted, key)
+	return nil
+}
+
+func (m *mockStorageDriver) AbortMultipartUpload(key string, uploadID string) error {
+	m.multipartAborted = append(m.multipartAborted, key)
+	return nil
+}
+
+func (m *mockStorageDriver) ListUploadedParts(key string, uploadID string) ([]storage.CompletedPart, error) {
+	return m.uploadedParts, nil
+}
+
+func (m *mockStorageDriver) SetBucketCORS() error {
+	return nil
 }
 
 func setupFileService(t *testing.T) (*FileService, *mockStorageDriver, *model.User) {

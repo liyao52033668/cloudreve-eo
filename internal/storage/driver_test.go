@@ -24,6 +24,30 @@ func (m *mockDriver) GetSize(key string) (int64, error) {
 	return 42, nil
 }
 
+func (m *mockDriver) InitMultipartUpload(key string, contentType string) (string, error) {
+	return "upload-id-" + key, nil
+}
+
+func (m *mockDriver) GenerateUploadPartURL(key string, uploadID string, partNumber int32, expire time.Duration) (string, error) {
+	return "part://" + key, nil
+}
+
+func (m *mockDriver) CompleteMultipartUpload(key string, uploadID string, parts []CompletedPart) error {
+	return nil
+}
+
+func (m *mockDriver) AbortMultipartUpload(key string, uploadID string) error {
+	return nil
+}
+
+func (m *mockDriver) ListUploadedParts(key string, uploadID string) ([]CompletedPart, error) {
+	return nil, nil
+}
+
+func (m *mockDriver) SetBucketCORS() error {
+	return nil
+}
+
 func TestStorageDriver_InterfaceContract(t *testing.T) {
 	// Compile-time and runtime check that the interface methods match expectations.
 	var _ StorageDriver = (*mockDriver)(nil)

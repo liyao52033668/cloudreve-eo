@@ -74,18 +74,8 @@ func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, stora
 	if size < 0 {
 		return nil, errors.New("文件大小无效")
 	}
-	info, ok := s.storageMgr.GetPolicyInfo(resolved)
-	if !ok {
-		return nil, fmt.Errorf("存储策略 %s 不存在", resolved)
-	}
-	var used int64
-	if err := model.DB.Model(&model.File{}).
-		Where("user_id = ? AND storage_policy = ? AND is_dir = ?", userID, resolved, false).
-		Select("COALESCE(SUM(size), 0)").Scan(&used).Error; err != nil {
-		return nil, fmt.Errorf("统计已用容量失败: %w", err)
-	}
-	if used+size > info.DefaultQuota {
-		return nil, errors.New("存储配额不足")
+	if err := s.checkQuota(userID, resolved, size); err != nil {
+		return nil, err
 	}
 
 	file := &model.File{
@@ -113,6 +103,229 @@ func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, stora
 		return nil, err
 	}
 	return file, nil
+}
+
+// checkQuota 校验用户在指定策略下新增 size 字节后是否超出配额。
+func (s *FileService) checkQuota(userID uint, resolvedPolicy string, size int64) error {
+	info, ok := s.storageMgr.GetPolicyInfo(resolvedPolicy)
+	if !ok {
+		return fmt.Errorf("存储策略 %s 不存在", resolvedPolicy)
+	}
+	var used int64
+	if err := model.DB.Model(&model.File{}).
+		Where("user_id = ? AND storage_policy = ? AND is_dir = ?", userID, resolvedPolicy, false).
+		Select("COALESCE(SUM(size), 0)").Scan(&used).Error; err != nil {
+		return fmt.Errorf("统计已用容量失败: %w", err)
+	}
+	if used+size > info.DefaultQuota {
+		return errors.New("存储配额不足")
+	}
+	return nil
+}
+
+// DefaultMultipartChunkSize 默认分片大小（字节），与 Cloudreve S3 策略默认值一致。
+// 策略可通过 chunk_size 字段覆盖。
+const DefaultMultipartChunkSize int64 = 25 << 20 // 25MB
+
+// minMultipartChunkSize S3 协议要求除最后一片外每片至少 5MB。
+const minMultipartChunkSize int64 = 5 << 20
+
+// maxMultipartParts S3 协议单对象最大分片数。
+const maxMultipartParts = 10000
+
+// multipartSessionTTL 分片会话有效期；预签名 URL 按此签发，过期后需重新获取。
+const multipartSessionTTL = 6 * time.Hour
+
+// resolveChunkSize 返回策略生效的分片大小。
+func (s *FileService) resolveChunkSize(resolvedPolicy string) int64 {
+	if info, ok := s.storageMgr.GetPolicyInfo(resolvedPolicy); ok && info.ChunkSize >= minMultipartChunkSize {
+		return info.ChunkSize
+	}
+	return DefaultMultipartChunkSize
+}
+
+// MultipartSession 分片上传会话信息，返回给前端。
+type MultipartSession struct {
+	UploadID      string   `json:"upload_id"`
+	StorageKey    string   `json:"storage_key"`
+	StoragePolicy string   `json:"storage_policy"`
+	ChunkSize     int64    `json:"chunk_size"`
+	PartURLs      []string `json:"part_urls"`
+	// UploadedParts 已上传的分片（断点续传时非空），对应 PartURLs 下标 part_number-1 可跳过。
+	UploadedParts []storage.CompletedPart `json:"uploaded_parts,omitempty"`
+	FileName      string                  `json:"file_name,omitempty"`
+	Size          int64                   `json:"size,omitempty"`
+	ParentID      uint                    `json:"parent_id"`
+}
+
+// InitMultipartUpload 创建分片上传会话：生成对象键、发起 multipart、
+// 按分片数量预签名各分片 URL，并持久化会话以支持断点续传。
+func (s *FileService) InitMultipartUpload(userID uint, fileName, contentType string, size int64, parentID uint, policy string) (*MultipartSession, error) {
+	if size <= 0 {
+		return nil, errors.New("文件大小无效")
+	}
+	resolved, err := s.storageMgr.ResolvePolicy(policy)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkQuota(userID, resolved, size); err != nil {
+		return nil, err
+	}
+	driver, err := s.storageMgr.GetDriver(resolved)
+	if err != nil {
+		return nil, err
+	}
+
+	chunkSize := s.resolveChunkSize(resolved)
+	partCount := int((size + chunkSize - 1) / chunkSize)
+	if partCount > maxMultipartParts {
+		return nil, fmt.Errorf("文件过大：分片数 %d 超过上限 %d，请调大策略分片大小", partCount, maxMultipartParts)
+	}
+
+	key := fmt.Sprintf("%d/%s", userID, uuid.New().String())
+	if info, ok := s.storageMgr.GetPolicyInfo(resolved); ok && info.BasePath != "" {
+		key = strings.Trim(info.BasePath, "/") + "/" + key
+	}
+
+	uploadID, err := driver.InitMultipartUpload(key, contentType)
+	if err != nil {
+		return nil, err
+	}
+
+	urls, err := s.presignParts(driver, key, uploadID, partCount)
+	if err != nil {
+		_ = driver.AbortMultipartUpload(key, uploadID)
+		return nil, err
+	}
+
+	if err := model.CreateUploadSession(&model.UploadSession{
+		UserID:        userID,
+		UploadID:      uploadID,
+		StorageKey:    key,
+		StoragePolicy: resolved,
+		FileName:      fileName,
+		ContentType:   contentType,
+		Size:          size,
+		ChunkSize:     chunkSize,
+		ParentID:      parentID,
+		ExpiresAt:     time.Now().Add(multipartSessionTTL),
+	}); err != nil {
+		_ = driver.AbortMultipartUpload(key, uploadID)
+		return nil, fmt.Errorf("保存上传会话失败: %w", err)
+	}
+
+	return &MultipartSession{
+		UploadID:      uploadID,
+		StorageKey:    key,
+		StoragePolicy: resolved,
+		ChunkSize:     chunkSize,
+		PartURLs:      urls,
+		FileName:      fileName,
+		Size:          size,
+		ParentID:      parentID,
+	}, nil
+}
+
+func (s *FileService) presignParts(driver storage.StorageDriver, key, uploadID string, partCount int) ([]string, error) {
+	urls := make([]string, 0, partCount)
+	for i := 1; i <= partCount; i++ {
+		u, err := driver.GenerateUploadPartURL(key, uploadID, int32(i), multipartSessionTTL)
+		if err != nil {
+			return nil, err
+		}
+		urls = append(urls, u)
+	}
+	return urls, nil
+}
+
+// ListMultipartSessions 列出用户未过期的上传会话（前端展示可续传任务）。
+func (s *FileService) ListMultipartSessions(userID uint) ([]model.UploadSession, error) {
+	return model.ListUploadSessions(userID)
+}
+
+// ResumeMultipartUpload 恢复会话：查询存储端已上传分片，重新预签名全部分片 URL。
+func (s *FileService) ResumeMultipartUpload(userID uint, storageKey string) (*MultipartSession, error) {
+	sess, err := model.GetUploadSession(userID, storageKey)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("上传会话不存在或已完成")
+		}
+		return nil, err
+	}
+	driver, err := s.storageMgr.GetDriver(sess.StoragePolicy)
+	if err != nil {
+		return nil, err
+	}
+
+	uploaded, err := driver.ListUploadedParts(sess.StorageKey, sess.UploadID)
+	if err != nil {
+		// 存储端会话已失效（过期被清理等），删除本地记录
+		_ = model.DeleteUploadSession(userID, storageKey)
+		return nil, fmt.Errorf("会话已失效，请重新上传: %w", err)
+	}
+
+	partCount := int((sess.Size + sess.ChunkSize - 1) / sess.ChunkSize)
+	urls, err := s.presignParts(driver, sess.StorageKey, sess.UploadID, partCount)
+	if err != nil {
+		return nil, err
+	}
+
+	// 刷新会话有效期
+	sess.ExpiresAt = time.Now().Add(multipartSessionTTL)
+	_ = model.DB.Save(sess).Error
+
+	return &MultipartSession{
+		UploadID:      sess.UploadID,
+		StorageKey:    sess.StorageKey,
+		StoragePolicy: sess.StoragePolicy,
+		ChunkSize:     sess.ChunkSize,
+		PartURLs:      urls,
+		UploadedParts: uploaded,
+		FileName:      sess.FileName,
+		Size:          sess.Size,
+		ParentID:      sess.ParentID,
+	}, nil
+}
+
+// CompleteMultipartUpload 合并分片并写入文件记录，随后清理会话。
+func (s *FileService) CompleteMultipartUpload(userID uint, parentID uint, fileName, storageKey, uploadID string, size int64, mimeType string, policy string, parts []storage.CompletedPart) (*model.File, error) {
+	resolved, err := s.storageMgr.ResolvePolicy(policy)
+	if err != nil {
+		return nil, err
+	}
+	if len(parts) == 0 {
+		return nil, errors.New("分片列表为空")
+	}
+	driver, err := s.storageMgr.GetDriver(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if err := driver.CompleteMultipartUpload(storageKey, uploadID, parts); err != nil {
+		return nil, err
+	}
+	file, err := s.UploadCallback(userID, parentID, fileName, storageKey, size, mimeType, resolved)
+	if err != nil {
+		return nil, err
+	}
+	_ = model.DeleteUploadSession(userID, storageKey)
+	return file, nil
+}
+
+// AbortMultipartUpload 取消分片上传，清理存储端分片与本地会话。
+func (s *FileService) AbortMultipartUpload(userID uint, storageKey, uploadID string, policy string) error {
+	resolved, err := s.storageMgr.ResolvePolicy(policy)
+	if err != nil {
+		return err
+	}
+	driver, err := s.storageMgr.GetDriver(resolved)
+	if err != nil {
+		return err
+	}
+	if err := driver.AbortMultipartUpload(storageKey, uploadID); err != nil {
+		return err
+	}
+	_ = model.DeleteUploadSession(userID, storageKey)
+	return nil
 }
 
 func (s *FileService) GetDownloadURL(userID uint, fileID uint) (string, error) {

@@ -38,6 +38,30 @@ func (m *mockStorageDriver) GetSize(key string) (int64, error) {
 	return 0, nil
 }
 
+func (m *mockStorageDriver) InitMultipartUpload(key string, contentType string) (string, error) {
+	return "mock-upload-id", nil
+}
+
+func (m *mockStorageDriver) GenerateUploadPartURL(key string, uploadID string, partNumber int32, expire time.Duration) (string, error) {
+	return fmt.Sprintf("https://upload.example.com/%s?partNumber=%d", key, partNumber), nil
+}
+
+func (m *mockStorageDriver) CompleteMultipartUpload(key string, uploadID string, parts []storage.CompletedPart) error {
+	return nil
+}
+
+func (m *mockStorageDriver) AbortMultipartUpload(key string, uploadID string) error {
+	return nil
+}
+
+func (m *mockStorageDriver) ListUploadedParts(key string, uploadID string) ([]storage.CompletedPart, error) {
+	return nil, nil
+}
+
+func (m *mockStorageDriver) SetBucketCORS() error {
+	return nil
+}
+
 func setupFileHandler(t *testing.T) (*FileHandler, *gin.Engine, *model.User) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)

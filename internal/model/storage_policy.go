@@ -21,6 +21,8 @@ type StoragePolicy struct {
 	ForcePathStyle bool `gorm:"not null;default:true" json:"force_path_style"`
 	// BasePath 对象键前缀（上传目录），如 uploads 或 cloudreve/prod；空表示 bucket 根。
 	BasePath string `gorm:"size:255" json:"base_path"`
+	// ChunkSize 分片上传每片大小（字节）；0 表示使用默认 25MB。
+	ChunkSize int64 `gorm:"not null;default:0" json:"chunk_size"`
 	IsDefault    bool      `gorm:"not null;default:false" json:"is_default"`
 	// DefaultQuota 该策略下每个用户的默认配额（字节）；0 表示未配置/不可用。
 	DefaultQuota int64     `gorm:"not null;default:0" json:"default_quota"`
@@ -107,6 +109,7 @@ func UpdateStoragePolicy(id uint, updates *StoragePolicy, updateSecret bool) err
 	existing.AccessKey = updates.AccessKey
 	existing.ForcePathStyle = updates.ForcePathStyle
 	existing.BasePath = updates.BasePath
+	existing.ChunkSize = updates.ChunkSize
 	existing.DefaultQuota = updates.DefaultQuota
 	if updateSecret && updates.SecretKey != "" {
 		existing.SecretKey = updates.SecretKey

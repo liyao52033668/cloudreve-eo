@@ -27,6 +27,7 @@ import {
   StarOutlined,
   StarFilled,
   CloudServerOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -36,6 +37,7 @@ import {
   updatePolicy,
   deletePolicy,
   setDefaultPolicy,
+  setPolicyCORS,
   type StoragePolicyAdmin,
   type PolicyForm,
 } from '../api/policies'
@@ -45,6 +47,7 @@ const { Header, Content } = Layout
 const { Text, Paragraph } = Typography
 
 const GiB = 1024 * 1024 * 1024
+const MiB = 1024 * 1024
 
 const emptyForm: PolicyForm = {
   name: '',
@@ -55,6 +58,7 @@ const emptyForm: PolicyForm = {
   secret_key: '',
   force_path_style: true,
   base_path: '',
+  chunk_size: 0,
   is_default: false,
   default_quota: 0,
 }
@@ -77,7 +81,7 @@ export default function StoragePolicies() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
-  const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null }>()
+  const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null; chunk_size_mib?: number | null }>()
 
   const ensureAdmin = useCallback(async () => {
     try {
@@ -123,6 +127,7 @@ export default function StoragePolicies() {
       ...emptyForm,
       is_default: policies.length === 0,
       default_quota_gib: 0,
+      chunk_size_mib: 0,
     })
     setModalOpen(true)
   }
@@ -143,6 +148,7 @@ export default function StoragePolicies() {
         base_path: p.base_path || '',
         is_default: p.is_default,
         default_quota_gib: (p.default_quota || 0) / GiB,
+        chunk_size_mib: (p.chunk_size || 0) / MiB,
       })
       setModalOpen(true)
     } catch (err: any) {
@@ -159,6 +165,15 @@ export default function StoragePolicies() {
         message.error('默认配额不能为负数')
         return
       }
+      const chunkMib = Number(values.chunk_size_mib ?? 0)
+      if (Number.isNaN(chunkMib) || chunkMib < 0) {
+        message.error('分片大小不能为负数')
+        return
+      }
+      if (chunkMib !== 0 && chunkMib < 5) {
+        message.error('分片大小非 0 时至少为 5 MiB（S3 协议要求）')
+        return
+      }
       const payload: PolicyForm = {
         name: values.name,
         endpoint: values.endpoint,
@@ -168,6 +183,7 @@ export default function StoragePolicies() {
         secret_key: values.secret_key || '',
         force_path_style: values.force_path_style !== false,
         base_path: (values.base_path || '').trim().replace(/^\/+|\/+$/g, ''),
+        chunk_size: Math.round(chunkMib * MiB),
         is_default: !!values.is_default,
         default_quota: Math.round(gib * GiB),
       }
@@ -209,6 +225,15 @@ export default function StoragePolicies() {
       load()
     } catch (err: any) {
       message.error(err.response?.data?.error || '设置失败')
+    }
+  }
+
+  const handleSetCORS = async (id: number) => {
+    try {
+      await setPolicyCORS(id)
+      message.success('存储桶 CORS 已配置，浏览器可直传')
+    } catch (err: any) {
+      message.error(err.response?.data?.error || 'CORS 配置失败，请检查密钥权限或到服务商控制台手动配置')
     }
   }
 
@@ -275,6 +300,16 @@ export default function StoragePolicies() {
                       编辑
                     </Button>,
                     <Popconfirm
+                      key="cors"
+                      title="配置存储桶 CORS？"
+                      description="将向该 Bucket 写入允许浏览器直传（含分片上传 ETag 暴露）的 CORS 规则。"
+                      onConfirm={() => handleSetCORS(p.id)}
+                    >
+                      <Button type="link" icon={<GlobalOutlined />}>
+                        CORS
+                      </Button>
+                    </Popconfirm>,
+                    <Popconfirm
                       key="del"
                       title="确认删除该策略？"
                       description="已上传到该策略的文件记录不会自动迁移。"
@@ -325,6 +360,10 @@ export default function StoragePolicies() {
                           <Text type="secondary">每用户配额：</Text>
                           {formatBytes(p.default_quota || 0)}
                         </div>
+                        <div>
+                          <Text type="secondary">分片大小：</Text>
+                          {p.chunk_size > 0 ? `${(p.chunk_size / MiB).toFixed(0)} MiB` : '默认（25 MiB）'}
+                        </div>
                       </div>
                     }
                   />
@@ -365,7 +404,7 @@ export default function StoragePolicies() {
         width={560}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" initialValues={{ ...emptyForm, default_quota_gib: 0 }}>
+        <Form form={form} layout="vertical" initialValues={{ ...emptyForm, default_quota_gib: 0, chunk_size_mib: 0 }}>
           <Form.Item
             name="name"
             label="名称"
@@ -436,6 +475,23 @@ export default function StoragePolicies() {
             ]}
           >
             <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
+          </Form.Item>
+          <Form.Item
+            name="chunk_size_mib"
+            label="分片大小 (MiB)"
+            extra="大文件分片上传时每片大小。0 表示默认 25 MiB；非 0 时最小 5 MiB（S3 协议要求），单文件最多 10000 片。"
+            rules={[
+              {
+                validator: async (_, v) => {
+                  if (v === null || v === undefined || v === '') return
+                  const n = Number(v)
+                  if (n < 0) throw new Error('不能为负数')
+                  if (n !== 0 && n < 5) throw new Error('非 0 时至少为 5 MiB')
+                },
+              },
+            ]}
+          >
+            <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0（默认 25）" />
           </Form.Item>
           <Form.Item name="is_default" label="设为默认策略" valuePropName="checked">
             <Switch />

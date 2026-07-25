@@ -39,5 +39,29 @@ func (d *EdgeOneDriver) GetSize(key string) (int64, error) {
 	return d.s3.GetSize(key)
 }
 
+func (d *EdgeOneDriver) InitMultipartUpload(key string, contentType string) (string, error) {
+	return d.s3.InitMultipartUpload(key, contentType)
+}
+
+func (d *EdgeOneDriver) GenerateUploadPartURL(key string, uploadID string, partNumber int32, expire time.Duration) (string, error) {
+	return d.s3.GenerateUploadPartURL(key, uploadID, partNumber, expire)
+}
+
+func (d *EdgeOneDriver) CompleteMultipartUpload(key string, uploadID string, parts []CompletedPart) error {
+	return d.s3.CompleteMultipartUpload(key, uploadID, parts)
+}
+
+func (d *EdgeOneDriver) AbortMultipartUpload(key string, uploadID string) error {
+	return d.s3.AbortMultipartUpload(key, uploadID)
+}
+
+func (d *EdgeOneDriver) ListUploadedParts(key string, uploadID string) ([]CompletedPart, error) {
+	return d.s3.ListUploadedParts(key, uploadID)
+}
+
+func (d *EdgeOneDriver) SetBucketCORS() error {
+	return d.s3.SetBucketCORS()
+}
+
 // 确保 EdgeOneDriver 实现 StorageDriver 接口
 var _ StorageDriver = (*EdgeOneDriver)(nil)

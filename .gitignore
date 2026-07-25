@@ -33,3 +33,4 @@ Thumbs.db
 .edgeone
 # Superpowers 本地计划/规格（不推远程）
 docs/superpowers/
+.codegraph

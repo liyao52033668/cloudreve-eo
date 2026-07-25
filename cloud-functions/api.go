@@ -59,9 +59,17 @@ func main() {
 	r.Use(__edgeonePagesMiddleware())
 
 	r.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := c.GetHeader("Origin")
+		if origin != "" {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+			c.Header("Access-Control-Allow-Credentials", "true")
+		} else {
+			c.Header("Access-Control-Allow-Origin", "*")
+		}
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		c.Header("Access-Control-Max-Age", "86400")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
@@ -87,6 +95,11 @@ func main() {
 		files.POST("/mkdir", fileHandler.Mkdir)
 		files.POST("/upload", fileHandler.Upload)
 		files.POST("/upload/callback", fileHandler.UploadCallback)
+		files.POST("/upload/multipart", fileHandler.MultipartInit)
+		files.GET("/upload/multipart/sessions", fileHandler.MultipartSessions)
+		files.POST("/upload/multipart/resume", fileHandler.MultipartResume)
+		files.POST("/upload/multipart/complete", fileHandler.MultipartComplete)
+		files.POST("/upload/multipart/abort", fileHandler.MultipartAbort)
 		files.GET("/:id/download", fileHandler.Download)
 		files.DELETE("/:id", fileHandler.Delete)
 		files.PUT("/:id/rename", fileHandler.Rename)
@@ -118,6 +131,7 @@ func main() {
 				adminPolicies.PUT("/:id", policyHandler.Update)
 				adminPolicies.DELETE("/:id", policyHandler.Delete)
 				adminPolicies.POST("/:id/default", policyHandler.SetDefault)
+				adminPolicies.POST("/:id/cors", policyHandler.SetCORS)
 			}
 		}
 	}
