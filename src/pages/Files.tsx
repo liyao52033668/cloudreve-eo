@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Alert, Card, Progress, Typography } from 'antd'
-import { UploadOutlined, FolderAddOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
+import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import {
   listFiles,
   listFilesByPolicy,
+  searchFiles,
   mkdir,
   getUploadURL,
   uploadCallback,
@@ -34,12 +35,25 @@ interface UploadTask {
   error?: string
 }
 
+/** 目录选择 input 的非标准属性，用类型安全的 spread 方式挂载 */
+const folderDirectoryInputProps: React.InputHTMLAttributes<HTMLInputElement> & {
+  webkitdirectory?: string
+  directory?: string
+} = {
+  webkitdirectory: '',
+  directory: '',
+}
+
 export default function Files() {
   const [files, setFiles] = useState<FileItem[]>([])
   const [currentDir, setCurrentDir] = useState(0)
   const [breadcrumb, setBreadcrumb] = useState<BreadcrumbItem[]>([{ title: '根目录', id: 0 }])
   const [mkdirModal, setMkdirModal] = useState(false)
   const [dirName, setDirName] = useState('')
+  const [newFileModal, setNewFileModal] = useState(false)
+  const [newFileName, setNewFileName] = useState('')
+  const [newFileContent, setNewFileContent] = useState('')
+  const [newFileSubmitting, setNewFileSubmitting] = useState(false)
   const [policies, setPolicies] = useState<StoragePolicy[]>([])
   const [selectedPolicy, setSelectedPolicy] = useState<string>('')
   const [isAdmin, setIsAdmin] = useState(false)
@@ -48,19 +62,36 @@ export default function Files() {
   // 非空时进入「按策略查看」模式：跨目录展示该策略下全部文件
   const [viewPolicy, setViewPolicy] = useState<string>('')
   const [searchKeyword, setSearchKeyword] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const resumeTargetRef = useRef<UploadSessionInfo | null>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  const loadRequestIdRef = useRef(0)
   const navigate = useNavigate()
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchKeyword.trim())
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [searchKeyword])
+
   const loadFiles = useCallback(async () => {
+    const requestId = ++loadRequestIdRef.current
     try {
-      const res = viewPolicy ? await listFilesByPolicy(viewPolicy) : await listFiles(currentDir)
+      const res = debouncedSearch
+        ? await searchFiles(debouncedSearch, viewPolicy || undefined)
+        : viewPolicy
+          ? await listFilesByPolicy(viewPolicy)
+          : await listFiles(currentDir)
+      if (requestId !== loadRequestIdRef.current) return
       setFiles(res.data.files || [])
     } catch (err: any) {
+      if (requestId !== loadRequestIdRef.current) return
       if (err?.response?.status === 401) return // client 拦截器会跳登录
       message.error(err?.response?.data?.error || '加载文件列表失败')
     }
-  }, [currentDir, viewPolicy])
+  }, [currentDir, viewPolicy, debouncedSearch])
 
   const loadPolicies = useCallback(async () => {
     try {
@@ -145,12 +176,6 @@ export default function Files() {
     navigate('/')
   }
 
-  const filteredFiles = useMemo(() => {
-    const kw = searchKeyword.trim().toLowerCase()
-    if (!kw) return files
-    return files.filter(f => f.name.toLowerCase().includes(kw))
-  }, [files, searchKeyword])
-
   const handleMkdir = async () => {
     if (!dirName) return
     try {
@@ -206,18 +231,22 @@ export default function Files() {
       xhr.send(body)
     })
 
-  const uploadSimple = async (file: File, onProgress: (percent: number) => void) => {
+  const uploadSimple = async (
+    file: File,
+    onProgress: (percent: number) => void,
+    parentId: number = currentDir,
+  ) => {
     const contentType = file.type || 'application/octet-stream'
-    const { data } = await getUploadURL(file.name, contentType, currentDir, selectedPolicy)
+    const { data } = await getUploadURL(file.name, contentType, parentId, selectedPolicy)
     await putWithProgress(data.upload_url, file, contentType, (loaded) => {
-      onProgress(Math.round((loaded / file.size) * 100))
+      onProgress(file.size === 0 ? 100 : Math.round((loaded / file.size) * 100))
     })
     await uploadCallback(
       file.name,
       data.storage_key,
       file.size,
       contentType,
-      currentDir,
+      parentId,
       data.storage_policy || selectedPolicy,
     )
   }
@@ -301,11 +330,15 @@ export default function Files() {
     onProgress(100)
   }
 
-  const uploadMultipart = async (file: File, onProgress: (percent: number) => void) => {
+  const uploadMultipart = async (
+    file: File,
+    onProgress: (percent: number) => void,
+    parentId: number = currentDir,
+  ) => {
     const contentType = file.type || 'application/octet-stream'
-    const { data } = await initMultipartUpload(file.name, contentType, file.size, currentDir, selectedPolicy)
+    const { data } = await initMultipartUpload(file.name, contentType, file.size, parentId, selectedPolicy)
     try {
-      await runMultipart(file, data.session, currentDir, onProgress)
+      await runMultipart(file, data.session, parentId, onProgress)
     } catch (err) {
       // 不 abort：会话保留在服务端，可稍后从「未完成的上传」恢复
       loadSessions()
@@ -313,27 +346,135 @@ export default function Files() {
     }
   }
 
-  const handleUpload = async (file: File) => {
-    const key = `upload-${file.name}-${Date.now()}`
-    setTask(key, { name: file.name, percent: 0, status: 'uploading' })
-    const onProgress = (percent: number) => setTask(key, { name: file.name, percent })
+  /** 通用上传：可指定 parentId 与任务展示名；返回是否成功 */
+  const handleUpload = async (
+    file: File,
+    parentId: number = currentDir,
+    displayName?: string,
+    options: { refresh?: boolean; showSuccess?: boolean } = {},
+  ): Promise<boolean> => {
+    const taskName = displayName || file.name
+    const { refresh = true, showSuccess = true } = options
+    const key = `upload-${taskName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    setTask(key, { name: taskName, percent: 0, status: 'uploading' })
+    const onProgress = (percent: number) => setTask(key, { name: taskName, percent })
     try {
       if (file.size > MULTIPART_THRESHOLD) {
-        await uploadMultipart(file, onProgress)
+        await uploadMultipart(file, onProgress, parentId)
       } else {
-        await uploadSimple(file, onProgress)
+        await uploadSimple(file, onProgress, parentId)
       }
-      setTask(key, { name: file.name, percent: 100, status: 'done' })
-      message.success(`${file.name} 上传成功`)
+      setTask(key, { name: taskName, percent: 100, status: 'done' })
+      if (showSuccess) message.success(`${taskName} 上传成功`)
       setTimeout(() => removeTask(key), 3000)
-      loadFiles()
-      loadSessions()
+      if (refresh) {
+        loadFiles()
+        loadSessions()
+      }
+      return true
     } catch (err: any) {
       const errMsg = err?.response?.data?.error || err?.message || '上传失败'
-      setTask(key, { name: file.name, status: 'error', error: errMsg })
-      message.error(`${file.name} ${errMsg}`)
+      setTask(key, { name: taskName, status: 'error', error: errMsg })
+      message.error(`${taskName} ${errMsg}`)
+      return false
     }
+  }
+
+  /** Ant Design Upload beforeUpload：保持单文件上传行为不变 */
+  const beforeUpload = (file: File) => {
+    void handleUpload(file)
     return false
+  }
+
+  const handleFolderSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const filesArr = Array.from(e.target.files || [])
+    // 先复制 FileList 再清空，允许再次选择同一目录
+    e.target.value = ''
+    if (filesArr.length === 0) return
+    // Promise 缓存：同一相对路径只创建一次，避免并发 mkdir 竞态
+    const dirPromiseCache = new Map<string, Promise<number>>()
+    dirPromiseCache.set('', Promise.resolve(currentDir))
+
+    const ensureChildDir = (parentId: number, name: string, pathKey: string): Promise<number> => {
+      const cached = dirPromiseCache.get(pathKey)
+      if (cached) return cached
+      const promise = (async () => {
+        const res = await listFiles(parentId)
+        const existing = (res.data.files || []).find((f) => f.is_dir && f.name === name)
+        if (existing) return existing.id
+        const created = await mkdir(parentId, name)
+        return created.data.file.id
+      })()
+      dirPromiseCache.set(pathKey, promise)
+      return promise
+    }
+
+    const resolveParentId = async (relativePath: string): Promise<number> => {
+      const parts = relativePath.split('/').filter(Boolean)
+      // webkitRelativePath 形如 "folder/sub/file.txt"，最后一段是文件名
+      const dirParts = parts.slice(0, -1)
+      let pathKey = ''
+      let parentId = currentDir
+      for (const seg of dirParts) {
+        pathKey = pathKey ? `${pathKey}/${seg}` : seg
+        parentId = await ensureChildDir(parentId, seg, pathKey)
+      }
+      return parentId
+    }
+
+    // 路径创建通过 Promise 缓存串行化，文件上传并发限制为 2
+    const FOLDER_UPLOAD_CONCURRENCY = 2
+    let cursor = 0
+    let failCount = 0
+    const worker = async () => {
+      while (cursor < filesArr.length) {
+        const idx = cursor++
+        const file = filesArr[idx]
+        const relativePath = file.webkitRelativePath || file.name
+        try {
+          const parentId = await resolveParentId(relativePath)
+          const ok = await handleUpload(file, parentId, relativePath, {
+            refresh: false,
+            showSuccess: false,
+          })
+          if (!ok) failCount++
+        } catch (err: any) {
+          failCount++
+          const errMsg = err?.response?.data?.error || err?.message || '处理失败'
+          message.error(`${relativePath} ${errMsg}`)
+        }
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(FOLDER_UPLOAD_CONCURRENCY, filesArr.length) }, () => worker()),
+    )
+    if (failCount === 0) {
+      message.success(`文件夹上传完成（${filesArr.length} 个文件）`)
+    } else {
+      message.warning(`文件夹上传结束：${filesArr.length - failCount} 成功，${failCount} 失败`)
+    }
+    loadFiles()
+    loadSessions()
+  }
+
+  const handleCreateTextFile = async () => {
+    const fileName = newFileName.trim()
+    if (!fileName) {
+      message.warning('文件名不能为空')
+      return
+    }
+    setNewFileSubmitting(true)
+    try {
+      const file = new File([newFileContent], fileName, { type: 'text/plain;charset=utf-8' })
+      const ok = await handleUpload(file, currentDir, fileName)
+      if (ok) {
+        setNewFileModal(false)
+        setNewFileName('')
+        setNewFileContent('')
+      }
+    } finally {
+      setNewFileSubmitting(false)
+    }
   }
 
   const handleResumeClick = (session: UploadSessionInfo) => {
@@ -435,18 +576,25 @@ export default function Files() {
         </Space>
       </Header>
       <Content style={{ padding: 24, width: '100%', maxWidth: 1400, margin: '0 auto', flex: 1 }}>
-        {viewPolicy ? (
+        {searchKeyword.trim() ? (
+          <Space style={{ marginBottom: 16 }} wrap>
+            <Typography.Text strong>
+              {viewPolicy
+                ? `存储策略「${viewPolicy}」中全局搜索「${searchKeyword.trim()}」的结果`
+                : `全局搜索「${searchKeyword.trim()}」的结果`}
+            </Typography.Text>
+            <Button size="small" onClick={() => setSearchKeyword('')}>清除搜索</Button>
+          </Space>
+        ) : viewPolicy ? (
           <Space style={{ marginBottom: 16 }}>
             <Typography.Text strong>存储策略「{viewPolicy}」的全部文件（跨目录）</Typography.Text>
             <Button size="small" onClick={() => { setViewPolicy(''); setSearchKeyword('') }}>返回目录浏览</Button>
           </Space>
-        ) : (
+        ) : currentDir !== 0 ? (
           <Space style={{ marginBottom: 16 }} wrap>
-            {currentDir !== 0 && (
-              <Button icon={<ArrowLeftOutlined />} onClick={handleGoUp}>
-                返回上一级
-              </Button>
-            )}
+            <Button icon={<ArrowLeftOutlined />} onClick={handleGoUp}>
+              返回上一级
+            </Button>
             <Breadcrumb
               items={breadcrumb.map((b, index) => ({
                 key: b.id,
@@ -458,7 +606,7 @@ export default function Files() {
               }))}
             />
           </Space>
-        )}
+        ) : null}
         {Object.keys(uploadTasks).length > 0 && (
           <Card size="small" title="上传任务" style={{ marginBottom: 16 }}>
             <Space direction="vertical" style={{ width: '100%' }}>
@@ -517,6 +665,14 @@ export default function Files() {
           style={{ display: 'none' }}
           onChange={handleResumeFileSelected}
         />
+        <input
+          ref={folderInputRef}
+          type="file"
+          style={{ display: 'none' }}
+          multiple
+          {...folderDirectoryInputProps}
+          onChange={handleFolderSelected}
+        />
         <Space style={{ marginBottom: 16 }} wrap>
           <Select
             style={{ minWidth: 200 }}
@@ -534,7 +690,7 @@ export default function Files() {
           <Input
             allowClear
             prefix={<SearchOutlined />}
-            placeholder="搜索文件名"
+            placeholder="全局搜索文件名"
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
             style={{ width: 220 }}
@@ -550,17 +706,48 @@ export default function Files() {
                   placeholder="存储策略"
                 />
               )}
-              <Upload beforeUpload={handleUpload} showUploadList={false}>
+              <Upload beforeUpload={beforeUpload} showUploadList={false}>
                 <Button icon={<UploadOutlined />} type="primary">上传文件</Button>
               </Upload>
+              <Button icon={<FolderOpenOutlined />} onClick={() => folderInputRef.current?.click()}>
+                上传文件夹
+              </Button>
+              <Button icon={<FileAddOutlined />} onClick={() => setNewFileModal(true)}>
+                新建文件
+              </Button>
               <Button icon={<FolderAddOutlined />} onClick={() => setMkdirModal(true)}>新建文件夹</Button>
             </>
           )}
         </Space>
-        <FileList files={filteredFiles} onRefresh={loadFiles} onOpenDir={handleOpenDir} />
+        <FileList files={files} onRefresh={loadFiles} onOpenDir={handleOpenDir} />
       </Content>
       <Modal title="新建文件夹" open={mkdirModal} onOk={handleMkdir} onCancel={() => setMkdirModal(false)}>
         <Input value={dirName} onChange={(e) => setDirName(e.target.value)} placeholder="文件夹名称" />
+      </Modal>
+      <Modal
+        title="新建文本文件"
+        open={newFileModal}
+        onOk={handleCreateTextFile}
+        confirmLoading={newFileSubmitting}
+        onCancel={() => {
+          if (newFileSubmitting) return
+          setNewFileModal(false)
+        }}
+        destroyOnClose={false}
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Input
+            value={newFileName}
+            onChange={(e) => setNewFileName(e.target.value)}
+            placeholder="文件名，例如 notes.txt"
+          />
+          <Input.TextArea
+            value={newFileContent}
+            onChange={(e) => setNewFileContent(e.target.value)}
+            placeholder="文件内容（可为空）"
+            rows={8}
+          />
+        </Space>
       </Modal>
     </Layout>
   )

@@ -51,6 +51,20 @@ func (s *FileService) ListFilesByPolicy(userID uint, policy string) ([]model.Fil
 	return files, err
 }
 
+// SearchFiles 按文件名跨全部目录搜索用户文件；policy 非空时限定存储策略。
+func (s *FileService) SearchFiles(userID uint, keyword string, policy string) ([]model.File, error) {
+	query := model.DB.Where("user_id = ? AND is_dir = ?", userID, false)
+	if policy != "" {
+		query = query.Where("storage_policy = ?", policy)
+	}
+
+	var files []model.File
+	err := query.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(strings.TrimSpace(keyword))+"%").
+		Order("name ASC").
+		Find(&files).Error
+	return files, err
+}
+
 func (s *FileService) Mkdir(userID uint, parentID uint, name string) (*model.File, error) {
 	dir := &model.File{
 		UserID:   userID,

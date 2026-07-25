@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/service"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/storage"
@@ -19,9 +20,21 @@ func NewFileHandler(fs *service.FileService) *FileHandler {
 
 func (h *FileHandler) List(c *gin.Context) {
 	userID := c.GetUint("user_id")
+	policy := c.Query("policy")
 
-	// policy 非空时跨目录返回该策略下全部文件；否则按目录浏览
-	if policy := c.Query("policy"); policy != "" {
+	// search 非空时跨全部目录搜索；policy 非空则限定在该存储策略内。
+	if keyword := strings.TrimSpace(c.Query("search")); keyword != "" {
+		files, err := h.fileService.SearchFiles(userID, keyword, policy)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"files": files})
+		return
+	}
+
+	// policy 非空时跨目录返回该策略下全部文件；否则按目录浏览。
+	if policy != "" {
 		files, err := h.fileService.ListFilesByPolicy(userID, policy)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -91,7 +104,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 type uploadCallbackRequest struct {
 	FileName      string `json:"file_name" binding:"required"`
 	StorageKey    string `json:"storage_key" binding:"required"`
-	Size          int64  `json:"size" binding:"required"`
+	Size          int64  `json:"size"`
 	MimeType      string `json:"mime_type"`
 	ParentID      uint   `json:"parent_id"`
 	StoragePolicy string `json:"storage_policy"` // 可选，应与获取 URL 时一致

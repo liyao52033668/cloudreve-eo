@@ -30,8 +30,14 @@ export const listFiles = (parentId: number = 0) =>
 export const listFilesByPolicy = (policy: string) =>
   client.get<{ files: FileItem[] }>('/files', { params: { policy } })
 
+/** 全局搜索文件名；可选限定存储策略 */
+export const searchFiles = (keyword: string, policy?: string) =>
+  client.get<{ files: FileItem[] }>('/files', {
+    params: { search: keyword, ...(policy ? { policy } : {}) },
+  })
+
 export const mkdir = (parentId: number, name: string) =>
-  client.post('/files/mkdir', { parent_id: parentId, name })
+  client.post<{ file: FileItem }>('/files/mkdir', { parent_id: parentId, name })
 
 export const listStoragePolicies = () =>
   client.get<{ policies: StoragePolicy[]; default: string }>('/storage/policies')
