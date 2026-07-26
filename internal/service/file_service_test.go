@@ -301,23 +301,50 @@ func TestFileService_Delete_File(t *testing.T) {
 }
 
 func TestFileService_Delete_NonEmptyDir(t *testing.T) {
-	svc, _, user := setupFileService(t)
+	svc, mock, user := setupFileService(t)
 
+	if err := model.DB.Model(user).Update("storage_used", int64(100)).Error; err != nil {
+		t.Fatal(err)
+	}
 	dir := &model.File{UserID: user.ID, ParentID: 0, Name: "folder", IsDir: true}
 	if err := model.DB.Create(dir).Error; err != nil {
 		t.Fatal(err)
 	}
-	child := &model.File{UserID: user.ID, ParentID: dir.ID, Name: "c.txt", IsDir: false, Size: 1}
+	sub := &model.File{UserID: user.ID, ParentID: dir.ID, Name: "sub", IsDir: true}
+	if err := model.DB.Create(sub).Error; err != nil {
+		t.Fatal(err)
+	}
+	child := &model.File{
+		UserID: user.ID, ParentID: dir.ID, Name: "c.txt", IsDir: false,
+		Size: 30, StorageKey: "1/c-key", StoragePolicy: "s3",
+	}
 	if err := model.DB.Create(child).Error; err != nil {
 		t.Fatal(err)
 	}
-
-	err := svc.Delete(user.ID, dir.ID)
-	if err == nil {
-		t.Fatal("expected error for non-empty directory")
+	deep := &model.File{
+		UserID: user.ID, ParentID: sub.ID, Name: "d.txt", IsDir: false,
+		Size: 20, StorageKey: "1/d-key", StoragePolicy: "s3",
 	}
-	if err.Error() != "文件夹不为空" {
-		t.Errorf("error = %q, want 文件夹不为空", err.Error())
+	if err := model.DB.Create(deep).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Delete(user.ID, dir.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	if len(mock.deleted) != 2 {
+		t.Errorf("deleted keys = %v, want 2 keys", mock.deleted)
+	}
+	var count int64
+	model.DB.Model(&model.File{}).Where("user_id = ?", user.ID).Count(&count)
+	if count != 0 {
+		t.Errorf("remaining rows = %d, want 0", count)
+	}
+	var updated model.User
+	model.DB.First(&updated, user.ID)
+	if updated.StorageUsed != 50 {
+		t.Errorf("StorageUsed = %d, want 50", updated.StorageUsed)
 	}
 }
 

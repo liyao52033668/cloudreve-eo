@@ -71,7 +71,11 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
   const handleDelete = (file: FileItem) => {
     Modal.confirm({
       title: '确认删除',
-      content: `确定删除 "${file.name}" 吗？`,
+      content: file.is_dir
+        ? `确定删除文件夹 "${file.name}" 及其中的所有内容吗？此操作不可恢复。`
+        : `确定删除 "${file.name}" 吗？`,
+      okText: '删除',
+      okButtonProps: { danger: true },
       onOk: async () => {
         try {
           await deleteFile(file.id)

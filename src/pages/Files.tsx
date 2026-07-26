@@ -380,7 +380,7 @@ export default function Files() {
     }
   }
 
-  /** Ant Design Upload beforeUpload：保持单文件上传行为不变 */
+  /** Ant Design Upload beforeUpload：多选时每个文件独立上传并各自显示进度 */
   const beforeUpload = (file: File) => {
     void handleUpload(file)
     return false
@@ -643,7 +643,7 @@ export default function Files() {
             {!viewPolicy && (
               <div className="files-toolbar__actions">
                 <div className="files-toolbar__action-group" role="group" aria-label="上传">
-                  <Upload beforeUpload={beforeUpload} showUploadList={false}>
+                  <Upload beforeUpload={beforeUpload} showUploadList={false} multiple>
                     <Button icon={<UploadOutlined />} type="primary">
                       上传文件
                     </Button>

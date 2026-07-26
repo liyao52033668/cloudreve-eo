@@ -393,26 +393,49 @@ func (s *FileService) Delete(userID uint, fileID uint) error {
 	}
 
 	return model.DB.Transaction(func(tx *gorm.DB) error {
+		// BFS 收集自身及全部后代
+		toDelete := []model.File{file}
+		queue := []uint{}
 		if file.IsDir {
-			var count int64
-			tx.Model(&model.File{}).Where("parent_id = ? AND user_id = ?", fileID, userID).Count(&count)
-			if count > 0 {
-				return errors.New("文件夹不为空")
+			queue = append(queue, file.ID)
+		}
+		for len(queue) > 0 {
+			var children []model.File
+			if err := tx.Where("parent_id IN ? AND user_id = ?", queue, userID).Find(&children).Error; err != nil {
+				return err
 			}
-		} else {
-			driver, err := s.storageMgr.GetDriver(file.StoragePolicy)
+			queue = queue[:0]
+			for _, c := range children {
+				toDelete = append(toDelete, c)
+				if c.IsDir {
+					queue = append(queue, c.ID)
+				}
+			}
+		}
+
+		var freedSize int64
+		ids := make([]uint, 0, len(toDelete))
+		for _, f := range toDelete {
+			ids = append(ids, f.ID)
+			if f.IsDir {
+				continue
+			}
+			driver, err := s.storageMgr.GetDriver(f.StoragePolicy)
 			if err != nil {
 				return err
 			}
-			if err := driver.Delete(file.StorageKey); err != nil {
+			if err := driver.Delete(f.StorageKey); err != nil {
 				return fmt.Errorf("删除存储对象失败: %w", err)
 			}
+			freedSize += f.Size
+		}
+		if freedSize > 0 {
 			if err := tx.Model(&model.User{}).Where("id = ?", userID).
-				Update("storage_used", gorm.Expr("storage_used - ?", file.Size)).Error; err != nil {
+				Update("storage_used", gorm.Expr("storage_used - ?", freedSize)).Error; err != nil {
 				return err
 			}
 		}
-		return tx.Delete(&file).Error
+		return tx.Where("id IN ?", ids).Delete(&model.File{}).Error
 	})
 }
 
