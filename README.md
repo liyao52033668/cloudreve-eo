@@ -1,12 +1,14 @@
 # Cloudreve-EO
 
-参考 [Cloudreve](https://github.com/cloudreve/Cloudreve) 的简化版云盘，面向 [EdgeOne Makers](https://edgeone.ai/) 部署。
+参考 [Cloudreve](https://github.com/cloudreve/Cloudreve) 的简化版云盘，面向 [EdgeOne Makers](https://cloud.tencent.com/product/teo) 部署。
 
 - **前端**：React + Vite SPA（静态资源）
 - **后端**：Go + Gin，作为 EdgeOne Cloud Functions 运行
 - **文件传输**：预签名 URL 直连对象存储，不经后端中转
 
 本项目**不是**独立的 Go 服务 + 独立前端开发模型；本地联调与线上部署都走 **EdgeOne Makers CLI**。
+
+[![使用 EdgeOne Makers 部署](https://cdnstatic.tencentcs.com/edgeone/pages/deploy.svg)](https://console.cloud.tencent.com/edgeone/makers/new?repository-url=https://github.com/liyao52033668/cloudreve-eo)
 
 ## 功能
 
@@ -25,7 +27,7 @@
 | 后端 | Go、Gin、GORM、JWT（EdgeOne Cloud Functions） |
 | 前端 | React 19、TypeScript、Vite、Ant Design、Axios |
 | 数据库 | SQLite（默认）/ PostgreSQL |
-| 存储 | S3 兼容对象存储（当前实现）；EdgeOne Blob 见下文说明 |
+| 存储 | S3 兼容对象存储 |
 | 运行时 / 部署 | EdgeOne Makers（`edgeone makers`） |
 
 ## 环境要求
@@ -68,7 +70,6 @@ edgeone whoami
 ### 3. 关联远程项目并同步环境变量
 
 ```bash
-edgeone makers link
 edgeone makers env pull
 ```
 
@@ -96,7 +97,6 @@ edgeone makers env pull
 
 ```bash
 edgeone makers dev
-# 默认访问：http://127.0.0.1:8088/
 ```
 
 该命令启动 EdgeOne 本地开发运行时（前端 + Cloud Functions 联调）。  
@@ -127,75 +127,6 @@ edgeone makers deploy -t <token>
 
 ## 环境变量
 
-基础设施配置由 `internal/config/config.go` 从环境变量加载（数据库、端口）。  
-JWT / 存储策略（含每策略配额）等业务项只写数据库，由前端页面操作。  
-在 EdgeOne 上通过 Makers 环境变量注入；本地开发由 `edgeone makers dev` + `.env` 提供。
-
-### 管理命令
-
-| 命令 | 说明 |
-|------|------|
-| `edgeone makers env ls` | 列出远程环境变量 |
-| `edgeone makers env set <KEY> <VALUE>` | 设置远程环境变量 |
-| `edgeone makers env rm <KEY>` | 删除远程环境变量 |
-| `edgeone makers env pull` | 拉取远程变量到本地 `.env` |
-
-### 必填
-
-无强制环境变量。JWT 与存储策略均在前端配置；见下方「JWT 与管理员」「存储策略」。
-
-### JWT 与管理员
-
-| 行为 | 说明 |
-|------|------|
-| 自动生成 | 启动时若数据库 `cloudreve_settings` 表中无 `jwt_secret`，则生成 32 字节随机密钥并持久化 |
-| 环境变量 | **不支持**。不从 `JWT_SECRET` 读取或引导 |
-| 查看 / 轮转 | 管理员登录后打开前端 **参数设置**，可查看当前主密钥并一键轮转 |
-| 首个用户 | 系统中第一个注册用户自动成为管理员（`is_admin=true`） |
-| 轮转效果 | 轮转后所有既有登录令牌立即失效，用户需重新登录 |
-
-### 存储策略（仅前端配置）
-
-与 Cloudreve 一致：管理员在 **存储策略** 页面添加 / 编辑 / 删除 S3 兼容策略，配置写入数据库并热加载，**无需环境变量、无需重启**。初次启动库为空，需自行在页面添加。
-
-| 行为 | 说明 |
-|------|------|
-| 添加策略 | 名称、Bucket、Endpoint、Region、Access Key、Secret Key、每用户默认配额、是否默认 |
-| 每策略配额 | `default_quota` 按策略独立；用量按用户+策略统计；`0` 表示未配置/不可用 |
-| 默认策略 | 上传未指定时使用；删除默认策略时自动提升另一条 |
-| 上传选择 | 用户端文件页可下拉选择已配置策略 |
-| 策略独立 | 每套 S3 使用独立凭证、驱动与配额；某条初始化失败不影响其它策略 |
-| 环境变量 | **不支持**。不从 `S3_*` / `S3_POLICIES` / `DEFAULT_QUOTA` 引导 |
-
-### 服务
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `PORT` | 服务端口（EdgeOne / Makers 运行时会注入；Cloud Function 入口优先读此变量） | `8080`（config 默认）；入口未设置时回退 `9000` |
-
-### 用户配额（跟随存储策略）
-
-配额不是全局设置，而是**每个 S3 存储策略各自配置**的 `default_quota`（字节）：
-
-| 行为 | 说明 |
-|------|------|
-| 配置入口 | 管理员 **存储策略** → 添加/编辑策略 →「每用户默认配额」 |
-| 未设置 / 为 0 | 该策略下用户不可上传（配额不足） |
-| 计量方式 | 按 `(user_id, storage_policy)` 汇总 `cloudreve_files.size`，与其它策略互不影响 |
-| 用户字段 | `cloudreve_users.storage_quota` 固定为 `0`（兼容保留）；`storage_used` 仍为跨策略总用量 |
-
-### 数据库表
-
-全部表统一前缀 `cloudreve_`（GORM `TablePrefix`）：
-
-| 表名 | 用途 |
-|------|------|
-| `cloudreve_users` | 用户 |
-| `cloudreve_files` | 文件/文件夹元数据 |
-| `cloudreve_shares` | 分享 |
-| `cloudreve_settings` | 系统键值配置（JWT、注册开关等） |
-| `cloudreve_storage_policies` | S3 存储策略 |
-
 ### 数据库
 
 | 变量 | 说明 | 默认值 |
@@ -205,37 +136,39 @@ JWT / 存储策略（含每策略配额）等业务项只写数据库，由前�
 
 SQLite 使用纯 Go 驱动（`glebarez/sqlite` / `modernc.org/sqlite`），**不依赖 CGO**，可在 EdgeOne Cloud Functions（`CGO_ENABLED=0`）下编译运行。生产仍建议 PostgreSQL。
 
-PostgreSQL 示例：
+#### SQLite 持久化（`DB_PERSIST`）
 
-```bash
-edgeone makers env set DB_DRIVER postgres
-edgeone makers env set DB_DSN "host=127.0.0.1 user=cloudreve password=secret dbname=cloudreve port=5432 sslmode=disable"
-```
+云函数实例的本地磁盘不持久，重启后 SQLite 文件会丢失。可通过 `DB_PERSIST` 选择把数据库文件同步到远端：
 
-#### EdgeOne Blob（说明，当前未接入）
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DB_PERSIST` | `local`（仅本地文件，适合本地开发）/ `s3`（对象存储）/ `github`（GitHub 仓库） | `local` |
+| `DB_PERSIST_INTERVAL` | 同步间隔（秒，最小 5） | `60` |
 
-EdgeOne 侧文件存储是 **Blob**，不是 COS。  
-COS / MinIO / R2 等应走 **S3 兼容** 策略（前端添加），不要单独当成「EdgeOne 存储」。
+启动时若本地无数据库文件则先从远端恢复；运行期间通过 `VACUUM INTO` 生成一致性快照，内容有变化才上传。仅 `DB_DRIVER=sqlite` 时有效。
 
-官方说明（[Blob 存储 / Node.js SDK](https://cloud.tencent.com/document/product/1552/131425)）：仅 Node SDK；本仓库为 Go，Blob 驱动尚未实现。
+**`DB_PERSIST=s3`（任意 S3 兼容对象存储：COS / R2 / MinIO 等）：**
 
-### 配置示例
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DB_PERSIST_S3_BUCKET` | 存储桶（必填） | — |
+| `DB_PERSIST_S3_ACCESS_KEY` | Access Key（必填） | — |
+| `DB_PERSIST_S3_SECRET_KEY` | Secret Key（必填） | — |
+| `DB_PERSIST_S3_ENDPOINT` | 自定义端点（MinIO/COS/R2 等） | 空（AWS 官方） |
+| `DB_PERSIST_S3_REGION` | 区域 | `auto` |
+| `DB_PERSIST_S3_KEY` | 对象键 | `cloudreve.db` |
+| `DB_PERSIST_S3_PATH_STYLE` | `true` 时使用 path-style | `false` |
 
-**SQLite（推荐最小配置；JWT/存储策略在前端配置）：**
+**`DB_PERSIST=github`（提交到仓库文件，适合小数据量个人使用）：**
 
-```bash
-edgeone makers env set DB_DRIVER sqlite
-edgeone makers env set DB_DSN cloudreve.db
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DB_PERSIST_GITHUB_TOKEN` | 具有 repo contents 写权限的 Token（必填） | — |
+| `DB_PERSIST_GITHUB_REPO` | 仓库 `owner/repo`（必填，建议私有仓库） | — |
+| `DB_PERSIST_GITHUB_BRANCH` | 分支 | `main` |
+| `DB_PERSIST_GITHUB_PATH` | 仓库内文件路径 | `cloudreve.db` |
 
-edgeone makers env pull
-```
-
-**PostgreSQL 生产库：**
-
-```bash
-edgeone makers env set DB_DRIVER postgres
-edgeone makers env set DB_DSN "host=xxx user=xxx password=xxx dbname=cloudreve port=5432 sslmode=require"
-```
+> 注意：数据库中含用户密码哈希与 S3 凭证，GitHub 后端务必使用**私有仓库**。GitHub Contents API 单文件上限约 100MB，且每次同步产生一次 commit，数据量大或写入频繁时请改用 `s3`。
 
 ## 项目结构
 
@@ -345,9 +278,7 @@ cloudreve-eo/
 | `edgeone makers dev` | **本地开发**（默认 `http://127.0.0.1:8088/`） |
 | `edgeone makers build` | 构建前端 + Cloud Functions 到 `.edgeone/` |
 | `edgeone makers deploy` | 部署到 EdgeOne Makers |
-| `edgeone makers link` | 关联远程项目 |
 | `edgeone makers env ls` | 列出远程环境变量 |
-| `edgeone makers env set K V` | 设置远程环境变量 |
 | `edgeone makers env pull` | 拉取环境变量到本地 `.env` |
 | `edgeone login` / `whoami` | 登录 / 查看登录状态 |
 

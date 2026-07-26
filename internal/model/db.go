@@ -45,3 +45,8 @@ func InitDB(cfg *config.Config) error {
 	DB = db
 	return nil
 }
+
+// SnapshotSQLite 用 VACUUM INTO 生成一致性快照文件（dst 必须不存在）。
+func SnapshotSQLite(dst string) error {
+	return DB.Exec("VACUUM INTO ?", dst).Error
+}

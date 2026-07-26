@@ -11,6 +11,7 @@ import (
 	"github.com/cloudreve-eo/cloudreve-eo/internal/handler"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/middleware"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/persist"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/service"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -22,8 +23,23 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
+	// SQLite 持久化：local（默认）返回 nil，s3/github 先从远端恢复再启动定时同步
+	syncer, err := persist.New(cfg)
+	if err != nil {
+		log.Fatalf("初始化数据库持久化失败: %v", err)
+	}
+	if syncer != nil {
+		if err := syncer.Restore(); err != nil {
+			log.Fatalf("恢复数据库失败: %v", err)
+		}
+	}
+
 	if err := model.InitDB(cfg); err != nil {
 		log.Fatalf("初始化数据库失败: %v", err)
+	}
+
+	if syncer != nil {
+		syncer.Start(model.SnapshotSQLite)
 	}
 
 	// JWT 主密钥：库中已有则加载，否则自动生成写入库
