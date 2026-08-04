@@ -35,7 +35,8 @@ func main() {
 		// edgeone-blob 未显式配置地址：平台不注入站点域名，只能等首个请求
 		// 从 Host 头推导后再恢复数据库，因此整个初始化推迟到首个请求。
 		fmt.Printf("Cloudreve-EO 启动中（首个请求时从 EdgeOne Blob 恢复数据库）\n")
-		if err := http.ListenAndServe(":9000", __edgeoneStripPrefix("/api", newLazyBootstrap(cfg, syncer))); err != nil {
+		if err := http.ListenAndServe(port, __edgeoneStripPrefix("/api", newLazyBootstrap(cfg, syncer)));
+		err != nil {
 			log.Fatalf("启动服务失败: %v", err)
 		}
 		return
@@ -46,7 +47,7 @@ func main() {
 		log.Fatalf("启动失败: %v", err)
 	}
 	fmt.Printf("Cloudreve-EO 启动中\n")
-	if err := http.ListenAndServe(":9000", __edgeoneStripPrefix("/api", engine)); err != nil {
+	if err := http.ListenAndServe(port, __edgeoneStripPrefix("/api", engine)); err != nil {
 		log.Fatalf("启动服务失败: %v", err)
 	}
 }

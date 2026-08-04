@@ -11,7 +11,7 @@ export default defineConfig({
     // 与 makers 并行时可用 `vite --port 6699`；代理目标为 WSL 内 makers 网关
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8088',
+        target: 'http://localhost:8088',
         changeOrigin: true,
       },
     },
