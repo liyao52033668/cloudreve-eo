@@ -31,6 +31,8 @@ func main() {
 		log.Fatalf("初始化数据库持久化失败: %v", err)
 	}
 
+	port := ":" + __edgeoneGetPort("9000")
+
 	if cfg.LazyRestore() {
 		// edgeone-blob 未显式配置地址：平台不注入站点域名，只能等首个请求
 		// 从 Host 头推导后再恢复数据库，因此整个初始化推迟到首个请求。
