@@ -1,11 +1,13 @@
 package main
 
 import (
-	"net/http"
-	"strings"
-	"os"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/handler"
@@ -23,19 +25,46 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	// SQLite 持久化：local（默认）返回 nil，s3/github 先从远端恢复再启动定时同步
+	// SQLite 持久化：local（默认）返回 nil，s3/github/edgeone-blob 返回 Syncer
 	syncer, err := persist.New(cfg)
 	if err != nil {
 		log.Fatalf("初始化数据库持久化失败: %v", err)
 	}
+
+	port := ":" + __edgeoneGetPort("9000")
+
+	if cfg.LazyRestore() {
+		// edgeone-blob 未显式配置地址：平台不注入站点域名，只能等首个请求
+		// 从 Host 头推导后再恢复数据库，因此整个初始化推迟到首个请求。
+		fmt.Printf("Cloudreve-EO 启动中（首个请求时从 EdgeOne Blob 恢复数据库）\n")
+		if err := http.ListenAndServe(port, __edgeoneStripPrefix("/api", newLazyBootstrap(cfg, syncer))); err != nil {
+			log.Fatalf("启动服务失败: %v", err)
+		}
+		return
+	}
+
+	engine, err := buildApp(cfg, syncer)
+	if err != nil {
+		log.Fatalf("启动失败: %v", err)
+	}
+	fmt.Printf("Cloudreve-EO 启动中\n")
+	if err := http.ListenAndServe(port, __edgeoneStripPrefix("/api", engine)); err != nil {
+		log.Fatalf("启动服务失败: %v", err)
+	}
+}
+
+// buildApp 完成数据库恢复、初始化与全部路由装配。
+// 启动路径直接调用；懒加载路径在首个请求内调用。
+func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
+	// SQLite 持久化：s3/github/edgeone-blob 先从远端恢复再启动定时同步
 	if syncer != nil {
 		if err := syncer.Restore(); err != nil {
-			log.Fatalf("恢复数据库失败: %v", err)
+			return nil, fmt.Errorf("恢复数据库失败: %w", err)
 		}
 	}
 
 	if err := model.InitDB(cfg); err != nil {
-		log.Fatalf("初始化数据库失败: %v", err)
+		return nil, fmt.Errorf("初始化数据库失败: %w", err)
 	}
 
 	if syncer != nil {
@@ -45,14 +74,14 @@ func main() {
 	// JWT 主密钥：库中已有则加载，否则自动生成写入库
 	jwtSecret, err := model.EnsureJWTSecret()
 	if err != nil {
-		log.Fatalf("初始化 JWT 密钥失败: %v", err)
+		return nil, fmt.Errorf("初始化 JWT 密钥失败: %w", err)
 	}
 	jwtSecrets := service.NewJWTSecretStore(jwtSecret)
 
 	// 存储策略仅来自数据库；空则管理员在前端「存储策略」页添加
 	storageMgr, err := storage.NewStoragePolicyManager()
 	if err != nil {
-		log.Fatalf("初始化存储失败: %v", err)
+		return nil, fmt.Errorf("初始化存储失败: %w", err)
 	}
 	if n := len(storageMgr.ListPolicies()); n == 0 {
 		log.Printf("尚未配置存储策略，请管理员在前端「存储策略」页面添加 S3 兼容策略")
@@ -155,14 +184,55 @@ func main() {
 	publicShares.GET("/:code", shareHandler.Get)
 	publicShares.GET("/:code/download", shareHandler.Download)
 
-	// EdgeOne Makers 构建时会注入端口适配与 /api 前缀剥离；本地 makers dev 也按此约定。
-	// 平台文档推荐标准写法 http.ListenAndServe(":" + __edgeoneGetPort("9000"), __edgeoneStripPrefix("/api", r))，勿改为独立进程式启动。
-	fmt.Printf("Cloudreve-EO 启动中\n")
-	if err := http.ListenAndServe(":" + __edgeoneGetPort("9000"), __edgeoneStripPrefix("/api", r)); err != nil {
-		log.Fatalf("启动服务失败: %v", err)
-	}
+	return r, nil
 }
 
+// newLazyBootstrap 懒加载自举：首个请求到达时从其 Host 头推导站点地址，
+// 完成数据库恢复与全部初始化，之后所有请求直接走已构建好的路由。
+// 初始化失败返回 503，下个请求重试。
+func newLazyBootstrap(cfg *config.Config, syncer *persist.Syncer) http.Handler {
+	var engine atomic.Pointer[gin.Engine]
+	var mu sync.Mutex
+
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if eng := engine.Load(); eng != nil {
+			eng.ServeHTTP(w, req)
+			return
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		if eng := engine.Load(); eng != nil {
+			eng.ServeHTTP(w, req)
+			return
+		}
+
+		baseURL := baseURLFromRequest(req)
+		log.Printf("[persist] 从请求推导站点地址: %s", baseURL)
+		syncer.SetBaseURL(baseURL)
+
+		eng, err := buildApp(cfg, syncer)
+		if err != nil {
+			log.Printf("延迟初始化失败: %v", err)
+			http.Error(w, "服务初始化中，请稍后重试", http.StatusServiceUnavailable)
+			return
+		}
+		engine.Store(eng)
+		eng.ServeHTTP(w, req)
+	})
+}
+
+// baseURLFromRequest 从请求推导站点地址（Go 与 Node 函数共用同一对外域名）。
+// 边缘终结 TLS 后转发，协议优先取 X-Forwarded-Proto；本地开发无该头时用 http。
+func baseURLFromRequest(r *http.Request) string {
+	scheme := "https"
+	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+		scheme = strings.TrimSpace(strings.Split(p, ",")[0])
+	} else if strings.HasPrefix(r.Host, "localhost") || strings.HasPrefix(r.Host, "127.0.0.1") {
+		scheme = "http"
+	}
+	return scheme + "://" + r.Host
+}
 
 // __edgeoneGetPort 从环境变量 PORT 获取端口，如果未设置则使用默认值
 // 由 EdgeOne Makers CLI 自动注入
@@ -172,7 +242,6 @@ func __edgeoneGetPort(defaultPort string) string {
 	}
 	return defaultPort
 }
-
 
 // __edgeoneStripPrefix 类似 http.StripPrefix，但确保 strip 后空路径变为 "/"
 // 避免框架收到空路径后做 301 redirect

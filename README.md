@@ -142,7 +142,7 @@ SQLite 使用纯 Go 驱动（`glebarez/sqlite` / `modernc.org/sqlite`），**不
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `DB_PERSIST` | `local`（仅本地文件，适合本地开发）/ `s3`（对象存储）/ `github`（GitHub 仓库） | `local` |
+| `DB_PERSIST` | `local`（仅本地文件，适合本地开发）/ `s3`（对象存储）/ `github`（GitHub 仓库）/ `edgeone-blob`（EdgeOne Blob） | `local` |
 | `DB_PERSIST_INTERVAL` | 同步间隔（秒，最小 5） | `60` |
 
 启动时若本地无数据库文件则先从远端恢复；运行期间通过 `VACUUM INTO` 生成一致性快照，内容有变化才上传。仅 `DB_DRIVER=sqlite` 时有效。
@@ -168,7 +168,25 @@ SQLite 使用纯 Go 驱动（`glebarez/sqlite` / `modernc.org/sqlite`），**不
 | `DB_PERSIST_GITHUB_BRANCH` | 分支 | `main` |
 | `DB_PERSIST_GITHUB_PATH` | 仓库内文件路径 | `cloudreve.db` |
 
-> 注意：数据库中含用户密码哈希与 S3 凭证，GitHub 后端务必使用**私有仓库**。GitHub Contents API 单文件上限约 100MB，且每次同步产生一次 commit，数据量大或写入频繁时请改用 `s3`。
+> 注意：数据库中含用户密码哈希与 S3 凭证，GitHub 后端务必使用**私有仓库**。GitHub Contents API 单文件上限约 100MB，且每次同步产生一次 commit，数据量大或写入频繁时请改用 `s3` 或 `edgeone-blob`。
+
+**`DB_PERSIST=edgeone-blob`（存到 EdgeOne Makers Blob，免第三方对象存储）：**
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DB_PERSIST_EDGEONE_SECRET` | 共享密钥（必填） | — |
+| `DB_PERSIST_EDGEONE_BASE_URL` | 站点地址（可选，末尾不带 `/`）；留空时由首个请求的 `Host` 头自动推导 | 自动推导 |
+
+Blob SDK（`@edgeone/pages-blob`）仅有 Node 版本，因此本方案由 Node 云函数 `cloud-functions/db-blob.js` 代理读写：Go 主程序下载快照时直接 `GET /db-blob`，上传时先向该函数请求预签名 URL 再直写 Blob（绕开云函数 6MB 请求体上限）。
+
+> Go 与 Node 是两个独立的函数运行时，共用同一对外域名（边缘按路径分发），进程间没有内部通道，Go 只能通过该域名回调 Node 函数。由于平台不向函数注入站点域名，未显式配置 `DB_PERSIST_EDGEONE_BASE_URL` 时采用**懒恢复**：初始化推迟到首个请求，从请求 `Host` 头自动推导站点地址再恢复数据库，因此通常**无需手动填地址**。`/db-blob` 是公开路由，`DB_PERSIST_EDGEONE_SECRET` 用于鉴权，防止数据库（含密码哈希、S3 凭证）被任意下载或覆盖。环境变量是项目级的，两个运行时读取同一份，每个变量只需设置一次。
+
+```bash
+edgeone makers env set DB_PERSIST edgeone-blob
+edgeone makers env set DB_PERSIST_EDGEONE_SECRET <随机长密钥>
+```
+
+> ⚠️ 懒恢复依赖回调能访问站点域名。若站点只有 EdgeOne 临时预览地址（`https://xxx.edgeone.cool?eo_token=...`），Go 的服务端回调不带 `eo_token` 会被边缘拦截（401），请绑定自定义域名后使用本后端，或改用 `s3` / `github`。Blob 免费版单账户容量 1GB，超出请改用 `s3`。
 
 ## 项目结构
 
@@ -177,7 +195,8 @@ cloudreve-eo/
 ├── .edgeone/
 │   └── cloud-functions/api-go/  # Makers 构建/部署的 Cloud Functions 产物
 ├── cloud-functions/
-│   └── api.go                 # 本地/源码侧后端入口（由 Makers 运行时使用）
+│   ├── api.go                 # Go 后端入口（Gin 框架模式，URL 前缀 /api）
+│   └── db-blob.js             # Node 云函数：EdgeOne Blob 代理（DB_PERSIST=edgeone-blob）
 ├── internal/                    # 后端业务代码
 │   ├── config/                  # 环境变量配置
 │   ├── handler/

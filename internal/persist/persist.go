@@ -42,6 +42,8 @@ func New(cfg *config.Config) (*Syncer, error) {
 		backend, err = newS3Backend(cfg.Persist.S3)
 	case "github":
 		backend = newGitHubBackend(cfg.Persist.GitHub)
+	case "edgeone-blob":
+		backend = newEdgeOneBlobBackend(cfg.Persist.EdgeOne)
 	default:
 		return nil, fmt.Errorf("不支持的持久化后端: %s", cfg.Persist.Backend)
 	}
@@ -53,6 +55,14 @@ func New(cfg *config.Config) (*Syncer, error) {
 		dbPath:   cfg.DB.DSN,
 		interval: cfg.Persist.Interval,
 	}, nil
+}
+
+// SetBaseURL 覆盖后端地址。用于 edgeone-blob 未显式配置地址时，
+// 由首个请求从 Host 头推导出站点域名后回填。必须在 Restore 之前调用。
+func (s *Syncer) SetBaseURL(baseURL string) {
+	if b, ok := s.backend.(*edgeOneBlobBackend); ok {
+		b.cfg.BaseURL = baseURL
+	}
 }
 
 // Restore 启动时从远端恢复数据库文件。

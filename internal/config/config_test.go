@@ -94,10 +94,52 @@ func TestLoad_IgnoresBusinessEnv(t *testing.T) {
 	}
 }
 
+func TestLoad_PersistEdgeOneBlob(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("DB_PERSIST", "edgeone-blob")
+
+	// 缺 SECRET 必须报错
+	if _, err := Load(); err == nil {
+		t.Fatalf("缺少 DB_PERSIST_EDGEONE_SECRET 时应报错")
+	}
+
+	// 仅配 SECRET：BASE_URL 留空，进入懒恢复模式（从首个请求推导）
+	t.Setenv("DB_PERSIST_EDGEONE_SECRET", "topsecret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if !cfg.LazyRestore() {
+		t.Errorf("未配置 BASE_URL 时 LazyRestore() = false, want true")
+	}
+
+	// 显式配置 BASE_URL：去除末尾斜杠，启动即恢复
+	t.Setenv("DB_PERSIST_EDGEONE_BASE_URL", "https://demo.edgeone.run/")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.LazyRestore() {
+		t.Errorf("已配置 BASE_URL 时 LazyRestore() = true, want false")
+	}
+	if cfg.Persist.EdgeOne.BaseURL != "https://demo.edgeone.run" {
+		t.Errorf("BaseURL = %q, 末尾斜杠应被去除", cfg.Persist.EdgeOne.BaseURL)
+	}
+	if cfg.Persist.EdgeOne.Secret != "topsecret" {
+		t.Errorf("Secret = %q", cfg.Persist.EdgeOne.Secret)
+	}
+}
+
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
 	for _, v := range []string{
 		"DB_DRIVER", "DB_DSN", "PORT",
+		"DB_PERSIST", "DB_PERSIST_INTERVAL",
+		"DB_PERSIST_S3_ENDPOINT", "DB_PERSIST_S3_REGION", "DB_PERSIST_S3_BUCKET",
+		"DB_PERSIST_S3_ACCESS_KEY", "DB_PERSIST_S3_SECRET_KEY", "DB_PERSIST_S3_KEY", "DB_PERSIST_S3_PATH_STYLE",
+		"DB_PERSIST_GITHUB_TOKEN", "DB_PERSIST_GITHUB_REPO", "DB_PERSIST_GITHUB_BRANCH", "DB_PERSIST_GITHUB_PATH",
+		"DB_PERSIST_EDGEONE_BASE_URL", "DB_PERSIST_EDGEONE_SECRET",
+		"DB_PERSIST_EDGEONE_STORE", "DB_PERSIST_EDGEONE_KEY",
 		"JWT_SECRET", "DEFAULT_QUOTA", "DEFAULT_STORAGE",
 		"S3_ENDPOINT", "S3_REGION", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_POLICIES",
 		"EDGEONE_BUCKET", "EDGEONE_SECRET_ID", "EDGEONE_SECRET_KEY",
