@@ -31,13 +31,11 @@ func main() {
 		log.Fatalf("初始化数据库持久化失败: %v", err)
 	}
 
-	port := ":" + __edgeoneGetPort("9000")
-
 	if cfg.LazyRestore() {
 		// edgeone-blob 未显式配置地址：平台不注入站点域名，只能等首个请求
 		// 从 Host 头推导后再恢复数据库，因此整个初始化推迟到首个请求。
 		fmt.Printf("Cloudreve-EO 启动中（首个请求时从 EdgeOne Blob 恢复数据库）\n")
-		if err := http.ListenAndServe(port, __edgeoneStripPrefix("/api", newLazyBootstrap(cfg, syncer))); err != nil {
+		if err := http.ListenAndServe(":9000", __edgeoneStripPrefix("/api", newLazyBootstrap(cfg, syncer))); err != nil {
 			log.Fatalf("启动服务失败: %v", err)
 		}
 		return
@@ -48,7 +46,7 @@ func main() {
 		log.Fatalf("启动失败: %v", err)
 	}
 	fmt.Printf("Cloudreve-EO 启动中\n")
-	if err := http.ListenAndServe(port, __edgeoneStripPrefix("/api", engine)); err != nil {
+	if err := http.ListenAndServe(":9000", __edgeoneStripPrefix("/api", engine)); err != nil {
 		log.Fatalf("启动服务失败: %v", err)
 	}
 }
@@ -65,6 +63,11 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 
 	if err := model.InitDB(cfg); err != nil {
 		return nil, fmt.Errorf("初始化数据库失败: %w", err)
+	}
+
+	// 默认用户组：新注册用户自动归入；老库升级时也保证存在
+	if _, err := model.EnsureDefaultGroup(); err != nil {
+		return nil, fmt.Errorf("初始化默认用户组失败: %w", err)
 	}
 
 	if syncer != nil {
@@ -99,6 +102,8 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	userHandler := handler.NewUserHandler(storageMgr)
 	settingHandler := handler.NewSettingHandler(jwtSecrets)
 	policyHandler := handler.NewPolicyHandler(storageMgr)
+	groupHandler := handler.NewGroupHandler()
+	adminUserHandler := handler.NewAdminUserHandler(storageMgr)
 
 	r := gin.Default()
 
@@ -176,6 +181,25 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 				adminPolicies.DELETE("/:id", policyHandler.Delete)
 				adminPolicies.POST("/:id/default", policyHandler.SetDefault)
 				adminPolicies.POST("/:id/cors", policyHandler.SetCORS)
+			}
+
+			adminGroups := admin.Group("/admin/groups")
+			{
+				adminGroups.GET("", groupHandler.List)
+				adminGroups.POST("", groupHandler.Create)
+				adminGroups.GET("/:id", groupHandler.Get)
+				adminGroups.PUT("/:id", groupHandler.Update)
+				adminGroups.DELETE("/:id", groupHandler.Delete)
+				adminGroups.POST("/:id/default", groupHandler.SetDefault)
+			}
+
+			adminUsers := admin.Group("/admin/users")
+			{
+				adminUsers.GET("", adminUserHandler.List)
+				adminUsers.POST("", adminUserHandler.Create)
+				adminUsers.GET("/:id", adminUserHandler.Get)
+				adminUsers.PUT("/:id", adminUserHandler.Update)
+				adminUsers.DELETE("/:id", adminUserHandler.Delete)
 			}
 		}
 	}

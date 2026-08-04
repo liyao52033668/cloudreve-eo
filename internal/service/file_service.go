@@ -78,10 +78,41 @@ func (s *FileService) Mkdir(userID uint, parentID uint, name string) (*model.Fil
 	return dir, nil
 }
 
-// GetUploadURL 生成上传预签名 URL。
-// policy 为空时使用默认策略；返回 uploadURL, storageKey, resolvedPolicy。
-func (s *FileService) GetUploadURL(userID uint, fileName string, contentType string, policy string) (string, string, string, error) {
-	resolved, err := s.storageMgr.ResolvePolicy(policy)
+// ResolveUserPolicy 解析用户上传使用的存储策略：取用户所属用户组绑定的策略。
+func (s *FileService) ResolveUserPolicy(userID uint) (string, error) {
+	group, err := s.UserGroupOf(userID)
+	if err != nil {
+		return "", err
+	}
+	return s.storageMgr.ResolvePolicy(group.StoragePolicy)
+}
+
+// UserGroupOf 返回用户所属的用户组；未分组或组不存在时返回默认组（仍无则报错）。
+func (s *FileService) UserGroupOf(userID uint) (*model.UserGroup, error) {
+	user, err := model.GetUserByID(userID)
+	if err != nil {
+		return nil, errors.New("用户不存在")
+	}
+	if user.GroupID != 0 {
+		group, err := model.GetUserGroupByID(user.GroupID)
+		if err == nil {
+			return group, nil
+		}
+	}
+	group, err := model.GetDefaultGroup()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("未配置用户组，请管理员先添加用户组")
+		}
+		return nil, err
+	}
+	return group, nil
+}
+
+// GetUploadURL 生成上传预签名 URL。存储策略由用户所属用户组决定。
+// 返回 uploadURL, storageKey, resolvedPolicy。
+func (s *FileService) GetUploadURL(userID uint, fileName string, contentType string) (string, string, string, error) {
+	resolved, err := s.ResolveUserPolicy(userID)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -98,9 +129,9 @@ func (s *FileService) GetUploadURL(userID uint, fileName string, contentType str
 	return url, key, resolved, nil
 }
 
-// UploadCallback 写入文件记录。policy 必须与获取上传 URL 时使用的策略一致。
-func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, storageKey string, size int64, mimeType string, policy string) (*model.File, error) {
-	resolved, err := s.storageMgr.ResolvePolicy(policy)
+// UploadCallback 写入文件记录。存储策略由用户所属用户组决定。
+func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, storageKey string, size int64, mimeType string) (*model.File, error) {
+	resolved, err := s.ResolveUserPolicy(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,11 +170,20 @@ func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, stora
 	return file, nil
 }
 
-// checkQuota 校验用户在指定策略下新增 size 字节后是否超出配额。
+// checkQuota 校验用户新增 size 字节后是否超出配额。
+// 配额优先取用户组的最大容量；为 0 时沿用存储策略的每用户默认配额。
 func (s *FileService) checkQuota(userID uint, resolvedPolicy string, size int64) error {
 	info, ok := s.storageMgr.GetPolicyInfo(resolvedPolicy)
 	if !ok {
 		return fmt.Errorf("存储策略 %s 不存在", resolvedPolicy)
+	}
+	group, err := s.UserGroupOf(userID)
+	if err != nil {
+		return err
+	}
+	quota := group.MaxStorage
+	if quota == 0 {
+		quota = info.DefaultQuota
 	}
 	var used int64
 	if err := model.DB.Model(&model.File{}).
@@ -151,7 +191,7 @@ func (s *FileService) checkQuota(userID uint, resolvedPolicy string, size int64)
 		Select("COALESCE(SUM(size), 0)").Scan(&used).Error; err != nil {
 		return fmt.Errorf("统计已用容量失败: %w", err)
 	}
-	if used+size > info.DefaultQuota {
+	if used+size > quota {
 		return errors.New("存储配额不足")
 	}
 	return nil
@@ -194,11 +234,12 @@ type MultipartSession struct {
 
 // InitMultipartUpload 创建分片上传会话：生成对象键、发起 multipart、
 // 按分片数量预签名各分片 URL，并持久化会话以支持断点续传。
-func (s *FileService) InitMultipartUpload(userID uint, fileName, contentType string, size int64, parentID uint, policy string) (*MultipartSession, error) {
+// 存储策略由用户所属用户组决定。
+func (s *FileService) InitMultipartUpload(userID uint, fileName, contentType string, size int64, parentID uint) (*MultipartSession, error) {
 	if size <= 0 {
 		return nil, errors.New("文件大小无效")
 	}
-	resolved, err := s.storageMgr.ResolvePolicy(policy)
+	resolved, err := s.ResolveUserPolicy(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -319,22 +360,33 @@ func (s *FileService) ResumeMultipartUpload(userID uint, storageKey string) (*Mu
 }
 
 // CompleteMultipartUpload 合并分片并写入文件记录，随后清理会话。
-func (s *FileService) CompleteMultipartUpload(userID uint, parentID uint, fileName, storageKey, uploadID string, size int64, mimeType string, policy string, parts []storage.CompletedPart) (*model.File, error) {
-	resolved, err := s.storageMgr.ResolvePolicy(policy)
-	if err != nil {
-		return nil, err
-	}
+// 要求用户当前生效策略与会话记录一致，否则文件会落到错误存储，应重新上传。
+func (s *FileService) CompleteMultipartUpload(userID uint, parentID uint, fileName, storageKey, uploadID string, size int64, mimeType string, parts []storage.CompletedPart) (*model.File, error) {
 	if len(parts) == 0 {
 		return nil, errors.New("分片列表为空")
 	}
-	driver, err := s.storageMgr.GetDriver(resolved)
+	sess, err := model.GetUploadSession(userID, storageKey)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("上传会话不存在或已完成")
+		}
+		return nil, err
+	}
+	current, err := s.ResolveUserPolicy(userID)
+	if err != nil {
+		return nil, err
+	}
+	if current != sess.StoragePolicy {
+		return nil, errors.New("存储策略已变更，请放弃该任务后重新上传")
+	}
+	driver, err := s.storageMgr.GetDriver(sess.StoragePolicy)
 	if err != nil {
 		return nil, err
 	}
 	if err := driver.CompleteMultipartUpload(storageKey, uploadID, parts); err != nil {
 		return nil, err
 	}
-	file, err := s.UploadCallback(userID, parentID, fileName, storageKey, size, mimeType, resolved)
+	file, err := s.UploadCallback(userID, parentID, fileName, storageKey, size, mimeType)
 	if err != nil {
 		return nil, err
 	}
@@ -343,12 +395,16 @@ func (s *FileService) CompleteMultipartUpload(userID uint, parentID uint, fileNa
 }
 
 // AbortMultipartUpload 取消分片上传，清理存储端分片与本地会话。
-func (s *FileService) AbortMultipartUpload(userID uint, storageKey, uploadID string, policy string) error {
-	resolved, err := s.storageMgr.ResolvePolicy(policy)
+// 存储端策略以会话记录为准，不受用户当前所属组影响。
+func (s *FileService) AbortMultipartUpload(userID uint, storageKey, uploadID string) error {
+	sess, err := model.GetUploadSession(userID, storageKey)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // 会话已不存在，视为已清理
+		}
 		return err
 	}
-	driver, err := s.storageMgr.GetDriver(resolved)
+	driver, err := s.storageMgr.GetDriver(sess.StoragePolicy)
 	if err != nil {
 		return err
 	}

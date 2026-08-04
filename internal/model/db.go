@@ -38,7 +38,7 @@ func InitDB(cfg *config.Config) error {
 		return fmt.Errorf("连接数据库失败: %w", err)
 	}
 
-	if err := db.AutoMigrate(&User{}, &File{}, &Share{}, &Setting{}, &StoragePolicy{}, &UploadSession{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &UserGroup{}, &File{}, &Share{}, &Setting{}, &StoragePolicy{}, &UploadSession{}); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
 

@@ -75,10 +75,9 @@ func (h *FileHandler) Mkdir(c *gin.Context) {
 }
 
 type uploadRequest struct {
-	FileName      string `json:"file_name" binding:"required"`
-	ContentType   string `json:"content_type" binding:"required"`
-	ParentID      uint   `json:"parent_id"`
-	StoragePolicy string `json:"storage_policy"` // 可选，空则使用默认策略
+	FileName    string `json:"file_name" binding:"required"`
+	ContentType string `json:"content_type" binding:"required"`
+	ParentID    uint   `json:"parent_id"`
 }
 
 func (h *FileHandler) Upload(c *gin.Context) {
@@ -89,7 +88,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	url, key, policy, err := h.fileService.GetUploadURL(userID, req.FileName, req.ContentType, req.StoragePolicy)
+	url, key, policy, err := h.fileService.GetUploadURL(userID, req.FileName, req.ContentType)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -102,12 +101,11 @@ func (h *FileHandler) Upload(c *gin.Context) {
 }
 
 type uploadCallbackRequest struct {
-	FileName      string `json:"file_name" binding:"required"`
-	StorageKey    string `json:"storage_key" binding:"required"`
-	Size          int64  `json:"size"`
-	MimeType      string `json:"mime_type"`
-	ParentID      uint   `json:"parent_id"`
-	StoragePolicy string `json:"storage_policy"` // 可选，应与获取 URL 时一致
+	FileName   string `json:"file_name" binding:"required"`
+	StorageKey string `json:"storage_key" binding:"required"`
+	Size       int64  `json:"size"`
+	MimeType   string `json:"mime_type"`
+	ParentID   uint   `json:"parent_id"`
 }
 
 func (h *FileHandler) UploadCallback(c *gin.Context) {
@@ -118,7 +116,7 @@ func (h *FileHandler) UploadCallback(c *gin.Context) {
 		return
 	}
 
-	file, err := h.fileService.UploadCallback(userID, req.ParentID, req.FileName, req.StorageKey, req.Size, req.MimeType, req.StoragePolicy)
+	file, err := h.fileService.UploadCallback(userID, req.ParentID, req.FileName, req.StorageKey, req.Size, req.MimeType)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -127,11 +125,10 @@ func (h *FileHandler) UploadCallback(c *gin.Context) {
 }
 
 type multipartInitRequest struct {
-	FileName      string `json:"file_name" binding:"required"`
-	ContentType   string `json:"content_type" binding:"required"`
-	Size          int64  `json:"size" binding:"required"`
-	ParentID      uint   `json:"parent_id"`
-	StoragePolicy string `json:"storage_policy"`
+	FileName    string `json:"file_name" binding:"required"`
+	ContentType string `json:"content_type" binding:"required"`
+	Size        int64  `json:"size" binding:"required"`
+	ParentID    uint   `json:"parent_id"`
 }
 
 // MultipartInit POST /api/files/upload/multipart —— 创建分片上传会话。
@@ -143,7 +140,7 @@ func (h *FileHandler) MultipartInit(c *gin.Context) {
 		return
 	}
 
-	session, err := h.fileService.InitMultipartUpload(userID, req.FileName, req.ContentType, req.Size, req.ParentID, req.StoragePolicy)
+	session, err := h.fileService.InitMultipartUpload(userID, req.FileName, req.ContentType, req.Size, req.ParentID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -184,14 +181,13 @@ func (h *FileHandler) MultipartResume(c *gin.Context) {
 }
 
 type multipartCompleteRequest struct {
-	FileName      string                  `json:"file_name" binding:"required"`
-	StorageKey    string                  `json:"storage_key" binding:"required"`
-	UploadID      string                  `json:"upload_id" binding:"required"`
-	Size          int64                   `json:"size" binding:"required"`
-	MimeType      string                  `json:"mime_type"`
-	ParentID      uint                    `json:"parent_id"`
-	StoragePolicy string                  `json:"storage_policy"`
-	Parts         []storage.CompletedPart `json:"parts" binding:"required"`
+	FileName   string                  `json:"file_name" binding:"required"`
+	StorageKey string                  `json:"storage_key" binding:"required"`
+	UploadID   string                  `json:"upload_id" binding:"required"`
+	Size       int64                   `json:"size" binding:"required"`
+	MimeType   string                  `json:"mime_type"`
+	ParentID   uint                    `json:"parent_id"`
+	Parts      []storage.CompletedPart `json:"parts" binding:"required"`
 }
 
 // MultipartComplete POST /api/files/upload/multipart/complete —— 合并分片并落库。
@@ -203,7 +199,7 @@ func (h *FileHandler) MultipartComplete(c *gin.Context) {
 		return
 	}
 
-	file, err := h.fileService.CompleteMultipartUpload(userID, req.ParentID, req.FileName, req.StorageKey, req.UploadID, req.Size, req.MimeType, req.StoragePolicy, req.Parts)
+	file, err := h.fileService.CompleteMultipartUpload(userID, req.ParentID, req.FileName, req.StorageKey, req.UploadID, req.Size, req.MimeType, req.Parts)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -212,9 +208,8 @@ func (h *FileHandler) MultipartComplete(c *gin.Context) {
 }
 
 type multipartAbortRequest struct {
-	StorageKey    string `json:"storage_key" binding:"required"`
-	UploadID      string `json:"upload_id" binding:"required"`
-	StoragePolicy string `json:"storage_policy"`
+	StorageKey string `json:"storage_key" binding:"required"`
+	UploadID   string `json:"upload_id" binding:"required"`
 }
 
 // MultipartAbort POST /api/files/upload/multipart/abort —— 取消分片上传。
@@ -226,7 +221,7 @@ func (h *FileHandler) MultipartAbort(c *gin.Context) {
 		return
 	}
 
-	if err := h.fileService.AbortMultipartUpload(userID, req.StorageKey, req.UploadID, req.StoragePolicy); err != nil {
+	if err := h.fileService.AbortMultipartUpload(userID, req.StorageKey, req.UploadID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

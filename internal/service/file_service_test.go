@@ -93,11 +93,17 @@ func setupFileService(t *testing.T) (*FileService, *mockStorageDriver, *model.Us
 		t.Fatalf("InitDB: %v", err)
 	}
 
+	groupID, err := model.EnsureDefaultGroup()
+	if err != nil {
+		t.Fatalf("ensure group: %v", err)
+	}
+
 	user := &model.User{
 		Username:     "fileuser",
 		PasswordHash: "hash",
 		StorageQuota: 1073741824,
 		StorageUsed:  0,
+		GroupID:      groupID,
 	}
 	if err := model.DB.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
@@ -166,7 +172,7 @@ func TestFileService_Mkdir(t *testing.T) {
 func TestFileService_GetUploadURL(t *testing.T) {
 	svc, mock, user := setupFileService(t)
 
-	url, key, policy, err := svc.GetUploadURL(user.ID, "report.pdf", "application/pdf", "")
+	url, key, policy, err := svc.GetUploadURL(user.ID, "report.pdf", "application/pdf")
 	if err != nil {
 		t.Fatalf("GetUploadURL: %v", err)
 	}
@@ -191,7 +197,7 @@ func TestFileService_GetUploadURL(t *testing.T) {
 func TestFileService_UploadCallback(t *testing.T) {
 	svc, _, user := setupFileService(t)
 
-	file, err := svc.UploadCallback(user.ID, 0, "doc.txt", "1/abc-key", 1024, "text/plain", "")
+	file, err := svc.UploadCallback(user.ID, 0, "doc.txt", "1/abc-key", 1024, "text/plain")
 	if err != nil {
 		t.Fatalf("UploadCallback: %v", err)
 	}
@@ -405,7 +411,7 @@ func TestFileService_Move_TargetNotFound(t *testing.T) {
 	}
 }
 
-func TestFileService_UploadCallback_PerPolicyQuota(t *testing.T) {
+func TestFileService_UploadCallback_GroupQuota(t *testing.T) {
 	model.DB = nil
 	t.Cleanup(func() { model.DB = nil })
 
@@ -418,27 +424,37 @@ func TestFileService_UploadCallback_PerPolicyQuota(t *testing.T) {
 	if err := model.InitDB(cfg); err != nil {
 		t.Fatalf("InitDB: %v", err)
 	}
-	user := &model.User{Username: "quser", PasswordHash: "h", StorageQuota: 0}
-	if err := model.DB.Create(user).Error; err != nil {
-		t.Fatalf("create user: %v", err)
+
+	groupA := &model.UserGroup{Name: "ga", StoragePolicy: "a", MaxStorage: 1000}
+	if err := model.DB.Create(groupA).Error; err != nil {
+		t.Fatal(err)
+	}
+	groupB := &model.UserGroup{Name: "gb", StoragePolicy: "b", MaxStorage: 1 << 40}
+	if err := model.DB.Create(groupB).Error; err != nil {
+		t.Fatal(err)
+	}
+	userA := &model.User{Username: "ua", PasswordHash: "h", GroupID: groupA.ID}
+	if err := model.DB.Create(userA).Error; err != nil {
+		t.Fatal(err)
+	}
+	userB := &model.User{Username: "ub", PasswordHash: "h", GroupID: groupB.ID}
+	if err := model.DB.Create(userB).Error; err != nil {
+		t.Fatal(err)
 	}
 
-	mockA := newMockStorageDriver()
-	mockB := newMockStorageDriver()
-
-	// A 配额 1000：已占用 800 后再传 300 应失败，传 200 应成功
-	svcA := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("a", mockA, 1000))
+	// A 组容量 1000：userA 已占用 800 后再传 300 应失败，传 200 应成功
+	svcA := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("a", newMockStorageDriver(), 1000))
 	if err := model.DB.Create(&model.File{
-		UserID: user.ID, ParentID: 0, Name: "old.bin", IsDir: false,
+		UserID: userA.ID, ParentID: 0, Name: "old.bin", IsDir: false,
 		Size: 800, StorageKey: "k1", StoragePolicy: "a",
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	_, err := svcA.UploadCallback(user.ID, 0, "new.bin", "k2", 300, "application/octet-stream", "a")
+	_, err := svcA.UploadCallback(userA.ID, 0, "new.bin", "k2", 300, "application/octet-stream")
 	if err == nil || err.Error() != "存储配额不足" {
 		t.Fatalf("expected 存储配额不足, got %v", err)
 	}
-	f, err := svcA.UploadCallback(user.ID, 0, "ok.bin", "k3", 200, "application/octet-stream", "a")
+	f, err := svcA.UploadCallback(userA.ID, 0, "ok.bin", "k3", 200, "application/octet-stream")
 	if err != nil {
 		t.Fatalf("UploadCallback 200: %v", err)
 	}
@@ -446,9 +462,9 @@ func TestFileService_UploadCallback_PerPolicyQuota(t *testing.T) {
 		t.Errorf("file = %+v", f)
 	}
 
-	// B 配额独立且很大：不受 A 已用容量影响
-	svcB := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("b", mockB, 1<<40))
-	fb, err := svcB.UploadCallback(user.ID, 0, "b.bin", "kb", 5000, "application/octet-stream", "b")
+	// userB 属于 B 组（策略 b，容量很大），不受 userA 已用容量影响
+	svcB := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("b", newMockStorageDriver(), 1<<40))
+	fb, err := svcB.UploadCallback(userB.ID, 0, "b.bin", "kb", 5000, "application/octet-stream")
 	if err != nil {
 		t.Fatalf("policy b upload: %v", err)
 	}
@@ -456,9 +472,54 @@ func TestFileService_UploadCallback_PerPolicyQuota(t *testing.T) {
 		t.Errorf("policy = %s", fb.StoragePolicy)
 	}
 
-	// A 的 used 不应计入 B：A 仍满（800+200）
-	_, err = svcA.UploadCallback(user.ID, 0, "one.bin", "k4", 1, "application/octet-stream", "a")
+	// userA 仍满（800+200）
+	_, err = svcA.UploadCallback(userA.ID, 0, "one.bin", "k4", 1, "application/octet-stream")
 	if err == nil || err.Error() != "存储配额不足" {
 		t.Fatalf("expected a still full after b upload, got %v", err)
+	}
+}
+
+// 组容量为 0 时沿用存储策略的每用户默认配额。
+func TestFileService_UploadCallback_QuotaFallbackToPolicyDefault(t *testing.T) {
+	model.DB = nil
+	t.Cleanup(func() { model.DB = nil })
+
+	cfg := &config.Config{
+		DB: config.DBConfig{
+			Driver: "sqlite",
+			DSN:    filepath.Join(t.TempDir(), "quota_fallback.db"),
+		},
+	}
+	if err := model.InitDB(cfg); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+
+	group := &model.UserGroup{Name: "g", StoragePolicy: "s3", MaxStorage: 0}
+	if err := model.DB.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	user := &model.User{Username: "fb", PasswordHash: "h", GroupID: group.ID}
+	if err := model.DB.Create(user).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// 策略默认配额 500
+	svc := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("s3", newMockStorageDriver(), 500))
+	if err := model.DB.Create(&model.File{
+		UserID: user.ID, ParentID: 0, Name: "old.bin", IsDir: false,
+		Size: 400, StorageKey: "k1", StoragePolicy: "s3",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.UploadCallback(user.ID, 0, "big.bin", "k2", 200, "application/octet-stream")
+	if err == nil || err.Error() != "存储配额不足" {
+		t.Fatalf("expected 存储配额不足, got %v", err)
+	}
+	f, err := svc.UploadCallback(user.ID, 0, "small.bin", "k3", 100, "application/octet-stream")
+	if err != nil {
+		t.Fatalf("UploadCallback 100: %v", err)
+	}
+	if f.StoragePolicy != "s3" {
+		t.Errorf("policy = %s", f.StoragePolicy)
 	}
 }

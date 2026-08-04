@@ -46,13 +46,11 @@ export const getUploadURL = (
   fileName: string,
   contentType: string,
   parentId: number = 0,
-  storagePolicy?: string,
 ) =>
-  client.post<{ upload_url: string; storage_key: string; storage_policy: string }>('/files/upload', {
+  client.post<{ upload_url: string; storage_key: string }>('/files/upload', {
     file_name: fileName,
     content_type: contentType,
     parent_id: parentId,
-    storage_policy: storagePolicy || undefined,
   })
 
 export const uploadCallback = (
@@ -61,7 +59,6 @@ export const uploadCallback = (
   size: number,
   mimeType: string,
   parentId: number = 0,
-  storagePolicy?: string,
 ) =>
   client.post('/files/upload/callback', {
     file_name: fileName,
@@ -69,7 +66,6 @@ export const uploadCallback = (
     size,
     mime_type: mimeType,
     parent_id: parentId,
-    storage_policy: storagePolicy || undefined,
   })
 
 export interface MultipartSession {
@@ -109,14 +105,12 @@ export const initMultipartUpload = (
   contentType: string,
   size: number,
   parentId: number = 0,
-  storagePolicy?: string,
 ) =>
   client.post<{ session: MultipartSession }>('/files/upload/multipart', {
     file_name: fileName,
     content_type: contentType,
     size,
     parent_id: parentId,
-    storage_policy: storagePolicy || undefined,
   })
 
 export const completeMultipartUpload = (
@@ -127,7 +121,6 @@ export const completeMultipartUpload = (
   mimeType: string,
   parts: CompletedPart[],
   parentId: number = 0,
-  storagePolicy?: string,
 ) =>
   client.post('/files/upload/multipart/complete', {
     file_name: fileName,
@@ -137,18 +130,15 @@ export const completeMultipartUpload = (
     mime_type: mimeType,
     parts,
     parent_id: parentId,
-    storage_policy: storagePolicy || undefined,
   })
 
 export const abortMultipartUpload = (
   storageKey: string,
   uploadId: string,
-  storagePolicy?: string,
 ) =>
   client.post('/files/upload/multipart/abort', {
     storage_key: storageKey,
     upload_id: uploadId,
-    storage_policy: storagePolicy || undefined,
   })
 
 export const listMultipartSessions = () =>

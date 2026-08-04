@@ -1,0 +1,173 @@
+package model
+
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
+
+// UserGroup 用户组：绑定存储策略与本组用户的最大容量。
+type UserGroup struct {
+	ID            uint   `gorm:"primaryKey" json:"id"`
+	Name          string `gorm:"uniqueIndex;size:64;not null" json:"name"`
+	StoragePolicy string `gorm:"size:64" json:"storage_policy"` // 存储策略名称；空表示跟随默认策略
+	// MaxStorage 组内每个用户的最大容量（字节）；0 表示沿用存储策略的每用户默认配额。
+	MaxStorage int64  `gorm:"not null;default:0" json:"max_storage"`
+	IsDefault  bool   `gorm:"not null;default:false" json:"is_default"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// EnsureDefaultGroup 保证存在默认用户组（新注册用户自动归入），返回组 ID。
+func EnsureDefaultGroup() (uint, error) {
+	var g UserGroup
+	err := DB.Where("is_default = ?", true).First(&g).Error
+	if err == nil {
+		return g.ID, nil
+	}
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		return tx.Create(&UserGroup{
+			Name:      "默认用户组",
+			IsDefault: true,
+		}).Error
+	}); err != nil {
+		return 0, err
+	}
+	err = DB.Where("is_default = ?", true).First(&g).Error
+	if err != nil {
+		return 0, err
+	}
+	return g.ID, nil
+}
+
+// GetDefaultGroup 返回默认用户组；无默认时取最早一条，均不存在则报错。
+func GetDefaultGroup() (*UserGroup, error) {
+	var g UserGroup
+	err := DB.Where("is_default = ?", true).First(&g).Error
+	if err == nil {
+		return &g, nil
+	}
+	err = DB.Order("id ASC").First(&g).Error
+	if err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
+
+// GetUserGroupByID 按 ID 查询用户组。
+func GetUserGroupByID(id uint) (*UserGroup, error) {
+	var g UserGroup
+	if err := DB.First(&g, id).Error; err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
+
+// ListUserGroups 全部用户组（默认组排前），附带用户数与已用容量合计。
+type UserGroupView struct {
+	UserGroup
+	UserCount   int64 `json:"user_count"`
+	StorageUsed int64 `json:"storage_used"`
+}
+
+func ListUserGroups() ([]UserGroupView, error) {
+	var groups []UserGroup
+	if err := DB.Order("is_default DESC, id ASC").Find(&groups).Error; err != nil {
+		return nil, err
+	}
+
+	views := make([]UserGroupView, 0, len(groups))
+	for _, g := range groups {
+		var cnt int64
+		DB.Model(&User{}).Where("group_id = ?", g.ID).Count(&cnt)
+		var used int64
+		DB.Model(&User{}).Where("group_id = ?", g.ID).
+			Select("COALESCE(SUM(storage_used), 0)").Scan(&used)
+		views = append(views, UserGroupView{UserGroup: g, UserCount: cnt, StorageUsed: used})
+	}
+	return views, nil
+}
+
+// CreateUserGroup 新建用户组；首条自动设为默认。
+func CreateUserGroup(g *UserGroup) error {
+	var count int64
+	if err := DB.Model(&UserGroup{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		g.IsDefault = true
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if g.IsDefault {
+			if err := tx.Model(&UserGroup{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(g).Error
+	})
+}
+
+// UpdateUserGroup 更新用户组（按 ID）。
+func UpdateUserGroup(id uint, updates *UserGroup) error {
+	existing, err := GetUserGroupByID(id)
+	if err != nil {
+		return err
+	}
+	existing.Name = updates.Name
+	existing.StoragePolicy = updates.StoragePolicy
+	existing.MaxStorage = updates.MaxStorage
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if updates.IsDefault {
+			if err := tx.Model(&UserGroup{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+				return err
+			}
+			existing.IsDefault = true
+		}
+		return tx.Save(existing).Error
+	})
+}
+
+// DeleteUserGroup 删除用户组；组内用户迁移至默认组，若删的是默认则另选一默认。
+func DeleteUserGroup(id uint) error {
+	existing, err := GetUserGroupByID(id)
+	if err != nil {
+		return err
+	}
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&UserGroup{}, id).Error; err != nil {
+			return err
+		}
+
+		// 选出接管用户的组：优先剩余默认组，否则取最早一条
+		var fallback UserGroup
+		if err := tx.Where("is_default = ?", true).First(&fallback).Error; err != nil {
+			if err := tx.Order("id ASC").First(&fallback).Error; err != nil {
+				// 已无任何用户组，组内用户归零（运行时兜底用系统默认策略）
+				return tx.Model(&User{}).Where("group_id = ?", id).Update("group_id", 0).Error
+			}
+		}
+		if err := tx.Model(&User{}).Where("group_id = ?", id).Update("group_id", fallback.ID).Error; err != nil {
+			return err
+		}
+		if existing.IsDefault && !fallback.IsDefault {
+			return tx.Model(&fallback).Update("is_default", true).Error
+		}
+		return nil
+	})
+}
+
+// SetDefaultUserGroup 将指定用户组设为默认。
+func SetDefaultUserGroup(id uint) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var g UserGroup
+		if err := tx.First(&g, id).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&UserGroup{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+			return err
+		}
+		return tx.Model(&g).Update("is_default", true).Error
+	})
+}

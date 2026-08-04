@@ -48,10 +48,22 @@ func (h *UserHandler) Profile(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	// 用户所属用户组：决定上传使用的存储策略与最大容量
+	group, err := model.GetUserGroupByID(user.GroupID)
+	if err != nil {
+		if group, err = model.GetDefaultGroup(); err != nil {
+			group = nil
+		}
+	}
+
+	resp := gin.H{
 		"user":             user,
 		"storage_policies": policies,
-	})
+	}
+	if group != nil {
+		resp["group"] = group
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 type changePasswordRequest struct {

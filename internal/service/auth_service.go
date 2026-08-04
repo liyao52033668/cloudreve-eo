@@ -30,16 +30,23 @@ func (s *AuthService) Register(username, password string) (*model.User, error) {
 	}
 
 	// 首个注册用户自动成为管理员（可管理 JWT 主密钥等）。
-	var count int64
-	if err := model.DB.Model(&model.User{}).Count(&count).Error; err != nil {
+	count, err := model.CountUsers()
+	if err != nil {
 		return nil, fmt.Errorf("检查用户数量失败: %w", err)
 	}
 
-	// 配额按各 S3 存储策略分别配置；用户级 StorageQuota 字段保留兼容，固定为 0。
+	// 新用户归入默认用户组；尚无用户组时自动创建。
+	groupID, err := model.EnsureDefaultGroup()
+	if err != nil {
+		return nil, fmt.Errorf("初始化默认用户组失败: %w", err)
+	}
+
+	// 容量由用户组（绑定存储策略与最大容量）控制；用户级 StorageQuota 字段保留兼容，固定为 0。
 	user := &model.User{
 		Username:     username,
 		PasswordHash: string(hash),
 		IsAdmin:      count == 0,
+		GroupID:      groupID,
 		StorageQuota: 0,
 	}
 

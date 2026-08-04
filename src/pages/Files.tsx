@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Alert, Card, Progress, Typography, Divider } from 'antd'
-import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
+import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import {
   listFiles,
@@ -55,7 +55,6 @@ export default function Files() {
   const [newFileContent, setNewFileContent] = useState('')
   const [newFileSubmitting, setNewFileSubmitting] = useState(false)
   const [policies, setPolicies] = useState<StoragePolicy[]>([])
-  const [selectedPolicy, setSelectedPolicy] = useState<string>('')
   const [isAdmin, setIsAdmin] = useState(false)
   const [pendingSessions, setPendingSessions] = useState<UploadSessionInfo[]>([])
   const [uploadTasks, setUploadTasks] = useState<Record<string, UploadTask>>({})
@@ -97,7 +96,6 @@ export default function Files() {
     try {
       const res = await listStoragePolicies()
       setPolicies(res.data.policies || [])
-      setSelectedPolicy(res.data.default || res.data.policies?.[0]?.name || '')
     } catch {
       // 尚未配置策略时接口可能为空/失败，上传前再提示
     }
@@ -237,7 +235,7 @@ export default function Files() {
     parentId: number = currentDir,
   ) => {
     const contentType = file.type || 'application/octet-stream'
-    const { data } = await getUploadURL(file.name, contentType, parentId, selectedPolicy)
+    const { data } = await getUploadURL(file.name, contentType, parentId)
     await putWithProgress(data.upload_url, file, contentType, (loaded) => {
       onProgress(file.size === 0 ? 100 : Math.round((loaded / file.size) * 100))
     })
@@ -247,7 +245,6 @@ export default function Files() {
       file.size,
       contentType,
       parentId,
-      data.storage_policy || selectedPolicy,
     )
   }
 
@@ -325,7 +322,6 @@ export default function Files() {
       contentType,
       parts,
       parentId,
-      session.storage_policy,
     )
     onProgress(100)
   }
@@ -336,7 +332,7 @@ export default function Files() {
     parentId: number = currentDir,
   ) => {
     const contentType = file.type || 'application/octet-stream'
-    const { data } = await initMultipartUpload(file.name, contentType, file.size, parentId, selectedPolicy)
+    const { data } = await initMultipartUpload(file.name, contentType, file.size, parentId)
     try {
       await runMultipart(file, data.session, parentId, onProgress)
     } catch (err) {
@@ -514,7 +510,7 @@ export default function Files() {
 
   const handleDiscardSession = async (session: UploadSessionInfo) => {
     try {
-      await abortMultipartUpload(session.storage_key, session.upload_id, session.storage_policy)
+      await abortMultipartUpload(session.storage_key, session.upload_id)
       message.success('已放弃该上传')
     } catch (err: any) {
       message.error(err?.response?.data?.error || '放弃失败')
@@ -534,11 +530,6 @@ export default function Files() {
     localStorage.removeItem('user')
     navigate('/login')
   }
-
-  const policyOptions = policies.map((p) => ({
-    value: p.name,
-    label: p.is_default ? `${p.name}（默认）` : p.name,
-  }))
 
   const activeSearch = searchKeyword.trim()
   const canGoUp = !viewPolicy && !activeSearch && breadcrumb.length > 1
@@ -562,6 +553,22 @@ export default function Files() {
                 onClick={() => navigate('/storage-policies')}
               >
                 存储策略
+              </Button>
+              <Button
+                icon={<TeamOutlined />}
+                type="text"
+                style={{ color: '#fff' }}
+                onClick={() => navigate('/user-groups')}
+              >
+                用户组
+              </Button>
+              <Button
+                icon={<UserOutlined />}
+                type="text"
+                style={{ color: '#fff' }}
+                onClick={() => navigate('/users')}
+              >
+                用户
               </Button>
               <Button
                 icon={<SettingOutlined />}
@@ -680,16 +687,6 @@ export default function Files() {
               placeholder="浏览方式"
               aria-label="浏览方式"
             />
-            {!viewPolicy && policyOptions.length > 0 && (
-              <Select
-                className="files-toolbar__select-policy"
-                value={selectedPolicy || undefined}
-                onChange={setSelectedPolicy}
-                options={policyOptions}
-                placeholder="上传存储策略"
-                aria-label="上传存储策略"
-              />
-            )}
             <Input
               className="files-toolbar__search"
               allowClear

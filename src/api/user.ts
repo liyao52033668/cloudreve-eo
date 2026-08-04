@@ -7,6 +7,7 @@ export interface UserProfile {
   storage_quota: number
   storage_used: number
   created_at?: string
+  group_id: number
 }
 
 export interface UserStoragePolicyUsage {
@@ -19,6 +20,17 @@ export interface UserStoragePolicyUsage {
 export interface ProfileResponse {
   user: UserProfile
   storage_policies?: UserStoragePolicyUsage[]
+  group?: {
+    id: number
+    name: string
+    storage_policy: string
+    max_storage: number
+    is_default: boolean
+    created_at?: string
+    updated_at?: string
+    user_count?: number
+    storage_used?: number
+  }
 }
 
 export const getProfile = () =>

@@ -36,10 +36,16 @@ func setupUserHandler(t *testing.T) (*UserHandler, *gin.Engine, *model.User) {
 		t.Fatalf("hash password: %v", err)
 	}
 
+	groupID, err := model.EnsureDefaultGroup()
+	if err != nil {
+		t.Fatalf("ensure group: %v", err)
+	}
+
 	user := &model.User{
 		Username:     "profileuser",
 		PasswordHash: string(hash),
 		StorageQuota: 1073741824,
+		GroupID:      groupID,
 	}
 	if err := model.DB.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)

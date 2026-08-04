@@ -79,10 +79,16 @@ func setupFileHandler(t *testing.T) (*FileHandler, *gin.Engine, *model.User) {
 		t.Fatalf("InitDB: %v", err)
 	}
 
+	groupID, err := model.EnsureDefaultGroup()
+	if err != nil {
+		t.Fatalf("ensure group: %v", err)
+	}
+
 	user := &model.User{
 		Username:     "handleruser",
 		PasswordHash: "hash",
 		StorageQuota: 1073741824,
+		GroupID:      groupID,
 	}
 	if err := model.DB.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)

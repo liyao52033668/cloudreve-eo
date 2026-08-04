@@ -5,6 +5,8 @@ import Files from './pages/Files'
 import ShareView from './pages/ShareView'
 import Settings from './pages/Settings'
 import StoragePolicies from './pages/StoragePolicies'
+import UserGroups from './pages/UserGroups'
+import Users from './pages/Users'
 import RequireAuth from './components/RequireAuth'
 
 function App() {
@@ -35,6 +37,22 @@ function App() {
           element={
             <RequireAuth>
               <StoragePolicies />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/user-groups"
+          element={
+            <RequireAuth>
+              <UserGroups />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/users"
+          element={
+            <RequireAuth>
+              <Users />
             </RequireAuth>
           }
         />
