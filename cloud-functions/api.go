@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/handler"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/middleware"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/persist"
@@ -20,15 +20,21 @@ import (
 )
 
 func main() {
+	// 结构化日志先于一切初始化：EdgeOne 平台按行采集 stdout，
+	// 之后所有输出（含 config 错误）都是单行 JSON。
+	logx.Setup(os.Getenv("LOG_LEVEL"))
+
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("加载配置失败: %v", err)
+		logx.Error(logx.ModuleApp, "加载配置失败", logx.Err(err))
+		os.Exit(1)
 	}
 
 	// SQLite 持久化：local（默认）返回 nil，s3/github/edgeone-blob 返回 Syncer
 	syncer, err := persist.New(cfg)
 	if err != nil {
-		log.Fatalf("初始化数据库持久化失败: %v", err)
+		logx.Error(logx.ModuleApp, "初始化数据库持久化失败", logx.Err(err))
+		os.Exit(1)
 	}
 
 	port := ":" + __edgeoneGetPort("9000")
@@ -36,21 +42,23 @@ func main() {
 	if cfg.LazyRestore() {
 		// edgeone-blob 未显式配置地址：平台不注入站点域名，只能等首个请求
 		// 从 Host 头推导后再恢复数据库，因此整个初始化推迟到首个请求。
-		fmt.Printf("Cloudreve-EO 启动中（首个请求时从 EdgeOne Blob 恢复数据库）\n")
-		if err := http.ListenAndServe(port, __edgeoneStripPrefix("/api", newLazyBootstrap(cfg, syncer)));
-		err != nil {
-			log.Fatalf("启动服务失败: %v", err)
+		logx.Info(logx.ModuleApp, "Cloudreve-EO 启动中", "mode", "lazy-restore", "note", "首个请求时从 EdgeOne Blob 恢复数据库")
+		if err := http.ListenAndServe(port, __edgeoneStripPrefix("/api", newLazyBootstrap(cfg, syncer))); err != nil {
+			logx.Error(logx.ModuleApp, "启动服务失败", logx.Err(err))
+			os.Exit(1)
 		}
 		return
 	}
 
 	engine, err := buildApp(cfg, syncer)
 	if err != nil {
-		log.Fatalf("启动失败: %v", err)
+		logx.Error(logx.ModuleApp, "启动失败", logx.Err(err))
+		os.Exit(1)
 	}
-	fmt.Printf("Cloudreve-EO 启动中\n")
+	logx.Info(logx.ModuleApp, "Cloudreve-EO 启动中")
 	if err := http.ListenAndServe(port, __edgeoneStripPrefix("/api", engine)); err != nil {
-		log.Fatalf("启动服务失败: %v", err)
+		logx.Error(logx.ModuleApp, "启动服务失败", logx.Err(err))
+		os.Exit(1)
 	}
 }
 
@@ -90,9 +98,9 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		return nil, fmt.Errorf("初始化存储失败: %w", err)
 	}
 	if n := len(storageMgr.ListPolicies()); n == 0 {
-		log.Printf("尚未配置存储策略，请管理员在前端「存储策略」页面添加 S3 兼容策略")
+		logx.Warn(logx.ModuleStorage, "尚未配置存储策略，请管理员在前端「存储策略」页面添加 S3 兼容策略")
 	} else {
-		log.Printf("已加载 %d 个存储策略，默认: %s", n, storageMgr.DefaultPolicy())
+		logx.Info(logx.ModuleStorage, "已加载存储策略", "count", n, "default", storageMgr.DefaultPolicy())
 	}
 
 	authService := service.NewAuthService()
@@ -108,7 +116,10 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	groupHandler := handler.NewGroupHandler()
 	adminUserHandler := handler.NewAdminUserHandler(storageMgr)
 
-	r := gin.Default()
+	// gin.New 手动装配中间件：访问日志走结构化 JSON（EdgeOne 控制台检索），
+	// Recovery 保留默认（panic 时向 stderr 输出栈，同样被平台采集）。
+	r := gin.New()
+	r.Use(middleware.AccessLog(), gin.Recovery())
 
 	r.Use(func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
@@ -235,12 +246,12 @@ func newLazyBootstrap(cfg *config.Config, syncer *persist.Syncer) http.Handler {
 		}
 
 		baseURL := baseURLFromRequest(req)
-		log.Printf("[persist] 从请求推导站点地址: %s", baseURL)
+		logx.Info(logx.ModulePersist, "从请求推导站点地址", "base_url", baseURL)
 		syncer.SetBaseURL(baseURL)
 
 		eng, err := buildApp(cfg, syncer)
 		if err != nil {
-			log.Printf("延迟初始化失败: %v", err)
+			logx.Error(logx.ModuleApp, "延迟初始化失败", logx.Err(err))
 			http.Error(w, "服务初始化中，请稍后重试", http.StatusServiceUnavailable)
 			return
 		}

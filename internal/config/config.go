@@ -12,6 +12,13 @@ type Config struct {
 	DB      DBConfig
 	Server  ServerConfig
 	Persist PersistConfig
+	Log     LogConfig
+}
+
+// LogConfig 结构化日志配置。
+type LogConfig struct {
+	// Level 日志级别：debug / info / warn / error，默认 info。
+	Level string
 }
 
 type DBConfig struct {
@@ -103,6 +110,9 @@ func Load() (*Config, error) {
 			Port: port,
 		},
 		Persist: persist,
+		Log: LogConfig{
+			Level: os.Getenv("LOG_LEVEL"),
+		},
 	}, nil
 }
 

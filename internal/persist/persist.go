@@ -5,11 +5,11 @@ package persist
 import (
 	"crypto/sha256"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
 )
 
 // Backend 远端存取接口。
@@ -69,7 +69,7 @@ func (s *Syncer) SetBaseURL(baseURL string) {
 // 本地已存在时跳过（本地开发或热重启场景优先本地文件）；远端不存在时全新启动。
 func (s *Syncer) Restore() error {
 	if _, err := os.Stat(s.dbPath); err == nil {
-		log.Printf("[persist] 本地已存在 %s，跳过远端恢复", s.dbPath)
+		logx.Info(logx.ModulePersist, "本地已存在数据库文件，跳过远端恢复", "path", s.dbPath)
 		return nil
 	}
 	data, found, err := s.backend.Download()
@@ -77,14 +77,14 @@ func (s *Syncer) Restore() error {
 		return fmt.Errorf("从 %s 恢复数据库失败: %w", s.backend.Name(), err)
 	}
 	if !found {
-		log.Printf("[persist] %s 上无数据库快照，全新启动", s.backend.Name())
+		logx.Info(logx.ModulePersist, "远端无数据库快照，全新启动", "backend", s.backend.Name())
 		return nil
 	}
 	if err := os.WriteFile(s.dbPath, data, 0o600); err != nil {
 		return fmt.Errorf("写入数据库文件失败: %w", err)
 	}
 	s.lastHash = sha256.Sum256(data)
-	log.Printf("[persist] 已从 %s 恢复数据库（%d 字节）", s.backend.Name(), len(data))
+	logx.Info(logx.ModulePersist, "已从远端恢复数据库", "backend", s.backend.Name(), "bytes", len(data))
 	return nil
 }
 
@@ -96,11 +96,11 @@ func (s *Syncer) Start(snapshot SnapshotFunc) {
 		defer ticker.Stop()
 		for range ticker.C {
 			if err := s.SyncNow(); err != nil {
-				log.Printf("[persist] 同步失败: %v", err)
+				logx.Error(logx.ModulePersist, "同步失败", logx.Err(err), "backend", s.backend.Name())
 			}
 		}
 	}()
-	log.Printf("[persist] 已启用 %s 持久化，每 %s 同步一次", s.backend.Name(), s.interval)
+	logx.Info(logx.ModulePersist, "已启用数据库持久化", "backend", s.backend.Name(), "interval", s.interval.String())
 }
 
 // SyncNow 立即做一次快照并在内容变化时上传。
@@ -123,6 +123,6 @@ func (s *Syncer) SyncNow() error {
 		return fmt.Errorf("上传到 %s 失败: %w", s.backend.Name(), err)
 	}
 	s.lastHash = hash
-	log.Printf("[persist] 已同步数据库到 %s（%d 字节）", s.backend.Name(), len(data))
+	logx.Info(logx.ModulePersist, "已同步数据库到远端", "backend", s.backend.Name(), "bytes", len(data))
 	return nil
 }

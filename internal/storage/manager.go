@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
 )
 
@@ -94,7 +95,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			return fmt.Errorf("全部存储策略初始化失败: %s", strings.Join(loadErrs, "; "))
 		}
 		// 部分成功：保留可用策略。失败项不进入 drivers，前端仍可在管理页看到并修正。
-		fmt.Printf("部分存储策略初始化失败（已跳过）: %s\n", strings.Join(loadErrs, "; "))
+		logx.Warn(logx.ModuleStorage, "部分存储策略初始化失败（已跳过）", "detail", strings.Join(loadErrs, "; "))
 	}
 
 	if defaultName == "" && len(drivers) > 0 {

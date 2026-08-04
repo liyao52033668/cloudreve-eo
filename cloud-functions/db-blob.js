@@ -27,8 +27,10 @@ export async function onRequest({ request, env }) {
   if (request.method === "GET") {
     const stream = await store.get(key, { type: "stream" });
     if (stream === null) {
+      console.log(`[db-blob] GET 快照不存在 ${storeName}/${key}`);
       return Response.json({ error: "not found" }, { status: 404 });
     }
+    console.log(`[db-blob] GET 快照下载 ${storeName}/${key}`);
     return new Response(stream, {
       headers: { "Content-Type": CONTENT_TYPE },
     });
@@ -39,6 +41,7 @@ export async function onRequest({ request, env }) {
       expireSeconds: 3600,
       contentType: CONTENT_TYPE,
     });
+    console.log(`[db-blob] POST 预签名上传 URL ${storeName}/${key}`);
     return Response.json({ url, expiresAt });
   }
 

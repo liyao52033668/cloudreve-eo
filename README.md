@@ -188,6 +188,20 @@ edgeone makers env set DB_PERSIST_EDGEONE_SECRET <随机长密钥>
 
 > ⚠️ 懒恢复依赖回调能访问站点域名。若站点只有 EdgeOne 临时预览地址（`https://xxx.edgeone.cool?eo_token=...`），Go 的服务端回调不带 `eo_token` 会被边缘拦截（401），请绑定自定义域名后使用本后端，或改用 `s3` / `github`。Blob 免费版单账户容量 1GB，超出请改用 `s3`。
 
+### 日志
+
+云函数向 stdout/stderr 输出的内容会被 EdgeOne Makers 按行采集，在控制台「日志分析」中可按时间段、调用状态与关键字检索（平台默认保留 24 小时，用户日志夹在 `START`/`END RequestId` 之间）。Go 侧全部日志以 **单行 JSON**（`log/slog`）输出，含 `time`、`level`、`module`、`msg` 及业务字段，可按 `module`（`app` / `persist` / `storage` / `accesslog` 等）或 `level` 关键字过滤：
+
+```json
+{"time":"2026-08-04T10:00:00.000Z","level":"INFO","module":"persist","msg":"已从远端恢复数据库","backend":"edgeone-blob","bytes":1048576}
+```
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `LOG_LEVEL` | 日志级别 `debug` / `info` / `warn` / `error` | `info` |
+
+HTTP 访问日志由 `middleware.AccessLog` 输出（`module:"accesslog"`，含 method/path/status/耗时），4xx 记 WARN、5xx 记 ERROR，404 不记录。
+
 ## 项目结构
 
 ```
