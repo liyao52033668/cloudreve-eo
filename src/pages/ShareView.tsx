@@ -28,6 +28,7 @@ export default function ShareView() {
   const [breadcrumb, setBreadcrumb] = useState<{ id: number; title: string }[]>([])
   const [children, setChildren] = useState<FileItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     if (code) loadShare('')
@@ -69,18 +70,26 @@ export default function ShareView() {
   }
 
   const handleDownload = async () => {
-    if (!code) return
+    if (!code || downloading) return
+    setDownloading(true)
+    message.loading({ content: '正在准备下载...', key: 'download', duration: 0 })
     try {
       const res = await getShareDownload(code, password || undefined)
-      // 下载 URL 已带 Content-Disposition: attachment，跳转即触发浏览器下载
+      const response = await fetch(res.data.download_url)
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = res.data.download_url
+      a.href = blobUrl
       a.download = file?.name || ''
       document.body.appendChild(a)
       a.click()
       a.remove()
+      URL.revokeObjectURL(blobUrl)
+      message.success({ content: '下载成功', key: 'download' })
     } catch {
-      message.error('获取下载链接失败')
+      message.error({ content: '下载失败', key: 'download' })
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -96,7 +105,9 @@ export default function ShareView() {
   }
 
   const handleDownloadZip = async () => {
-    if (!code) return
+    if (!code || downloading) return
+    setDownloading(true)
+    message.loading({ content: '正在打包下载...', key: 'download', duration: 0 })
     try {
       const res = await getShareZip(code, password || undefined)
       const url = URL.createObjectURL(res.data)
@@ -107,23 +118,35 @@ export default function ShareView() {
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
+      message.success({ content: '下载成功', key: 'download' })
     } catch (err: any) {
-      message.error(err.response?.data?.error || '打包下载失败')
+      message.error({ content: err.response?.data?.error || '打包下载失败', key: 'download' })
+    } finally {
+      setDownloading(false)
     }
   }
 
   const handleChildDownload = async (f: FileItem) => {
-    if (!code) return
+    if (!code || downloading) return
+    setDownloading(true)
+    message.loading({ content: `正在下载 ${f.name}...`, key: 'download', duration: 0 })
     try {
       const res = await getShareChildDownload(code, f.id, password || undefined)
+      const response = await fetch(res.data.download_url)
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = res.data.download_url
+      a.href = blobUrl
       a.download = f.name
       document.body.appendChild(a)
       a.click()
       a.remove()
+      URL.revokeObjectURL(blobUrl)
+      message.success({ content: '下载成功', key: 'download' })
     } catch (err: any) {
-      message.error(err.response?.data?.error || '获取下载链接失败')
+      message.error({ content: err.response?.data?.error || '下载失败', key: 'download' })
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -173,7 +196,7 @@ export default function ShareView() {
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             <Space wrap align="center">
               <Title level={4} style={{ margin: 0 }}>{file.name}</Title>
-              <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownloadZip}>下载全部(zip)</Button>
+              <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownloadZip} loading={downloading}>下载全部(zip)</Button>
             </Space>
             <Breadcrumb
               items={breadcrumb.map((b, index) => ({
@@ -198,7 +221,7 @@ export default function ShareView() {
         <Title level={4}>{file.name}</Title>
         <Text type="secondary">大小: {(file.size / 1024 / 1024).toFixed(2)} MB</Text>
         <div style={{ marginTop: 24 }}>
-          <Button type="primary" icon={<DownloadOutlined />} block onClick={handleDownload}>下载文件</Button>
+          <Button type="primary" icon={<DownloadOutlined />} block onClick={handleDownload} loading={downloading}>下载文件</Button>
         </div>
       </Card>
     </div>

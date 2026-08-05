@@ -60,6 +60,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   const [shareFile, setShareFile] = useState<FileItem | null>(null)
   const [preview, setPreview] = useState<{ open: boolean; url: string }>({ open: false, url: '' })
   const [videoPreview, setVideoPreview] = useState<{ open: boolean; url: string }>({ open: false, url: '' })
+  const [downloading, setDownloading] = useState(false)
   const [moveModal, setMoveModal] = useState<{ visible: boolean; file?: FileItem }>({ visible: false })
   const [moveDirs, setMoveDirs] = useState<FileItem[]>([])
   const [moveLoading, setMoveLoading] = useState(false)
@@ -77,10 +78,12 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   }
 
   const handleDownload = async (file: FileItem) => {
+    if (downloading) return
+    setDownloading(true)
+    message.loading({ content: `正在下载 ${file.name}...`, key: 'download', duration: 0 })
     try {
       const res = await getDownloadURL(file.id)
       const url = res.data.download_url
-      // 使用 fetch 获取文件内容，绕过 CDN 不支持 response-content-disposition 的限制
       const response = await fetch(url)
       const blob = await response.blob()
       const blobUrl = URL.createObjectURL(blob)
@@ -91,12 +94,18 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       a.click()
       a.remove()
       URL.revokeObjectURL(blobUrl)
+      message.success({ content: '下载成功', key: 'download' })
     } catch {
-      message.error('下载失败')
+      message.error({ content: '下载失败', key: 'download' })
+    } finally {
+      setDownloading(false)
     }
   }
 
   const handleDownloadDir = async (file: FileItem) => {
+    if (downloading) return
+    setDownloading(true)
+    message.loading({ content: `正在打包下载 ${file.name}...`, key: 'download', duration: 0 })
     try {
       const res = await getDownloadZip(file.id)
       const url = URL.createObjectURL(res.data)
@@ -107,8 +116,11 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
+      message.success({ content: '下载成功', key: 'download' })
     } catch {
-      message.error('打包下载失败')
+      message.error({ content: '打包下载失败', key: 'download' })
+    } finally {
+      setDownloading(false)
     }
   }
 
