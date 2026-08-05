@@ -34,7 +34,7 @@ export default function ShareModal({ open, fileId, onClose }: Props) {
   return (
     <Modal title="创建分享" open={open} onCancel={() => { onClose(); setShareLink(''); setPassword('') }} footer={null}>
       <Space direction="vertical" style={{ width: '100%' }}>
-        <Input.Password placeholder="提取码（可选）" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Input.Password placeholder="提取码（可选）" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
         <DatePicker showTime placeholder="过期时间（可选）" onChange={(_, dateStr) => setExpireAt(dateStr as string)} style={{ width: '100%' }} />
         <Button type="primary" onClick={handleCreate} block>生成链接</Button>
         {shareLink && (

@@ -733,6 +733,7 @@ export default function Files() {
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
               aria-label="全局搜索文件名"
+              autoComplete="off"
             />
             <Segmented
               value={viewMode}
