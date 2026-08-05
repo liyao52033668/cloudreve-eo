@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Layout,
-  Card,
   Button,
   Space,
   message,
@@ -13,10 +12,10 @@ import {
   Empty,
   Popconfirm,
   Typography,
-  Row,
-  Col,
   Select,
+  Table,
 } from 'antd'
+import type { TableColumnsType } from 'antd'
 import {
   ArrowLeftOutlined,
   LogoutOutlined,
@@ -25,6 +24,7 @@ import {
   EditOutlined,
   DeleteOutlined,
   UserOutlined,
+  SearchOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -42,7 +42,7 @@ import {
 import { getProfile } from '../api/user'
 
 const { Header, Content } = Layout
-const { Text, Paragraph } = Typography
+const { Paragraph } = Typography
 
 const GiB = 1024 * 1024 * 1024
 
@@ -73,6 +73,8 @@ export default function Users() {
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<any>()
   const [groups, setGroups] = useState<GroupView[]>([])
+  const [searchKeyword, setSearchKeyword] = useState('')
+  const [filterGroupId, setFilterGroupId] = useState<number | undefined>(undefined)
 
   const ensureAdmin = useCallback(async () => {
     try {
@@ -201,6 +203,62 @@ export default function Users() {
     label: g.name,
   }))
 
+  const filteredUsers = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase()
+    return users.filter((u) => {
+      if (kw && !u.username.toLowerCase().includes(kw)) return false
+      if (filterGroupId != null && u.group_id !== filterGroupId) return false
+      return true
+    })
+  }, [users, searchKeyword, filterGroupId])
+
+  const columns: TableColumnsType<AdminUser> = [
+    {
+      title: '用户名',
+      dataIndex: 'username',
+      render: (_, u) => (
+        <Space>
+          <UserOutlined style={{ color: '#1677ff' }} />
+          <span>{u.username}</span>
+          {u.is_admin && <Tag color="red">管理员</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: '所属组',
+      dataIndex: 'group_name',
+      render: (v?: string) => v || '默认组',
+    },
+    {
+      title: '已用空间',
+      dataIndex: 'storage_used',
+      render: (v: number) => formatBytes(v),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+    },
+    {
+      title: '操作',
+      render: (_, u) => (
+        <Space>
+          <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(u.id)}>
+            编辑
+          </Button>
+          <Popconfirm
+            title="确认删除该用户？"
+            description="将删除该用户全部文件与存储端对象，不可恢复"
+            onConfirm={() => handleDelete(u.id)}
+          >
+            <Button type="link" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ]
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529' }}>
@@ -215,7 +273,23 @@ export default function Users() {
         </Button>
       </Header>
       <Content style={{ padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
-        <Space style={{ marginBottom: 16 }}>
+        <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+          <Input
+            allowClear
+            placeholder="搜索用户名"
+            prefix={<SearchOutlined />}
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            style={{ width: 220 }}
+          />
+          <Select
+            allowClear
+            placeholder="筛选用户组"
+            options={groupOptions}
+            value={filterGroupId}
+            onChange={(v) => setFilterGroupId(v)}
+            style={{ width: 180 }}
+          />
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
             刷新
           </Button>
@@ -228,67 +302,24 @@ export default function Users() {
           用户管理。设置用户组、容量等。
         </Paragraph>
 
-        {users.length === 0 && !loading ? (
-          <Card>
-            <Empty description="尚未创建用户">
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-                添加第一个用户
-              </Button>
-            </Empty>
-          </Card>
-        ) : (
-          <Row gutter={[16, 16]}>
-            {users.map((u) => (
-              <Col key={u.id} xs={24} sm={12} lg={8}>
-                <Card
-                  loading={loading}
-                  hoverable
-                  actions={[
-                    <Button key="edit" type="link" icon={<EditOutlined />} onClick={() => openEdit(u.id)}>
-                      编辑
-                    </Button>,
-                    <Popconfirm
-                      key="del"
-                      title="确认删除该用户？"
-                      description="将删除该用户全部文件与存储端对象，不可恢复"
-                      onConfirm={() => handleDelete(u.id)}
-                    >
-                      <Button type="link" danger icon={<DeleteOutlined />}>
-                        删除
-                      </Button>
-                    </Popconfirm>,
-                  ]}
-                >
-                  <Card.Meta
-                    avatar={<UserOutlined style={{ fontSize: 28, color: '#1677ff' }} />}
-                    title={
-                      <Space>
-                        <span>{u.username}</span>
-                        {u.is_admin && <Tag color="red">管理员</Tag>}
-                      </Space>
-                    }
-                    description={
-                      <div style={{ marginTop: 8 }}>
-                        <div>
-                          <Text type="secondary">所属组：</Text>
-                          {u.group_name || '默认组'}
-                        </div>
-                        <div>
-                          <Text type="secondary">已用空间：</Text>
-                          {formatBytes(u.storage_used)}
-                        </div>
-                        <div>
-                          <Text type="secondary">创建时间：</Text>
-                          {u.created_at}
-                        </div>
-                      </div>
-                    }
-                  />
-                </Card>
-              </Col>
-            ))}
-          </Row>
-        )}
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={filteredUsers}
+          loading={loading}
+          pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 个用户` }}
+          locale={{
+            emptyText: users.length === 0 ? (
+              <Empty description="尚未创建用户">
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+                  添加第一个用户
+                </Button>
+              </Empty>
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的用户" />
+            ),
+          }}
+        />
       </Content>
 
       <Modal
