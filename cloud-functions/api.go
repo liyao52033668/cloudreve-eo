@@ -164,6 +164,7 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		files.POST("/upload/multipart/complete", fileHandler.MultipartComplete)
 		files.POST("/upload/multipart/abort", fileHandler.MultipartAbort)
 		files.GET("/:id/download", fileHandler.Download)
+		files.GET("/:id/zip", fileHandler.DownloadDir)
 		files.DELETE("/:id", fileHandler.Delete)
 		files.PUT("/:id/rename", fileHandler.Rename)
 		files.PUT("/:id/move", fileHandler.Move)
@@ -220,7 +221,10 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 
 	publicShares := r.Group("/shares")
 	publicShares.GET("/:code", shareHandler.Get)
+	publicShares.GET("/:code/files", shareHandler.List)
+	publicShares.GET("/:code/files/:id/download", shareHandler.DownloadChild)
 	publicShares.GET("/:code/download", shareHandler.Download)
+	publicShares.GET("/:code/zip", shareHandler.DownloadZip)
 
 	return r, nil
 }

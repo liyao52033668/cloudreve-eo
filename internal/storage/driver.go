@@ -1,6 +1,14 @@
 package storage
 
-import "time"
+import (
+	"errors"
+	"io"
+	"time"
+)
+
+// ErrBucketCORSNotSupported 表示存储服务不实现 PutBucketCors 管理 API
+// （如 EdgeOne 对象存储等部分 S3 兼容服务），跨域规则需到控制台手动配置。
+var ErrBucketCORSNotSupported = errors.New("当前存储服务不支持通过 S3 API 设置 CORS")
 
 // CompletedPart 分片上传完成时各分片的编号与 ETag。
 type CompletedPart struct {
@@ -15,6 +23,8 @@ type StorageDriver interface {
 	GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error)
 	Delete(key string) error
 	GetSize(key string) (int64, error)
+	// Read 打开对象并返回内容流，调用方负责关闭（文件夹打包下载用）。
+	Read(key string) (io.ReadCloser, error)
 
 	// 分片上传（S3 Multipart Upload）
 	InitMultipartUpload(key string, contentType string) (uploadID string, err error)

@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -252,6 +254,20 @@ func (h *FileHandler) Download(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"download_url": url})
+}
+
+// DownloadDir GET /api/files/:id/zip —— 文件夹打包下载。
+func (h *FileHandler) DownloadDir(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	fileID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	fileName, err := h.fileService.DownloadDir(userID, uint(fileID), c.Writer)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)))
 }
 
 func (h *FileHandler) Delete(c *gin.Context) {

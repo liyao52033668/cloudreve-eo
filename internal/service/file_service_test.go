@@ -1,7 +1,10 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,6 +52,10 @@ func (m *mockStorageDriver) Delete(key string) error {
 
 func (m *mockStorageDriver) GetSize(key string) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockStorageDriver) Read(key string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("mock-content")), nil
 }
 
 func (m *mockStorageDriver) InitMultipartUpload(key string, contentType string) (string, error) {
@@ -521,5 +528,77 @@ func TestFileService_UploadCallback_QuotaFallbackToPolicyDefault(t *testing.T) {
 	}
 	if f.StoragePolicy != "s3" {
 		t.Errorf("policy = %s", f.StoragePolicy)
+	}
+}
+
+func TestFileService_DownloadDir_Zip(t *testing.T) {
+	svc, _, user := setupFileService(t)
+
+	dir := &model.File{UserID: user.ID, ParentID: 0, Name: "docs", IsDir: true}
+	if err := model.DB.Create(dir).Error; err != nil {
+		t.Fatal(err)
+	}
+	child := &model.File{UserID: user.ID, ParentID: dir.ID, Name: "a.txt", IsDir: false, Size: 100, StorageKey: "k/a", StoragePolicy: "s3"}
+	if err := model.DB.Create(child).Error; err != nil {
+		t.Fatal(err)
+	}
+	emptySub := &model.File{UserID: user.ID, ParentID: dir.ID, Name: "empty", IsDir: true}
+	if err := model.DB.Create(emptySub).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	fileName, err := svc.DownloadDir(user.ID, dir.ID, &buf)
+	if err != nil {
+		t.Fatalf("DownloadDir: %v", err)
+	}
+	if fileName != "docs.zip" {
+		t.Errorf("fileName = %q, want docs.zip", fileName)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	got := map[string]string{}
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			got[f.Name] = "[dir]"
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := io.ReadAll(rc)
+		rc.Close()
+		got[f.Name] = string(data)
+	}
+
+	if got["docs/a.txt"] != "mock-content" {
+		t.Errorf("docs/a.txt = %q, want mock-content", got["docs/a.txt"])
+	}
+	if got["docs/empty/"] != "[dir]" {
+		t.Errorf("docs/empty/ = %q, want dir entry", got["docs/empty/"])
+	}
+}
+
+func TestFileService_DownloadDir_NotDirOrNotOwned(t *testing.T) {
+	svc, _, user := setupFileService(t)
+
+	file := &model.File{UserID: user.ID, ParentID: 0, Name: "a.txt", IsDir: false}
+	if err := model.DB.Create(file).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	_, err := svc.DownloadDir(user.ID, file.ID, &buf)
+	if err == nil || err.Error() != "只能打包下载文件夹" {
+		t.Fatalf("expected 只能打包下载文件夹, got %v", err)
+	}
+
+	_, err = svc.DownloadDir(user.ID, 99999, &buf)
+	if err == nil || err.Error() != "文件不存在" {
+		t.Fatalf("expected 文件不存在, got %v", err)
 	}
 }

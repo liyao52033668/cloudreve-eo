@@ -1,21 +1,51 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { Card, Input, Button, message, Space, Typography } from 'antd'
-import { DownloadOutlined } from '@ant-design/icons'
-import { getShare, getShareDownload } from '../api/shares'
+import { Card, Input, Button, message, Space, Typography, Table, Breadcrumb, Spin } from 'antd'
+import { DownloadOutlined, FolderOutlined, FileOutlined } from '@ant-design/icons'
+import type { ColumnsType } from 'antd/es/table'
+import { getShare, getShareDownload, getShareFiles, getShareZip, getShareChildDownload } from '../api/shares'
+import type { FileItem } from '../api/files'
 
 const { Title, Text } = Typography
+
+const formatSize = (bytes: number) => {
+  if (bytes === 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let i = 0
+  let size = bytes
+  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++ }
+  return `${size.toFixed(1)} ${units[i]}`
+}
 
 export default function ShareView() {
   const { code } = useParams<{ code: string }>()
   const [password, setPassword] = useState('')
-  const [file, setFile] = useState<any>(null)
+  const [file, setFile] = useState<FileItem | null>(null)
   const [error, setError] = useState('')
   const [needPassword, setNeedPassword] = useState(false)
+
+  // 目录浏览状态
+  const [breadcrumb, setBreadcrumb] = useState<{ id: number; title: string }[]>([])
+  const [children, setChildren] = useState<FileItem[]>([])
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (code) loadShare('')
   }, [code])
+
+  const loadChildren = async (parentId: number, pwd: string) => {
+    if (!code) return
+    setLoading(true)
+    try {
+      const res = await getShareFiles(code, parentId, pwd || undefined)
+      setChildren(res.data.files)
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '加载目录失败')
+      setChildren([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const loadShare = async (pwd: string) => {
     if (!code) return
@@ -23,6 +53,10 @@ export default function ShareView() {
       const res = await getShare(code, pwd)
       setFile(res.data.file)
       setError('')
+      if (res.data.file.is_dir) {
+        setBreadcrumb([{ id: res.data.file.id, title: res.data.file.name }])
+        loadChildren(res.data.file.id, pwd)
+      }
     } catch (err: any) {
       const msg = err.response?.data?.error || '加载失败'
       if (msg.includes('提取码')) {
@@ -50,6 +84,71 @@ export default function ShareView() {
     }
   }
 
+  const openDir = (dir: FileItem) => {
+    setBreadcrumb(b => [...b, { id: dir.id, title: dir.name }])
+    loadChildren(dir.id, password)
+  }
+
+  const goBreadcrumb = (index: number) => {
+    const target = breadcrumb[index]
+    setBreadcrumb(breadcrumb.slice(0, index + 1))
+    loadChildren(target.id, password)
+  }
+
+  const handleDownloadZip = async () => {
+    if (!code) return
+    try {
+      const res = await getShareZip(code, password || undefined)
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${file?.name || '分享'}.zip`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '打包下载失败')
+    }
+  }
+
+  const handleChildDownload = async (f: FileItem) => {
+    if (!code) return
+    try {
+      const res = await getShareChildDownload(code, f.id, password || undefined)
+      const a = document.createElement('a')
+      a.href = res.data.download_url
+      a.download = f.name
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '获取下载链接失败')
+    }
+  }
+
+  const columns: ColumnsType<FileItem> = [
+    {
+      title: '名称', dataIndex: 'name',
+      render: (name: string, r) => (
+        <Space>
+          {r.is_dir ? <FolderOutlined style={{ color: '#faad14' }} /> : <FileOutlined />}
+          {name}
+        </Space>
+      ),
+    },
+    { title: '大小', width: 120, render: (_, r) => (r.is_dir ? '-' : formatSize(r.size)) },
+    { title: '修改时间', width: 180, render: (_, r) => new Date(r.updated_at).toLocaleString() },
+    {
+      title: '操作', width: 100,
+      render: (_, r) => r.is_dir ? (
+        <a onClick={() => openDir(r)}>打开</a>
+      ) : (
+        <a onClick={() => handleChildDownload(r)}>下载</a>
+      ),
+    },
+  ]
+
   if (error) return <div style={{ textAlign: 'center', marginTop: 100 }}><Text type="danger">{error}</Text></div>
 
   if (needPassword && !file) {
@@ -66,6 +165,32 @@ export default function ShareView() {
   }
 
   if (!file) return <div style={{ textAlign: 'center', marginTop: 100 }}>加载中...</div>
+
+  if (file.is_dir) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', minHeight: '100vh', background: '#f0f2f5', padding: '48px 16px' }}>
+        <Card title="分享文件夹" style={{ width: '100%', maxWidth: 760 }}>
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Space wrap align="center">
+              <Title level={4} style={{ margin: 0 }}>{file.name}</Title>
+              <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownloadZip}>下载全部(zip)</Button>
+            </Space>
+            <Breadcrumb
+              items={breadcrumb.map((b, index) => ({
+                key: b.id,
+                title: index === breadcrumb.length - 1 ? b.title : (
+                  <a onClick={() => goBreadcrumb(index)}>{b.title}</a>
+                ),
+              }))}
+            />
+            <Spin spinning={loading}>
+              <Table columns={columns} dataSource={children} rowKey="id" pagination={false} size="small" />
+            </Spin>
+          </Space>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5' }}>

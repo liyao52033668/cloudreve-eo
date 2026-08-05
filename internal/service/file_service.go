@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -437,6 +438,29 @@ func (s *FileService) GetDownloadURL(userID uint, fileID uint, preview bool) (st
 		attachmentName = ""
 	}
 	return driver.GenerateDownloadURL(file.StorageKey, attachmentName, 30*time.Minute)
+}
+
+// DownloadDir 将用户文件夹打包为 zip 并写入 w，返回建议的文件名。
+func (s *FileService) DownloadDir(userID uint, fileID uint, w io.Writer) (string, error) {
+	var root model.File
+	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&root).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", errors.New("文件不存在")
+		}
+		return "", err
+	}
+	if !root.IsDir {
+		return "", errors.New("只能打包下载文件夹")
+	}
+
+	entries, err := collectZipEntries(userID, root)
+	if err != nil {
+		return "", err
+	}
+	if err := writeZipTree(w, s.storageMgr, root.Name, entries); err != nil {
+		return "", err
+	}
+	return root.Name + ".zip", nil
 }
 
 func (s *FileService) Delete(userID uint, fileID uint) error {

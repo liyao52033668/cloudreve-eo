@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"io"
+	"strings"
 	"testing"
 	"time"
 )
@@ -22,6 +24,10 @@ func (m *mockDriver) Delete(key string) error {
 
 func (m *mockDriver) GetSize(key string) (int64, error) {
 	return 42, nil
+}
+
+func (m *mockDriver) Read(key string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("mock")), nil
 }
 
 func (m *mockDriver) InitMultipartUpload(key string, contentType string) (string, error) {

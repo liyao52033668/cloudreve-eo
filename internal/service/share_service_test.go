@@ -1,6 +1,9 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
+	"io"
 	"path/filepath"
 	"testing"
 	"time"
@@ -259,6 +262,190 @@ func TestShareService_GetDownloadURL_Directory(t *testing.T) {
 	}
 	if err.Error() != "不能下载文件夹" {
 		t.Errorf("error = %q, want 不能下载文件夹", err.Error())
+	}
+}
+
+func TestShareService_ListChildren_WithinShare(t *testing.T) {
+	svc, _, user := setupShareService(t)
+	dir := createTestFile(t, user.ID, "root", true)
+	sub := &model.File{UserID: user.ID, ParentID: dir.ID, Name: "sub", IsDir: true}
+	if err := model.DB.Create(sub).Error; err != nil {
+		t.Fatal(err)
+	}
+	child := &model.File{UserID: user.ID, ParentID: dir.ID, Name: "a.txt", IsDir: false, Size: 10, StorageKey: "k/a", StoragePolicy: "s3"}
+	if err := model.DB.Create(child).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	share, err := svc.Create(user.ID, dir.ID, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := svc.ListChildren(share.Code, "", dir.ID)
+	if err != nil {
+		t.Fatalf("ListChildren: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("children = %d, want 2", len(files))
+	}
+
+	// 进入子目录再浏览
+	subFiles, err := svc.ListChildren(share.Code, "", sub.ID)
+	if err != nil {
+		t.Fatalf("ListChildren sub: %v", err)
+	}
+	if len(subFiles) != 0 {
+		t.Errorf("sub children = %d, want 0", len(subFiles))
+	}
+}
+
+func TestShareService_ListChildren_OutsideShare(t *testing.T) {
+	svc, _, user := setupShareService(t)
+	dir := createTestFile(t, user.ID, "root", true)
+	outside := createTestFile(t, user.ID, "outside", true)
+
+	share, err := svc.Create(user.ID, dir.ID, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.ListChildren(share.Code, "", outside.ID)
+	if err == nil {
+		t.Fatal("expected error when browsing outside share root")
+	}
+	if err.Error() != "目录不在分享范围内" {
+		t.Errorf("error = %q, want 目录不在分享范围内", err.Error())
+	}
+}
+
+func TestShareService_ListChildren_FileShare(t *testing.T) {
+	svc, _, user := setupShareService(t)
+	file := createTestFile(t, user.ID, "a.txt", false)
+	share, err := svc.Create(user.ID, file.ID, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = svc.ListChildren(share.Code, "", file.ID)
+	if err == nil {
+		t.Fatal("expected error for non-folder share")
+	}
+	if err.Error() != "该分享不是文件夹" {
+		t.Errorf("error = %q, want 该分享不是文件夹", err.Error())
+	}
+}
+
+func TestShareService_DownloadDir_Zip(t *testing.T) {
+	svc, _, user := setupShareService(t)
+	dir := createTestFile(t, user.ID, "root", true)
+	child := &model.File{UserID: user.ID, ParentID: dir.ID, Name: "a.txt", IsDir: false, Size: 100, StorageKey: "k/a", StoragePolicy: "s3"}
+	if err := model.DB.Create(child).Error; err != nil {
+		t.Fatal(err)
+	}
+	emptySub := &model.File{UserID: user.ID, ParentID: dir.ID, Name: "empty", IsDir: true}
+	if err := model.DB.Create(emptySub).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	share, err := svc.Create(user.ID, dir.ID, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	fileName, err := svc.DownloadDir(share.Code, "", &buf)
+	if err != nil {
+		t.Fatalf("DownloadDir: %v", err)
+	}
+	if fileName != "root.zip" {
+		t.Errorf("fileName = %q, want root.zip", fileName)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+
+	got := map[string]string{}
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			got[f.Name] = "[dir]"
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := io.ReadAll(rc)
+		rc.Close()
+		got[f.Name] = string(data)
+	}
+
+	if got["root/a.txt"] != "mock-content" {
+		t.Errorf("root/a.txt = %q, want mock-content", got["root/a.txt"])
+	}
+	if _, ok := got["root/"]; !ok {
+		t.Error("expected root/ dir entry")
+	}
+	if got["root/empty/"] != "[dir]" {
+		t.Errorf("root/empty/ = %q, want dir entry", got["root/empty/"])
+	}
+}
+
+func TestShareService_DownloadDir_FileShare(t *testing.T) {
+	svc, _, user := setupShareService(t)
+	file := createTestFile(t, user.ID, "a.txt", false)
+	share, err := svc.Create(user.ID, file.ID, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	_, err = svc.DownloadDir(share.Code, "", &buf)
+	if err == nil {
+		t.Fatal("expected error for non-folder share")
+	}
+	if err.Error() != "该分享不是文件夹" {
+		t.Errorf("error = %q, want 该分享不是文件夹", err.Error())
+	}
+}
+
+func TestShareService_GetChildDownloadURL(t *testing.T) {
+	svc, mock, user := setupShareService(t)
+	dir := createTestFile(t, user.ID, "root", true)
+	child := &model.File{UserID: user.ID, ParentID: dir.ID, Name: "a.txt", IsDir: false, Size: 100, StorageKey: "k/a", StoragePolicy: "s3"}
+	if err := model.DB.Create(child).Error; err != nil {
+		t.Fatal(err)
+	}
+	outside := createTestFile(t, user.ID, "outside.txt", false)
+
+	share, err := svc.Create(user.ID, dir.ID, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url, err := svc.GetChildDownloadURL(share.Code, "", child.ID)
+	if err != nil {
+		t.Fatalf("GetChildDownloadURL: %v", err)
+	}
+	if url != "https://download.example.com/k/a" {
+		t.Errorf("url = %q", url)
+	}
+	if mock.downloadURLs["k/a"] == "" {
+		t.Error("expected mock GenerateDownloadURL called")
+	}
+
+	// 分享范围外的文件不可下载
+	_, err = svc.GetChildDownloadURL(share.Code, "", outside.ID)
+	if err == nil {
+		t.Fatal("expected error for outside file")
+	}
+
+	// 子目录不可单文件下载
+	_, err = svc.GetChildDownloadURL(share.Code, "", dir.ID)
+	if err == nil {
+		t.Fatal("expected error for dir")
 	}
 }
 

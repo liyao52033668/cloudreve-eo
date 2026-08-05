@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -37,6 +38,10 @@ func (d *EdgeOneDriver) Delete(key string) error {
 
 func (d *EdgeOneDriver) GetSize(key string) (int64, error) {
 	return d.s3.GetSize(key)
+}
+
+func (d *EdgeOneDriver) Read(key string) (io.ReadCloser, error) {
+	return d.s3.Read(key)
 }
 
 func (d *EdgeOneDriver) InitMultipartUpload(key string, contentType string) (string, error) {

@@ -2,7 +2,7 @@ import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrum
 import { FolderOutlined, FileOutlined, FileImageOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, EyeOutlined, DragOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { FileItem } from '../api/files'
-import { deleteFile, renameFile, getDownloadURL, listFiles, moveFile } from '../api/files'
+import { deleteFile, renameFile, getDownloadURL, getDownloadZip, listFiles, moveFile } from '../api/files'
 import { useMemo, useState } from 'react'
 import ShareModal from './ShareModal'
 
@@ -56,6 +56,22 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
       a.remove()
     } catch {
       message.error('获取下载链接失败')
+    }
+  }
+
+  const handleDownloadDir = async (file: FileItem) => {
+    try {
+      const res = await getDownloadZip(file.id)
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${file.name}.zip`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      message.error('打包下载失败')
     }
   }
 
@@ -214,15 +230,15 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
         <Dropdown menu={{
           items: [
             ...(!record.is_dir && isImage(record) ? [{ key: 'preview', label: '预览', icon: <EyeOutlined /> }] : []),
-            ...(!record.is_dir ? [{ key: 'download', label: '下载', icon: <DownloadOutlined /> }] : []),
-            ...(!record.is_dir ? [{ key: 'share', label: '分享', icon: <ShareAltOutlined /> }] : []),
+            { key: 'download', label: record.is_dir ? '下载(zip)' : '下载', icon: <DownloadOutlined /> },
+            { key: 'share', label: '分享', icon: <ShareAltOutlined /> },
             { key: 'rename', label: '重命名', icon: <EditOutlined /> },
             { key: 'move', label: '移动', icon: <DragOutlined /> },
             { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
           ],
           onClick: ({ key }) => {
             if (key === 'preview') handlePreview(record)
-            else if (key === 'download') handleDownload(record)
+            else if (key === 'download') { if (record.is_dir) handleDownloadDir(record); else handleDownload(record) }
             else if (key === 'share') { setShareFile(record) }
             else if (key === 'rename') { setRenameModal({ visible: true, file: record }); setNewName(record.name) }
             else if (key === 'move') openMoveModal(record)

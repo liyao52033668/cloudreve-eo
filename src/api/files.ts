@@ -154,6 +154,13 @@ export const getDownloadURL = (fileId: number, preview = false) =>
     params: preview ? { preview: 1 } : undefined,
   })
 
+/** 文件夹打包 zip 下载；大目录耗时较长，放宽超时 */
+export const getDownloadZip = (fileId: number) =>
+  client.get<Blob>(`/files/${fileId}/zip`, {
+    responseType: 'blob',
+    timeout: 0,
+  })
+
 export const deleteFile = (fileId: number) =>
   client.delete(`/files/${fileId}`)
 

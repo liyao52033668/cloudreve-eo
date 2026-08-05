@@ -2,7 +2,10 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // S3Driver 使用 AWS SDK v2 实现 S3 兼容存储驱动（含 MinIO 等）。
@@ -94,8 +98,7 @@ func (d *S3Driver) Delete(key string) error {
 	return nil
 }
 
-func (d *S3Driver) GetSize(key string) (int64, error) {
-	result, err := d.client.HeadObject(context.Background(), &s3.HeadObjectInput{
+func (d *S3Driver) GetSize(key string) (int64, error) {	result, err := d.client.HeadObject(context.Background(), &s3.HeadObjectInput{
 		Bucket: aws.String(d.bucket),
 		Key:    aws.String(key),
 	})
@@ -106,6 +109,18 @@ func (d *S3Driver) GetSize(key string) (int64, error) {
 		return 0, fmt.Errorf("获取对象大小失败: ContentLength 为空")
 	}
 	return *result.ContentLength, nil
+}
+
+// Read 打开对象并返回内容流（文件夹打包下载用）。
+func (d *S3Driver) Read(key string) (io.ReadCloser, error) {
+	result, err := d.client.GetObject(context.Background(), &s3.GetObjectInput{
+		Bucket: aws.String(d.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("读取对象失败: %w", err)
+	}
+	return result.Body, nil
 }
 
 // InitMultipartUpload 发起分片上传，返回 uploadID。
@@ -221,6 +236,12 @@ func (d *S3Driver) SetBucketCORS() error {
 		},
 	})
 	if err != nil {
+		// 部分 S3 兼容服务（如 EdgeOne 对象存储）不实现 PutBucketCors 管理 API，
+		// 此时无法通过 SDK 配置跨域，需引导用户到控制台手动配置。
+		var respErr *smithyhttp.ResponseError
+		if errors.As(err, &respErr) && respErr.Response.StatusCode == http.StatusMethodNotAllowed {
+			return fmt.Errorf("%w（HTTP 405 MethodNotAllowed），请在对象存储控制台手动配置跨域规则：放行 GET/PUT/POST/DELETE/HEAD，并暴露 ETag 响应头", ErrBucketCORSNotSupported)
+		}
 		return fmt.Errorf("设置存储桶 CORS 失败: %w", err)
 	}
 	return nil

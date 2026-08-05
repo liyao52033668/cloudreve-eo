@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -36,6 +37,10 @@ func (m *mockStorageDriver) Delete(key string) error {
 
 func (m *mockStorageDriver) GetSize(key string) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockStorageDriver) Read(key string) (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader([]byte("mock-content"))), nil
 }
 
 func (m *mockStorageDriver) InitMultipartUpload(key string, contentType string) (string, error) {

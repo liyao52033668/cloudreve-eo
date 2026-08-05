@@ -306,6 +306,10 @@ func (h *PolicyHandler) SetCORS(c *gin.Context) {
 		return
 	}
 	if err := driver.SetBucketCORS(); err != nil {
+		if errors.Is(err, storage.ErrBucketCORSNotSupported) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
