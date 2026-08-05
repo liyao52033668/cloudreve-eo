@@ -82,7 +82,6 @@ edgeone makers env pull
 ```bash
 # 可选（均有默认值）
 edgeone makers env set DB_DRIVER sqlite
-edgeone makers env set DB_DSN cloudreve.db
 
 # 查看 / 同步到本地
 edgeone makers env ls
@@ -132,7 +131,7 @@ edgeone makers deploy -t <token>
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `DB_DRIVER` | `sqlite` 或 `postgres` | `sqlite` |
-| `DB_DSN` | 连接串。SQLite 为文件路径；PostgreSQL 为标准 DSN | `cloudreve.db` |
+| `DB_DSN` | 连接串。SQLite 为文件路径；PostgreSQL 为标准 DSN | `cloudreve.db`（`DB_PERSIST=edgeone-blob` 时为 `/tmp/cloudreve.db`） |
 
 SQLite 使用纯 Go 驱动（`glebarez/sqlite` / `modernc.org/sqlite`），**不依赖 CGO**，可在 EdgeOne Cloud Functions（`CGO_ENABLED=0`）下编译运行。生产仍建议 PostgreSQL。
 
@@ -178,6 +177,8 @@ SQLite 使用纯 Go 驱动（`glebarez/sqlite` / `modernc.org/sqlite`），**不
 | `DB_PERSIST_EDGEONE_BASE_URL` | 站点地址（可选，末尾不带 `/`）；留空时由首个请求的 `Host` 头自动推导 | 自动推导 |
 
 Blob SDK（`@edgeone/pages-blob`）仅有 Node 版本，因此本方案由 Node 云函数 `cloud-functions/db-blob.js` 代理读写：Go 主程序下载快照时直接 `GET /db-blob`，上传时先向该函数请求预签名 URL 再直写 Blob（绕开云函数 6MB 请求体上限）。
+
+> EdgeOne 云函数工作目录只读，仅 `/tmp` 可写。使用本后端时若未显式配置 `DB_DSN`，默认数据库文件与一致性快照会自动落在 `/tmp/cloudreve.db`，无需手动设置；若显式配置了相对路径会因无法写文件而报 `unable to open database file`，请改用 `/tmp/` 前缀的绝对路径。
 
 > Go 与 Node 是两个独立的函数运行时，共用同一对外域名（边缘按路径分发），进程间没有内部通道，Go 只能通过该域名回调 Node 函数。由于平台不向函数注入站点域名，未显式配置 `DB_PERSIST_EDGEONE_BASE_URL` 时采用**懒恢复**：初始化推迟到首个请求，从请求 `Host` 头自动推导站点地址再恢复数据库，因此通常**无需手动填地址**。`/db-blob` 是公开路由，`DB_PERSIST_EDGEONE_SECRET` 用于鉴权，防止数据库（含密码哈希、S3 凭证）被任意下载或覆盖。环境变量是项目级的，两个运行时读取同一份，每个变量只需设置一次。
 
