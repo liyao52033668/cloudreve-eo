@@ -78,7 +78,9 @@ func (d *S3Driver) GenerateDownloadURL(key string, fileName string, expire time.
 		Bucket: aws.String(d.bucket),
 		Key:    aws.String(key),
 	}
-	if fileName != "" {
+	// 使用自定义域名（CDN）时，不能设置 ResponseContentDisposition，
+	// 因为 CDN 处理匿名 GET 请求时不支持覆盖响应头
+	if fileName != "" && d.customHost == "" {
 		// RFC 5987 编码，支持中文等非 ASCII 文件名
 		input.ResponseContentDisposition = aws.String(
 			fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)),
