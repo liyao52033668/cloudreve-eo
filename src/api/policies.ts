@@ -23,6 +23,7 @@ export interface StoragePolicyAdmin {
   access_key: string
   secret_key_hint: string
   force_path_style: boolean
+  custom_host: string
   base_path: string
   chunk_size: number
   is_default: boolean
@@ -41,6 +42,7 @@ export interface StoragePolicyDetail {
   access_key: string
   secret_key: string
   force_path_style: boolean
+  custom_host: string
   base_path: string
   chunk_size: number
   is_default: boolean
@@ -56,6 +58,8 @@ export interface PolicyForm {
   secret_key: string
   /** 强制 path-style（MinIO / 部分私有 S3 需要） */
   force_path_style: boolean
+  /** 自定义下载/预览域名（COS / 七牛的 CDN 加速域名），空表示使用 Endpoint */
+  custom_host: string
   /** 上传目录前缀，对象键 = base_path/userID/uuid */
   base_path: string
   /** 分片大小（字节）；0 表示默认 25MB，非 0 时最小 5MB */

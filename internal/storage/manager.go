@@ -19,6 +19,8 @@ type PolicyInfo struct {
 	Endpoint       string `json:"endpoint,omitempty"`
 	Region         string `json:"region,omitempty"`
 	ForcePathStyle bool   `json:"force_path_style"`
+	// CustomHost 自定义下载/预览域名；空表示使用 Endpoint。
+	CustomHost string `json:"custom_host,omitempty"`
 	// BasePath 对象键前缀，上传时拼到 storage_key 前面。
 	BasePath     string `json:"base_path,omitempty"`
 	// ChunkSize 分片大小（字节）；0 表示使用默认值。
@@ -65,7 +67,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 	// 各策略相互独立：某一条初始化失败不影响其它策略加载。
 	var loadErrs []string
 	for _, p := range list {
-		driver, err := NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle)
+		driver, err := NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle, p.CustomHost)
 		if err != nil {
 			loadErrs = append(loadErrs, fmt.Sprintf("%s: %v", p.Name, err))
 			continue
@@ -79,6 +81,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			Endpoint:       p.Endpoint,
 			Region:         p.Region,
 			ForcePathStyle: p.ForcePathStyle,
+			CustomHost:     p.CustomHost,
 			BasePath:       p.BasePath,
 			ChunkSize:      p.ChunkSize,
 			IsDefault:      p.IsDefault,

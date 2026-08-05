@@ -41,6 +41,7 @@ type adminPolicyView struct {
 	AccessKey      string `json:"access_key"`
 	SecretKeyHint  string `json:"secret_key_hint"` // 仅提示是否已配置，不回显明文
 	ForcePathStyle bool   `json:"force_path_style"`
+	CustomHost     string `json:"custom_host"`
 	BasePath       string `json:"base_path"`
 	ChunkSize      int64  `json:"chunk_size"`
 	IsDefault      bool   `json:"is_default"`
@@ -63,6 +64,7 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		AccessKey:      p.AccessKey,
 		SecretKeyHint:  hint,
 		ForcePathStyle: p.ForcePathStyle,
+		CustomHost:     p.CustomHost,
 		BasePath:       p.BasePath,
 		ChunkSize:      p.ChunkSize,
 		IsDefault:      p.IsDefault,
@@ -112,6 +114,7 @@ type policyBody struct {
 	AccessKey      string `json:"access_key" binding:"required"`
 	SecretKey      string `json:"secret_key"`
 	ForcePathStyle *bool  `json:"force_path_style"` // nil 时默认 true（兼容旧客户端）
+	CustomHost     string `json:"custom_host"`     // 自定义下载/预览域名（COS / 七牛 CDN 加速域名）
 	BasePath       string `json:"base_path"`
 	ChunkSize      int64  `json:"chunk_size"` // 分片大小（字节）；0 用默认 25MB，非 0 时最小 5MB
 	IsDefault      bool   `json:"is_default"`
@@ -155,6 +158,7 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		AccessKey:      strings.TrimSpace(req.AccessKey),
 		SecretKey:      req.SecretKey,
 		ForcePathStyle: forcePath,
+		CustomHost:     normalizeCustomHost(req.CustomHost),
 		BasePath:       normalizeBasePath(req.BasePath),
 		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
@@ -214,6 +218,7 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		AccessKey:      strings.TrimSpace(req.AccessKey),
 		SecretKey:      req.SecretKey,
 		ForcePathStyle: forcePath,
+		CustomHost:     normalizeCustomHost(req.CustomHost),
 		BasePath:       normalizeBasePath(req.BasePath),
 		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
@@ -314,6 +319,11 @@ func (h *PolicyHandler) SetCORS(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "存储桶 CORS 已配置"})
+}
+
+// normalizeCustomHost 清理自定义域名：去首尾空白与末尾斜杠。
+func normalizeCustomHost(h string) string {
+	return strings.TrimRight(strings.TrimSpace(h), "/")
 }
 
 // normalizeBasePath 去掉首尾 / 与多余空白；禁止 .. 等路径穿越。

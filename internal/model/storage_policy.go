@@ -19,6 +19,8 @@ type StoragePolicy struct {
 	SecretKey string    `gorm:"size:255;not null" json:"secret_key"`
 	// ForcePathStyle 强制 path-style 访问（MinIO / 部分私有 S3 需要）；false 时用 virtual-hosted。
 	ForcePathStyle bool `gorm:"not null;default:true" json:"force_path_style"`
+	// CustomHost 自定义下载/预览域名（如 COS / 七牛的 CDN 加速域名）；空表示使用 Endpoint 域名。
+	CustomHost string `gorm:"size:512" json:"custom_host"`
 	// BasePath 对象键前缀（上传目录），如 uploads 或 cloudreve/prod；空表示 bucket 根。
 	BasePath string `gorm:"size:255" json:"base_path"`
 	// ChunkSize 分片上传每片大小（字节）；0 表示使用默认 25MB。
@@ -108,6 +110,7 @@ func UpdateStoragePolicy(id uint, updates *StoragePolicy, updateSecret bool) err
 	existing.Bucket = updates.Bucket
 	existing.AccessKey = updates.AccessKey
 	existing.ForcePathStyle = updates.ForcePathStyle
+	existing.CustomHost = updates.CustomHost
 	existing.BasePath = updates.BasePath
 	existing.ChunkSize = updates.ChunkSize
 	existing.DefaultQuota = updates.DefaultQuota

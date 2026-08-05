@@ -14,6 +14,7 @@ func TestNewS3Driver_InitWithMockEndpoint(t *testing.T) {
 		"minioadmin",
 		"minioadmin",
 		true,
+		"",
 	)
 	if err != nil {
 		t.Fatalf("NewS3Driver unexpected error: %v", err)
@@ -40,6 +41,7 @@ func TestS3Driver_GenerateUploadURL(t *testing.T) {
 		"minioadmin",
 		"minioadmin",
 		true,
+		"",
 	)
 	if err != nil {
 		t.Fatalf("NewS3Driver: %v", err)
@@ -68,6 +70,7 @@ func TestS3Driver_GenerateDownloadURL(t *testing.T) {
 		"minioadmin",
 		"minioadmin",
 		true,
+		"",
 	)
 	if err != nil {
 		t.Fatalf("NewS3Driver: %v", err)

@@ -57,6 +57,7 @@ const emptyForm: PolicyForm = {
   access_key: '',
   secret_key: '',
   force_path_style: true,
+  custom_host: '',
   base_path: '',
   chunk_size: 0,
   is_default: false,
@@ -145,6 +146,7 @@ export default function StoragePolicies() {
         access_key: p.access_key,
         secret_key: '', // 留空表示不修改
         force_path_style: p.force_path_style !== false,
+        custom_host: p.custom_host || '',
         base_path: p.base_path || '',
         is_default: p.is_default,
         default_quota_gib: (p.default_quota || 0) / GiB,
@@ -182,6 +184,7 @@ export default function StoragePolicies() {
         access_key: values.access_key,
         secret_key: values.secret_key || '',
         force_path_style: values.force_path_style !== false,
+        custom_host: (values.custom_host || '').trim().replace(/\/+$/, ''),
         base_path: (values.base_path || '').trim().replace(/^\/+|\/+$/g, ''),
         chunk_size: Math.round(chunkMib * MiB),
         is_default: !!values.is_default,
@@ -352,6 +355,12 @@ export default function StoragePolicies() {
                           <Text type="secondary">Path Style：</Text>
                           {p.force_path_style !== false ? '强制开启' : '关闭（virtual-hosted）'}
                         </div>
+                        {p.custom_host && (
+                          <div style={{ wordBreak: 'break-all' }}>
+                            <Text type="secondary">自定义域名：</Text>
+                            {p.custom_host}
+                          </div>
+                        )}
                         <div>
                           <Text type="secondary">Access Key：</Text>
                           {p.access_key ? `${p.access_key.slice(0, 4)}••••` : '—'}
@@ -445,6 +454,13 @@ export default function StoragePolicies() {
             extra="MinIO 与多数私有/兼容 S3 需开启；AWS 官方 S3 可关闭（virtual-hosted）。"
           >
             <Switch checkedChildren="开" unCheckedChildren="关" />
+          </Form.Item>
+          <Form.Item
+            name="custom_host"
+            label="自定义域名"
+            extra="COS / 七牛等的 CDN 加速域名，如 https://cdn.example.com。配置后下载与预览链接改用该域名；留空则用 Endpoint。部分服务商需在 CDN 侧将回源 Host 设为 Bucket 域名。"
+          >
+            <Input placeholder="例如 https://cdn.example.com" allowClear />
           </Form.Item>
           <Form.Item
             name="access_key"

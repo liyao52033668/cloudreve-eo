@@ -230,3 +230,72 @@ body {
     transition: none !important;
   }
 }
+
+/* 文件网格视图 */
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+}
+
+.file-grid__item {
+  position: relative;
+}
+
+.file-grid__card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.file-grid__card:hover {
+  border-color: #1677ff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.file-grid__thumb {
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  background: #fafafa;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.file-grid__thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.file-grid__name {
+  font-size: 13px;
+  line-height: 1.4;
+  min-height: 36px;
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.file-grid__more {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  color: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.file-grid__item:hover .file-grid__more {
+  opacity: 1;
+}

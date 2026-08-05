@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Alert, Card, Progress, Typography, Divider } from 'antd'
-import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Segmented, Alert, Card, Progress, Typography, Divider } from 'antd'
+import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, TeamOutlined, UserOutlined, BarsOutlined, AppstoreOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import {
   listFiles,
@@ -22,6 +22,7 @@ import {
   type UploadSessionInfo,
 } from '../api/files'
 import { getProfile } from '../api/user'
+import { isImage, isVideo } from '../utils/fileType'
 import { useNavigate } from 'react-router-dom'
 
 const { Header, Content } = Layout
@@ -60,6 +61,9 @@ export default function Files() {
   const [uploadTasks, setUploadTasks] = useState<Record<string, UploadTask>>({})
   // 非空时进入「按策略查看」模式：跨目录展示该策略下全部文件
   const [viewPolicy, setViewPolicy] = useState<string>('')
+  // 图片/视频分类筛选：在当前浏览范围内只展示对应类型的文件
+  const [category, setCategory] = useState<'all' | 'image' | 'video'>('all')
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const resumeInputRef = useRef<HTMLInputElement>(null)
@@ -534,6 +538,14 @@ export default function Files() {
   const activeSearch = searchKeyword.trim()
   const canGoUp = !viewPolicy && !activeSearch && breadcrumb.length > 1
 
+  const visibleFiles = useMemo(() => {
+    if (category === 'image') return files.filter((f) => !f.is_dir && isImage(f))
+    if (category === 'video') return files.filter((f) => !f.is_dir && isVideo(f))
+    return files
+  }, [files, category])
+
+  const browseValue = category === 'all' ? viewPolicy : `__cat__${category}`
+
   return (
     <Layout style={{ minHeight: '100vh', width: '100%' }}>
       <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529', padding: '0 24px' }}>
@@ -621,6 +633,21 @@ export default function Files() {
                     返回目录浏览
                   </Button>
                 </>
+              ) : category !== 'all' ? (
+                <>
+                  <div className="files-toolbar__policy-path" aria-label="当前分类范围">
+                    <Typography.Text type="secondary">分类</Typography.Text>
+                    <span className="files-toolbar__policy-sep" aria-hidden>/</span>
+                    <Typography.Text strong className="files-toolbar__policy-name">
+                      {category === 'image' ? '图片' : '视频'}
+                    </Typography.Text>
+                    <span className="files-toolbar__policy-sep" aria-hidden>/</span>
+                    <Typography.Text>当前目录</Typography.Text>
+                  </div>
+                  <Button size="small" onClick={() => setCategory('all')}>
+                    返回全部文件
+                  </Button>
+                </>
               ) : (
                 <>
                   {canGoUp && (
@@ -675,13 +702,21 @@ export default function Files() {
           <div className="files-toolbar__bottom">
             <Select
               className="files-toolbar__select-browse"
-              value={viewPolicy}
+              value={browseValue}
               onChange={(v) => {
-                setViewPolicy(v || '')
+                if (v === '__cat__image' || v === '__cat__video') {
+                  setCategory(v === '__cat__image' ? 'image' : 'video')
+                  setViewPolicy('')
+                } else {
+                  setCategory('all')
+                  setViewPolicy(v || '')
+                }
                 setSearchKeyword('')
               }}
               options={[
                 { value: '', label: '按目录浏览' },
+                { value: '__cat__image', label: '图片分类' },
+                { value: '__cat__video', label: '视频分类' },
                 ...policies.map((p) => ({ value: p.name, label: p.name })),
               ]}
               placeholder="浏览方式"
@@ -695,6 +730,15 @@ export default function Files() {
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
               aria-label="全局搜索文件名"
+            />
+            <Segmented
+              value={viewMode}
+              onChange={(v) => setViewMode(v as 'list' | 'grid')}
+              options={[
+                { value: 'list', icon: <BarsOutlined /> },
+                { value: 'grid', icon: <AppstoreOutlined /> },
+              ]}
+              aria-label="视图切换"
             />
           </div>
         </section>
@@ -765,7 +809,7 @@ export default function Files() {
           {...folderDirectoryInputProps}
           onChange={handleFolderSelected}
         />
-        <FileList files={files} onRefresh={loadFiles} onOpenDir={handleOpenDir} />
+        <FileList files={visibleFiles} viewMode={viewMode} onRefresh={loadFiles} onOpenDir={handleOpenDir} />
       </Content>
       <Modal title="新建文件夹" open={mkdirModal} onOk={handleMkdir} onCancel={() => setMkdirModal(false)}>
         <Input value={dirName} onChange={(e) => setDirName(e.target.value)} placeholder="文件夹名称" />

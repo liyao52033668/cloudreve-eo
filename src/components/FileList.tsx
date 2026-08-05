@@ -1,15 +1,17 @@
 import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrumb, Spin, Empty } from 'antd'
-import { FolderOutlined, FileOutlined, FileImageOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, EyeOutlined, DragOutlined } from '@ant-design/icons'
+import { FolderOutlined, FileOutlined, FileImageOutlined, VideoCameraOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, EyeOutlined, DragOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { FileItem } from '../api/files'
 import { deleteFile, renameFile, getDownloadURL, getDownloadZip, listFiles, moveFile } from '../api/files'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { isImage, isVideo } from '../utils/fileType'
 import ShareModal from './ShareModal'
 
 interface Props {
   files: FileItem[]
   onRefresh: () => void
   onOpenDir: (dirId: number) => void
+  viewMode: 'list' | 'grid'
 }
 
 interface MoveBreadcrumbItem {
@@ -17,17 +19,47 @@ interface MoveBreadcrumbItem {
   id: number
 }
 
-const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico', 'avif']
+/** 网格模式下图片缩略图：按需拉取内联预览 URL */
+function GridThumb({ file }: { file: FileItem }) {
+  const [url, setUrl] = useState('')
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    setUrl('')
+    setFailed(false)
+    if (!file.is_dir && isImage(file)) {
+      getDownloadURL(file.id, true)
+        .then((res) => { if (!cancelled) setUrl(res.data.download_url) })
+        .catch(() => { if (!cancelled) setFailed(true) })
+    }
+    return () => { cancelled = true }
+  }, [file.id])
 
-const isImage = (f: FileItem) =>
-  f.mime_type?.startsWith('image/') ||
-  IMAGE_EXTS.includes(f.name.split('.').pop()?.toLowerCase() || '')
+  if (file.is_dir) return <FolderOutlined style={{ fontSize: 44, color: '#faad14' }} />
+  if (isVideo(file)) return <VideoCameraOutlined style={{ fontSize: 44, color: '#13c2c2' }} />
+  if (isImage(file)) {
+    if (url) {
+      return (
+        <img
+          src={url}
+          alt={file.name}
+          className="file-grid__thumb-img"
+          onError={() => setFailed(true)}
+        />
+      )
+    }
+    if (failed) return <FileImageOutlined style={{ fontSize: 44, color: '#52c41a' }} />
+    return <Spin size="small" />
+  }
+  return <FileOutlined style={{ fontSize: 44, color: 'rgba(0,0,0,0.45)' }} />
+}
 
-export default function FileList({ files, onRefresh, onOpenDir }: Props) {
+export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Props) {
   const [renameModal, setRenameModal] = useState<{ visible: boolean; file?: FileItem }>({ visible: false })
   const [newName, setNewName] = useState('')
   const [shareFile, setShareFile] = useState<FileItem | null>(null)
   const [preview, setPreview] = useState<{ open: boolean; url: string }>({ open: false, url: '' })
+  const [videoPreview, setVideoPreview] = useState<{ open: boolean; url: string }>({ open: false, url: '' })
   const [moveModal, setMoveModal] = useState<{ visible: boolean; file?: FileItem }>({ visible: false })
   const [moveDirs, setMoveDirs] = useState<FileItem[]>([])
   const [moveLoading, setMoveLoading] = useState(false)
@@ -78,7 +110,11 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
   const handlePreview = async (file: FileItem) => {
     try {
       const res = await getDownloadURL(file.id, true)
-      setPreview({ open: true, url: res.data.download_url })
+      if (isVideo(file)) {
+        setVideoPreview({ open: true, url: res.data.download_url })
+      } else {
+        setPreview({ open: true, url: res.data.download_url })
+      }
     } catch {
       message.error('获取预览链接失败')
     }
@@ -192,6 +228,54 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
     return Array.from(names).sort().map((p) => ({ text: p, value: p }))
   }, [files])
 
+  const menuItemsFor = (record: FileItem) => [
+    ...(!record.is_dir && (isImage(record) || isVideo(record)) ? [{ key: 'preview', label: '预览', icon: <EyeOutlined /> }] : []),
+    { key: 'download', label: record.is_dir ? '下载(zip)' : '下载', icon: <DownloadOutlined /> },
+    { key: 'share', label: '分享', icon: <ShareAltOutlined /> },
+    { key: 'rename', label: '重命名', icon: <EditOutlined /> },
+    { key: 'move', label: '移动', icon: <DragOutlined /> },
+    { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
+  ]
+
+  const onMenuClick = (key: string, record: FileItem) => {
+    if (key === 'preview') handlePreview(record)
+    else if (key === 'download') { if (record.is_dir) handleDownloadDir(record); else handleDownload(record) }
+    else if (key === 'share') setShareFile(record)
+    else if (key === 'rename') { setRenameModal({ visible: true, file: record }); setNewName(record.name) }
+    else if (key === 'move') openMoveModal(record)
+    else if (key === 'delete') handleDelete(record)
+  }
+
+  const gridView = (
+    <div className="file-grid">
+      {files.map((f) => (
+        <div className="file-grid__item" key={f.id}>
+          <Dropdown
+            trigger={['contextMenu']}
+            menu={{ items: menuItemsFor(f), onClick: ({ key }) => onMenuClick(key, f) }}
+          >
+            <div
+              className="file-grid__card"
+              onClick={() => {
+                if (f.is_dir) onOpenDir(f.id)
+                else if (isImage(f) || isVideo(f)) handlePreview(f)
+                else handleDownload(f)
+              }}
+            >
+              <div className="file-grid__thumb">
+                <GridThumb file={f} />
+              </div>
+              <div className="file-grid__name" title={f.name}>{f.name}</div>
+            </div>
+          </Dropdown>
+          <Dropdown menu={{ items: menuItemsFor(f), onClick: ({ key }) => onMenuClick(key, f) }}>
+            <Button className="file-grid__more" type="text" size="small" icon={<MoreOutlined />} />
+          </Dropdown>
+        </div>
+      ))}
+    </div>
+  )
+
   const columns: ColumnsType<FileItem> = [
     {
       title: '名称',
@@ -200,13 +284,15 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
         <Space>
           {record.is_dir
             ? <FolderOutlined style={{ color: '#faad14' }} />
-            : isImage(record)
-              ? <FileImageOutlined style={{ color: '#52c41a' }} />
-              : <FileOutlined />}
+            : isVideo(record)
+              ? <VideoCameraOutlined style={{ color: '#13c2c2' }} />
+              : isImage(record)
+                ? <FileImageOutlined style={{ color: '#52c41a' }} />
+                : <FileOutlined />}
           <a
             onClick={() => {
               if (record.is_dir) onOpenDir(record.id)
-              else if (isImage(record)) handlePreview(record)
+              else if (isImage(record) || isVideo(record)) handlePreview(record)
             }}
           >
             {name}
@@ -227,24 +313,7 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
     {
       title: '操作', width: 120,
       render: (_, record) => (
-        <Dropdown menu={{
-          items: [
-            ...(!record.is_dir && isImage(record) ? [{ key: 'preview', label: '预览', icon: <EyeOutlined /> }] : []),
-            { key: 'download', label: record.is_dir ? '下载(zip)' : '下载', icon: <DownloadOutlined /> },
-            { key: 'share', label: '分享', icon: <ShareAltOutlined /> },
-            { key: 'rename', label: '重命名', icon: <EditOutlined /> },
-            { key: 'move', label: '移动', icon: <DragOutlined /> },
-            { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
-          ],
-          onClick: ({ key }) => {
-            if (key === 'preview') handlePreview(record)
-            else if (key === 'download') { if (record.is_dir) handleDownloadDir(record); else handleDownload(record) }
-            else if (key === 'share') { setShareFile(record) }
-            else if (key === 'rename') { setRenameModal({ visible: true, file: record }); setNewName(record.name) }
-            else if (key === 'move') openMoveModal(record)
-            else if (key === 'delete') handleDelete(record)
-          },
-        }}>
+        <Dropdown menu={{ items: menuItemsFor(record), onClick: ({ key }) => onMenuClick(key, record) }}>
           <Button type="text" icon={<MoreOutlined />} />
         </Dropdown>
       ),
@@ -253,7 +322,13 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
 
   return (
     <>
-      <Table columns={columns} dataSource={files} rowKey="id" pagination={false} />
+      {files.length === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无文件" style={{ margin: '48px 0' }} />
+      ) : viewMode === 'grid' ? (
+        gridView
+      ) : (
+        <Table columns={columns} dataSource={files} rowKey="id" pagination={false} />
+      )}
       <Modal title="重命名" open={renameModal.visible} onOk={handleRename} onCancel={() => setRenameModal({ visible: false })}>
         <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
       </Modal>
@@ -318,6 +393,21 @@ export default function FileList({ files, onRefresh, onOpenDir }: Props) {
           onVisibleChange: (v) => { if (!v) setPreview({ open: false, url: '' }) },
         }}
       />
+      <Modal
+        title="视频预览"
+        open={videoPreview.open}
+        onCancel={() => setVideoPreview({ open: false, url: '' })}
+        footer={null}
+        width={800}
+        destroyOnClose
+      >
+        <video
+          src={videoPreview.url}
+          controls
+          autoPlay
+          style={{ width: '100%', maxHeight: '70vh' }}
+        />
+      </Modal>
     </>
   )
 }

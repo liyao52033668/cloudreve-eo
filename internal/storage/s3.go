@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,15 +20,18 @@ import (
 
 // S3Driver 使用 AWS SDK v2 实现 S3 兼容存储驱动（含 MinIO 等）。
 type S3Driver struct {
-	client *s3.Client
-	bucket string
+	client     *s3.Client
+	bucket     string
+	customHost string // 自定义下载/预览域名；空表示使用 Endpoint
+	pathStyle  bool
 }
 
 // NewS3Driver 创建 S3 兼容存储驱动。
 // endpoint 非空时使用自定义端点（MinIO/COS 等）。
 // forcePathStyle 为 true 时使用 path-style（http://endpoint/bucket/key），
 // false 时使用 virtual-hosted（http://bucket.endpoint/key）；MinIO 与部分私有 S3 通常需开启。
-func NewS3Driver(endpoint, region, bucket, accessKey, secretKey string, forcePathStyle bool) (*S3Driver, error) {
+// customHost 非空时，生成的下载/预览 URL 将使用该自定义域名（如 COS / 七牛的 CDN 加速域名）。
+func NewS3Driver(endpoint, region, bucket, accessKey, secretKey string, forcePathStyle bool, customHost string) (*S3Driver, error) {
 	resolver := aws.EndpointResolverWithOptionsFunc(
 		func(service, reg string, options ...interface{}) (aws.Endpoint, error) {
 			if endpoint != "" {
@@ -52,7 +56,7 @@ func NewS3Driver(endpoint, region, bucket, accessKey, secretKey string, forcePat
 		o.UsePathStyle = forcePathStyle
 	})
 
-	return &S3Driver{client: client, bucket: bucket}, nil
+	return &S3Driver{client: client, bucket: bucket, customHost: customHost, pathStyle: forcePathStyle}, nil
 }
 
 func (d *S3Driver) GenerateUploadURL(key string, contentType string, expire time.Duration) (string, error) {
@@ -84,7 +88,34 @@ func (d *S3Driver) GenerateDownloadURL(key string, fileName string, expire time.
 	if err != nil {
 		return "", fmt.Errorf("生成下载 URL 失败: %w", err)
 	}
+	if d.customHost != "" {
+		return rewriteDownloadURL(result.URL, d.customHost, d.bucket, d.pathStyle)
+	}
 	return result.URL, nil
+}
+
+// rewriteDownloadURL 把预签名 URL 的主机替换为自定义域名（COS / 七牛等 CDN 加速域名），
+// 保留签名 query 与路径。path-style 下原 URL 形如 https://endpoint/bucket/key，
+// CDN 域名通常已绑定到 bucket，需去掉开头的 /bucket 前缀。
+func rewriteDownloadURL(rawURL, customHost, bucket string, pathStyle bool) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("解析预签名 URL 失败: %w", err)
+	}
+	host, err := url.Parse(customHost)
+	if err != nil {
+		return "", fmt.Errorf("解析自定义域名失败: %w", err)
+	}
+	scheme := host.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	u.Scheme = scheme
+	u.Host = host.Host
+	if pathStyle && bucket != "" && strings.HasPrefix(u.Path, "/"+bucket) {
+		u.Path = strings.TrimPrefix(u.Path, "/"+bucket)
+	}
+	return u.String(), nil
 }
 
 func (d *S3Driver) Delete(key string) error {
