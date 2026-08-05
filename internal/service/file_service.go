@@ -52,6 +52,15 @@ func (s *FileService) ListFilesByPolicy(userID uint, policy string) ([]model.Fil
 	return files, err
 }
 
+// ListFilesByMimePrefix 跨目录列出用户在指定 mime 类型前缀下的全部文件（如 image/% 或 video/%）。
+func (s *FileService) ListFilesByMimePrefix(userID uint, mimePrefix string) ([]model.File, error) {
+	var files []model.File
+	err := model.DB.Where("user_id = ? AND is_dir = ? AND mime_type LIKE ?", userID, false, mimePrefix+"%").
+		Order("updated_at DESC").
+		Find(&files).Error
+	return files, err
+}
+
 // SearchFiles 按文件名跨全部目录搜索用户文件；policy 非空时限定存储策略。
 func (s *FileService) SearchFiles(userID uint, keyword string, policy string) ([]model.File, error) {
 	query := model.DB.Where("user_id = ? AND is_dir = ?", userID, false)

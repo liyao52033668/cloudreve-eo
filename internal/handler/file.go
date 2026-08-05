@@ -23,10 +23,22 @@ func NewFileHandler(fs *service.FileService) *FileHandler {
 func (h *FileHandler) List(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	policy := c.Query("policy")
+	mimePrefix := c.Query("mime_prefix")
 
 	// search 非空时跨全部目录搜索；policy 非空则限定在该存储策略内。
 	if keyword := strings.TrimSpace(c.Query("search")); keyword != "" {
 		files, err := h.fileService.SearchFiles(userID, keyword, policy)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"files": files})
+		return
+	}
+
+	// mime_prefix 非空时跨目录返回指定 mime 类型的全部文件（图片/视频分类）
+	if mimePrefix != "" {
+		files, err := h.fileService.ListFilesByMimePrefix(userID, mimePrefix)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

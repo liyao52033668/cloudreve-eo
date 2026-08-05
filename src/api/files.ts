@@ -30,6 +30,10 @@ export const listFiles = (parentId: number = 0) =>
 export const listFilesByPolicy = (policy: string) =>
   client.get<{ files: FileItem[] }>('/files', { params: { policy } })
 
+/** 跨目录列出指定 mime 类型前缀的全部文件（如 image/ 或 video/） */
+export const listFilesByMimePrefix = (mimePrefix: string) =>
+  client.get<{ files: FileItem[] }>('/files', { params: { mime_prefix: mimePrefix } })
+
 /** 全局搜索文件名；可选限定存储策略 */
 export const searchFiles = (keyword: string, policy?: string) =>
   client.get<{ files: FileItem[] }>('/files', {

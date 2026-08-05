@@ -5,6 +5,7 @@ import FileList from '../components/FileList'
 import {
   listFiles,
   listFilesByPolicy,
+  listFilesByMimePrefix,
   searchFiles,
   mkdir,
   getUploadURL,
@@ -84,9 +85,11 @@ export default function Files() {
     try {
       const res = debouncedSearch
         ? await searchFiles(debouncedSearch, viewPolicy || undefined)
-        : viewPolicy
-          ? await listFilesByPolicy(viewPolicy)
-          : await listFiles(currentDir)
+        : category !== 'all'
+          ? await listFilesByMimePrefix(category === 'image' ? 'image/' : 'video/')
+          : viewPolicy
+            ? await listFilesByPolicy(viewPolicy)
+            : await listFiles(currentDir)
       if (requestId !== loadRequestIdRef.current) return
       setFiles(res.data.files || [])
     } catch (err: any) {
@@ -94,7 +97,7 @@ export default function Files() {
       if (err?.response?.status === 401) return // client 拦截器会跳登录
       message.error(err?.response?.data?.error || '加载文件列表失败')
     }
-  }, [currentDir, viewPolicy, debouncedSearch])
+  }, [currentDir, viewPolicy, debouncedSearch, category])
 
   const loadPolicies = useCallback(async () => {
     try {
