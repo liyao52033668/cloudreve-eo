@@ -91,14 +91,19 @@ func Load() (*Config, error) {
 		dbDriver = "sqlite"
 	}
 
-	dbDSN := os.Getenv("DB_DSN")
-	if dbDSN == "" {
-		dbDSN = "cloudreve.db"
-	}
-
 	persist, err := loadPersist(dbDriver)
 	if err != nil {
 		return nil, err
+	}
+
+	dbDSN := os.Getenv("DB_DSN")
+	if dbDSN == "" {
+		if persist.Backend == "edgeone-blob" {
+			// EdgeOne 云函数工作目录只读，仅 /tmp 可写，快照文件同样落在该目录
+			dbDSN = "/tmp/cloudreve.db"
+		} else {
+			dbDSN = "cloudreve.db"
+		}
 	}
 
 	return &Config{

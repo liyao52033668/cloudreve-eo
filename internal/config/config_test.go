@@ -113,6 +113,11 @@ func TestLoad_PersistEdgeOneBlob(t *testing.T) {
 		t.Errorf("未配置 BASE_URL 时 LazyRestore() = false, want true")
 	}
 
+	// 未显式配置 DB_DSN 时，edgeone-blob 默认数据库文件应落在 /tmp
+	if cfg.DB.DSN != "/tmp/cloudreve.db" {
+		t.Errorf("edgeone-blob 未配置 DB_DSN 时 DB.DSN = %q, want /tmp/cloudreve.db", cfg.DB.DSN)
+	}
+
 	// 显式配置 BASE_URL：去除末尾斜杠，启动即恢复
 	t.Setenv("DB_PERSIST_EDGEONE_BASE_URL", "https://demo.edgeone.run/")
 	cfg, err = Load()
@@ -127,6 +132,16 @@ func TestLoad_PersistEdgeOneBlob(t *testing.T) {
 	}
 	if cfg.Persist.EdgeOne.Secret != "topsecret" {
 		t.Errorf("Secret = %q", cfg.Persist.EdgeOne.Secret)
+	}
+
+	// 显式配置 DB_DSN 时优先于 /tmp 默认值
+	t.Setenv("DB_DSN", "/tmp/custom.db")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.DB.DSN != "/tmp/custom.db" {
+		t.Errorf("显式配置 DB_DSN 时 DB.DSN = %q, want /tmp/custom.db", cfg.DB.DSN)
 	}
 }
 
