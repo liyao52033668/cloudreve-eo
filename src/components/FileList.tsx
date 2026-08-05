@@ -79,15 +79,20 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   const handleDownload = async (file: FileItem) => {
     try {
       const res = await getDownloadURL(file.id)
-      // 后端已带 Content-Disposition: attachment，直接跳转即触发下载
+      const url = res.data.download_url
+      // 使用 fetch 获取文件内容，绕过 CDN 不支持 response-content-disposition 的限制
+      const response = await fetch(url)
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = res.data.download_url
+      a.href = blobUrl
       a.download = file.name
       document.body.appendChild(a)
       a.click()
       a.remove()
+      URL.revokeObjectURL(blobUrl)
     } catch {
-      message.error('获取下载链接失败')
+      message.error('下载失败')
     }
   }
 
