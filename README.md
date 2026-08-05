@@ -8,7 +8,8 @@
 
 本项目**不是**独立的 Go 服务 + 独立前端开发模型；本地联调与线上部署都走 **EdgeOne Makers CLI**。
 
-[![使用 EdgeOne Makers 部署](https://cdnstatic.tencentcs.com/edgeone/pages/deploy.svg)](https://console.cloud.tencent.com/edgeone/makers/new?repository-url=https://github.com/liyao52033668/cloudreve-eo)**[记得设置环境变量](#环境变量)**
+[![使用 EdgeOne Makers 部署](https://cdnstatic.tencentcs.com/edgeone/pages/deploy.svg)](https://console.cloud.tencent.com/edgeone/makers/new?repository-url=https://github.com/liyao52033668/cloudreve-eo)**[记得设置环境变量，不是设置kv](#环境变量)**
+![20260805221536_232_9.webp](https://cdn.jsdelivr.net/gh/liyao52033/picx-images-hosting@master/twikoo/1785939361329_微信图片_20260805221536_232_9.webp)
 
 ## 功能
 
