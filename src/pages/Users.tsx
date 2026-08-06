@@ -25,6 +25,8 @@ import {
   DeleteOutlined,
   UserOutlined,
   SearchOutlined,
+  StopOutlined,
+  KeyOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -37,6 +39,8 @@ import {
   createUser,
   updateUser,
   deleteUser,
+  toggleBanUser,
+  resetPassword,
   type AdminUser,
 } from '../api/adminUsers'
 import { getProfile } from '../api/user'
@@ -192,6 +196,45 @@ export default function Users() {
     }
   }
 
+  const handleToggleBan = async (id: number, banned: boolean) => {
+    try {
+      const res = await toggleBanUser(id)
+      message.success(res.data.message)
+      load()
+    } catch (err: any) {
+      message.error(err.response?.data?.error || (banned ? '解封失败' : '封号失败'))
+    }
+  }
+
+  const handleResetPassword = (id: number) => {
+    Modal.confirm({
+      title: '重置密码',
+      content: (
+        <Input.Password
+          id="reset-password-input"
+          placeholder="输入新密码（至少6位）"
+          autoComplete="new-password"
+        />
+      ),
+      okText: '确认',
+      cancelText: '取消',
+      onOk: async () => {
+        const input = document.getElementById('reset-password-input') as HTMLInputElement
+        const password = input?.value || ''
+        if (password.length < 6) {
+          message.error('密码至少6位')
+          return Promise.reject()
+        }
+        try {
+          await resetPassword(id, password)
+          message.success('密码已重置')
+        } catch (err: any) {
+          message.error(err.response?.data?.error || '重置失败')
+        }
+      },
+    })
+  }
+
   const handleLogout = () => {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
@@ -221,6 +264,7 @@ export default function Users() {
           <UserOutlined style={{ color: '#1677ff' }} />
           <span>{u.username}</span>
           {u.is_admin && <Tag color="red">管理员</Tag>}
+          {u.banned && <Tag color="orange">已封禁</Tag>}
         </Space>
       ),
     },
@@ -244,6 +288,18 @@ export default function Users() {
         <Space>
           <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(u.id)}>
             编辑
+          </Button>
+          <Popconfirm
+            title={u.banned ? '确认解封该用户？' : '确认封禁该用户？'}
+            description={u.banned ? '解封后用户可以正常登录' : '封禁后用户无法登录'}
+            onConfirm={() => handleToggleBan(u.id, u.banned)}
+          >
+            <Button type="link" danger={u.banned} icon={<StopOutlined />}>
+              {u.banned ? '解封' : '封号'}
+            </Button>
+          </Popconfirm>
+          <Button type="link" icon={<KeyOutlined />} onClick={() => handleResetPassword(u.id)}>
+            重置密码
           </Button>
           <Popconfirm
             title="确认删除该用户？"

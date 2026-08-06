@@ -67,6 +67,8 @@ export default function Files() {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [storageQuota, setStorageQuota] = useState(0)
+  const [storageUsed, setStorageUsed] = useState(0)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const resumeTargetRef = useRef<UploadSessionInfo | null>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
@@ -112,6 +114,8 @@ export default function Files() {
     try {
       const res = await getProfile()
       setIsAdmin(!!res.data.user?.is_admin)
+      setStorageQuota(res.data.user?.storage_quota || 0)
+      setStorageUsed(res.data.user?.storage_used || 0)
       localStorage.setItem('user', JSON.stringify(res.data.user))
     } catch (err: any) {
       if (err?.response?.status === 401) return
@@ -559,6 +563,9 @@ export default function Files() {
           Cloudreve-EO
         </span>
         <Space>
+          <span style={{ color: '#fff', fontSize: 14 }}>
+            已用额度: {formatSize(storageUsed)} / {formatSize(storageQuota)}
+          </span>
           {isAdmin && (
             <>
               <Button

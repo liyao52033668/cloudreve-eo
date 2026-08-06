@@ -65,6 +65,10 @@ func (s *AuthService) Login(username, password string) (*model.User, error) {
 		return nil, err
 	}
 
+	if user.Banned {
+		return nil, errors.New("账号已被封禁")
+	}
+
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, errors.New("用户名或密码错误")
 	}

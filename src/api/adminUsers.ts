@@ -7,6 +7,7 @@ export interface AdminUser {
   group_id: number
   storage_quota: number
   storage_used: number
+  banned: boolean
   created_at: string
   group_name?: string
 }
@@ -35,3 +36,9 @@ export const updateUser = (id: number, data: {
 
 export const deleteUser = (id: number) =>
   client.delete(`/admin/users/${id}`)
+
+export const toggleBanUser = (id: number) =>
+  client.put<{ message: string; banned: boolean }>(`/admin/users/${id}/ban`)
+
+export const resetPassword = (id: number, password: string) =>
+  client.post<{ message: string }>(`/admin/users/${id}/reset-password`, { password })

@@ -10,6 +10,7 @@ type User struct {
 	GroupID      uint      `gorm:"not null;default:0;index" json:"group_id"`
 	StorageQuota int64     `gorm:"not null;default:0" json:"storage_quota"`
 	StorageUsed  int64     `gorm:"not null;default:0" json:"storage_used"`
+	Banned       bool      `gorm:"not null;default:false" json:"banned"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 

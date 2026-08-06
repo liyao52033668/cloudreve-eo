@@ -266,3 +266,83 @@ func (h *AdminUserHandler) Delete(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已删除"})
 }
+
+// ToggleBan PUT /api/admin/users/:id/ban - 切换封号状态
+func (h *AdminUserHandler) ToggleBan(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效 ID"})
+		return
+	}
+	operatorID := c.GetUint("user_id")
+	if uint(id) == operatorID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "不能封禁当前登录的管理员账号"})
+		return
+	}
+
+	user, err := model.GetUserByID(uint(id))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	user.Banned = !user.Banned
+	if err := model.DB.Save(user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	status := "已解封"
+	if user.Banned {
+		status = "已封禁"
+	}
+	c.JSON(http.StatusOK, gin.H{"message": status, "banned": user.Banned})
+}
+
+type resetPasswordRequest struct {
+	Password string `json:"password" binding:"required,min=6"`
+}
+
+// ResetPassword POST /api/admin/users/:id/reset-password - 重置密码
+func (h *AdminUserHandler) ResetPassword(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效 ID"})
+		return
+	}
+
+	var req resetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "密码至少 6 位"})
+		return
+	}
+
+	user, err := model.GetUserByID(uint(id))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
+		return
+	}
+
+	user.PasswordHash = string(hash)
+	if err := model.DB.Save(user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "密码已重置"})
+}
+
