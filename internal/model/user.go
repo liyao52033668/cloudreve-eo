@@ -56,10 +56,10 @@ func GetUserByUsername(username string) (*User, error) {
 	return &user, nil
 }
 
-// ListUsers 全部用户，按创建时间倒序。
+// ListUsers 全部用户，管理员优先，再按创建时间倒序。
 func ListUsers() ([]User, error) {
 	var users []User
-	err := DB.Order("id DESC").Find(&users).Error
+	err := DB.Order("is_admin DESC, id DESC").Find(&users).Error
 	return users, err
 }
 

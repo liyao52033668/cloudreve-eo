@@ -134,7 +134,8 @@ func (s *FileService) GetUploadURL(userID uint, fileName string, contentType str
 	key := s.buildStorageKey(userID, resolved, fileName)
 	url, err := driver.GenerateUploadURL(key, contentType, 30*time.Minute)
 	if err != nil {
-		return "", "", "", err
+		// 即使生成 URL 失败，也返回 key 和 policy，以便服务端上传使用
+		return "", key, resolved, err
 	}
 	return url, key, resolved, nil
 }
@@ -175,6 +176,60 @@ func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, stora
 		return nil
 	})
 	if err != nil {
+		return nil, err
+	}
+	return file, nil
+}
+
+// UploadServer 服务端直接上传(用于 GitHub 等不支持预签名 URL 的存储)
+func (s *FileService) UploadServer(userID uint, parentID uint, fileName, storageKey string, content []byte, size int64, mimeType string) (*model.File, error) {
+	resolved, err := s.ResolveUserPolicy(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if size < 0 {
+		return nil, errors.New("文件大小无效")
+	}
+	if err := s.checkQuota(userID, resolved, size); err != nil {
+		return nil, err
+	}
+
+	driver, err := s.storageMgr.GetDriver(resolved)
+	if err != nil {
+		return nil, err
+	}
+
+	// 上传到存储
+	if err := driver.UploadFile(storageKey, content); err != nil {
+		return nil, fmt.Errorf("上传到存储失败: %w", err)
+	}
+
+	// 创建文件记录
+	file := &model.File{
+		UserID:        userID,
+		ParentID:      parentID,
+		Name:          fileName,
+		IsDir:         false,
+		Size:          size,
+		MimeType:      mimeType,
+		StorageKey:    storageKey,
+		StoragePolicy: resolved,
+	}
+
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(file).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.User{}).Where("id = ?", userID).
+			Update("storage_used", gorm.Expr("storage_used + ?", size)).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		// 上传成功但数据库失败,尝试删除文件
+		_ = driver.Delete(storageKey)
 		return nil, err
 	}
 	return file, nil

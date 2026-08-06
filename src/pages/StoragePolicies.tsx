@@ -16,6 +16,7 @@ import {
   Typography,
   Row,
   Col,
+  Select,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -51,6 +52,7 @@ const MiB = 1024 * 1024
 
 const emptyForm: PolicyForm = {
   name: '',
+  type: 's3',
   endpoint: '',
   region: 'us-east-1',
   bucket: '',
@@ -59,6 +61,7 @@ const emptyForm: PolicyForm = {
   force_path_style: true,
   custom_host: '',
   base_path: '',
+  branch: '',
   chunk_size: 0,
   is_default: false,
   default_quota: 0,
@@ -83,6 +86,7 @@ export default function StoragePolicies() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null; chunk_size_mib?: number | null }>()
+  const [policyType, setPolicyType] = useState<'s3' | 'github'>('s3')
 
   const ensureAdmin = useCallback(async () => {
     try {
@@ -124,6 +128,7 @@ export default function StoragePolicies() {
 
   const openCreate = () => {
     setEditingId(null)
+    setPolicyType('s3')
     form.setFieldsValue({
       ...emptyForm,
       is_default: policies.length === 0,
@@ -138,8 +143,10 @@ export default function StoragePolicies() {
       const res = await getAdminPolicy(id)
       const p = res.data.policy
       setEditingId(id)
+      setPolicyType(p.type || 's3')
       form.setFieldsValue({
         name: p.name,
+        type: p.type || 's3',
         endpoint: p.endpoint,
         region: p.region || 'us-east-1',
         bucket: p.bucket,
@@ -148,6 +155,7 @@ export default function StoragePolicies() {
         force_path_style: p.force_path_style !== false,
         custom_host: p.custom_host || '',
         base_path: p.base_path || '',
+        branch: p.branch || '',
         is_default: p.is_default,
         default_quota_gib: (p.default_quota || 0) / GiB,
         chunk_size_mib: (p.chunk_size || 0) / MiB,
@@ -178,6 +186,7 @@ export default function StoragePolicies() {
       }
       const payload: PolicyForm = {
         name: values.name,
+        type: values.type || 's3',
         endpoint: values.endpoint,
         region: values.region,
         bucket: values.bucket,
@@ -186,6 +195,7 @@ export default function StoragePolicies() {
         force_path_style: values.force_path_style !== false,
         custom_host: (values.custom_host || '').trim().replace(/\/+$/, ''),
         base_path: (values.base_path || '').trim().replace(/^\/+|\/+$/g, ''),
+        branch: (values.branch || '').trim(),
         chunk_size: Math.round(chunkMib * MiB),
         is_default: !!values.is_default,
         default_quota: Math.round(gib * GiB),
@@ -330,49 +340,78 @@ export default function StoragePolicies() {
                       <Space>
                         <span>{p.name}</span>
                         {p.is_default && <Tag color="blue">默认</Tag>}
-                        <Tag>S3 兼容</Tag>
+                        <Tag>{p.type === 'github' ? 'GitHub' : 'S3 兼容'}</Tag>
                       </Space>
                     }
                     description={
                       <div style={{ marginTop: 8 }}>
-                        <div>
-                          <Text type="secondary">Bucket：</Text>
-                          {p.bucket}
-                        </div>
-                        <div style={{ wordBreak: 'break-all' }}>
-                          <Text type="secondary">Endpoint：</Text>
-                          {p.endpoint}
-                        </div>
-                        <div>
-                          <Text type="secondary">Region：</Text>
-                          {p.region || '—'}
-                        </div>
-                        <div>
-                          <Text type="secondary">上传路径：</Text>
-                          {p.base_path ? `/${p.base_path}/` : '（bucket 根）'}
-                        </div>
-                        <div>
-                          <Text type="secondary">Path Style：</Text>
-                          {p.force_path_style !== false ? '强制开启' : '关闭（virtual-hosted）'}
-                        </div>
-                        {p.custom_host && (
-                          <div style={{ wordBreak: 'break-all' }}>
-                            <Text type="secondary">自定义域名：</Text>
-                            {p.custom_host}
-                          </div>
+                        {p.type === 'github' ? (
+                          <>
+                            <div style={{ wordBreak: 'break-all' }}>
+                              <Text type="secondary">仓库地址：</Text>
+                              {p.endpoint}
+                            </div>
+                            <div>
+                              <Text type="secondary">分支：</Text>
+                              {p.branch || 'main'}
+                            </div>
+                            <div>
+                              <Text type="secondary">上传路径：</Text>
+                              {p.base_path ? `/${p.base_path}/` : '（仓库根）'}
+                            </div>
+                            {p.custom_host && (
+                              <div style={{ wordBreak: 'break-all' }}>
+                                <Text type="secondary">CDN 域名：</Text>
+                                {p.custom_host}
+                              </div>
+                            )}
+                            <div>
+                              <Text type="secondary">每用户配额：</Text>
+                              {formatBytes(p.default_quota || 0)}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <Text type="secondary">Bucket：</Text>
+                              {p.bucket}
+                            </div>
+                            <div style={{ wordBreak: 'break-all' }}>
+                              <Text type="secondary">Endpoint：</Text>
+                              {p.endpoint}
+                            </div>
+                            <div>
+                              <Text type="secondary">Region：</Text>
+                              {p.region || '—'}
+                            </div>
+                            <div>
+                              <Text type="secondary">上传路径：</Text>
+                              {p.base_path ? `/${p.base_path}/` : '（bucket 根）'}
+                            </div>
+                            <div>
+                              <Text type="secondary">Path Style：</Text>
+                              {p.force_path_style !== false ? '强制开启' : '关闭（virtual-hosted）'}
+                            </div>
+                            {p.custom_host && (
+                              <div style={{ wordBreak: 'break-all' }}>
+                                <Text type="secondary">自定义域名：</Text>
+                                {p.custom_host}
+                              </div>
+                            )}
+                            <div>
+                              <Text type="secondary">Access Key：</Text>
+                              {p.access_key ? `${p.access_key.slice(0, 4)}••••` : '—'}
+                            </div>
+                            <div>
+                              <Text type="secondary">每用户配额：</Text>
+                              {formatBytes(p.default_quota || 0)}
+                            </div>
+                            <div>
+                              <Text type="secondary">分片大小：</Text>
+                              {p.chunk_size > 0 ? `${(p.chunk_size / MiB).toFixed(0)} MiB` : '默认（25 MiB）'}
+                            </div>
+                          </>
                         )}
-                        <div>
-                          <Text type="secondary">Access Key：</Text>
-                          {p.access_key ? `${p.access_key.slice(0, 4)}••••` : '—'}
-                        </div>
-                        <div>
-                          <Text type="secondary">每用户配额：</Text>
-                          {formatBytes(p.default_quota || 0)}
-                        </div>
-                        <div>
-                          <Text type="secondary">分片大小：</Text>
-                          {p.chunk_size > 0 ? `${(p.chunk_size / MiB).toFixed(0)} MiB` : '默认（25 MiB）'}
-                        </div>
                       </div>
                     }
                   />
@@ -413,7 +452,16 @@ export default function StoragePolicies() {
         width={560}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" initialValues={{ ...emptyForm, default_quota_gib: 0, chunk_size_mib: 0 }}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ ...emptyForm, default_quota_gib: 0, chunk_size_mib: 0 }}
+          onValuesChange={(changedValues) => {
+            if (changedValues.type) {
+              setPolicyType(changedValues.type)
+            }
+          }}
+        >
           <Form.Item
             name="name"
             label="名称"
@@ -422,39 +470,77 @@ export default function StoragePolicies() {
           >
             <Input placeholder="例如 oss、minio、cos" disabled={editingId != null} />
           </Form.Item>
+
           <Form.Item
-            name="bucket"
-            label="Bucket 名称"
-            rules={[{ required: true, message: '请输入 Bucket' }]}
+            name="type"
+            label="存储类型"
+            rules={[{ required: true, message: '请选择存储类型' }]}
+            extra="选择存储服务提供商"
           >
-            <Input placeholder="your-bucket" />
+            <Select disabled={editingId != null}>
+              <Select.Option value="s3">S3 兼容存储</Select.Option>
+              <Select.Option value="github">GitHub</Select.Option>
+            </Select>
           </Form.Item>
-          <Form.Item
-            name="endpoint"
-            label="Endpoint"
-            rules={[{ required: true, message: '请输入 Endpoint' }]}
-            extra="S3 API 端点，如 https://oss-cn-shanghai.aliyuncs.com 或 https://cos.ap-guangzhou.myqcloud.com"
-          >
-            <Input placeholder="https://..." />
-          </Form.Item>
-          <Form.Item name="region" label="Region" extra="部分服务商必填，默认 us-east-1">
-            <Input placeholder="us-east-1" />
-          </Form.Item>
-          <Form.Item
-            name="base_path"
-            label="上传路径（前缀）"
-            extra="对象保存在该目录下，如 uploads 或 cloudreve/prod；留空表示 bucket 根目录。实际键：{前缀}/{用户ID}/{uuid}"
-          >
-            <Input placeholder="例如 uploads 或 cloudreve/prod" allowClear />
-          </Form.Item>
-          <Form.Item
-            name="force_path_style"
-            label="强制 ForcePathStyle"
-            valuePropName="checked"
-            extra="MinIO 与多数私有/兼容 S3 需开启；AWS 官方 S3 可关闭（virtual-hosted）。"
-          >
-            <Switch checkedChildren="开" unCheckedChildren="关" />
-          </Form.Item>
+
+          {policyType === 's3' && (
+            <>
+              <Form.Item
+                name="bucket"
+                label="Bucket 名称"
+                rules={[{ required: true, message: '请输入 Bucket' }]}
+              >
+                <Input placeholder="your-bucket" />
+              </Form.Item>
+              <Form.Item
+                name="endpoint"
+                label="Endpoint"
+                rules={[{ required: true, message: '请输入 Endpoint' }]}
+                extra="S3 API 端点，如 https://oss-cn-shanghai.aliyuncs.com 或 https://cos.ap-guangzhou.myqcloud.com"
+              >
+                <Input placeholder="https://..." />
+              </Form.Item>
+              <Form.Item name="region" label="Region" extra="部分服务商必填，默认 us-east-1">
+                <Input placeholder="us-east-1" />
+              </Form.Item>
+              <Form.Item
+                name="force_path_style"
+                label="强制 ForcePathStyle"
+                valuePropName="checked"
+                extra="MinIO 与多数私有/兼容 S3 需开启；AWS 官方 S3 可关闭（virtual-hosted）。"
+              >
+                <Switch checkedChildren="开" unCheckedChildren="关" />
+              </Form.Item>
+            </>
+          )}
+
+          {policyType === 'github' && (
+            <>
+              <Form.Item
+                name="endpoint"
+                label="仓库地址"
+                rules={[{ required: true, message: '请输入 GitHub 仓库地址' }]}
+                extra="格式：owner/repo 或 https://github.com/owner/repo"
+              >
+                <Input placeholder="例如 myuser/myrepo" />
+              </Form.Item>
+              <Form.Item
+                name="branch"
+                label="分支"
+                extra="文件将提交到这个分支，留空默认使用 main 分支"
+              >
+                <Input placeholder="例如 main 或 master" allowClear />
+              </Form.Item>
+              <Form.Item
+                name="base_path"
+                label="存储路径前缀"
+                extra="文件将存储在仓库的这个目录下，留空表示仓库根目录"
+              >
+                <Input placeholder="例如 files 或 cloudreve/uploads" allowClear />
+              </Form.Item>
+            </>
+          )}
+
           <Form.Item
             name="custom_host"
             label="自定义域名"
@@ -462,21 +548,29 @@ export default function StoragePolicies() {
           >
             <Input placeholder="例如 https://cdn.example.com" allowClear />
           </Form.Item>
-          <Form.Item
-            name="access_key"
-            label="Access Key"
-            rules={[{ required: true, message: '请输入 Access Key' }]}
-          >
-            <Input placeholder="Access Key ID" autoComplete="off" />
-          </Form.Item>
+
+          {policyType === 's3' && (
+            <Form.Item
+              name="access_key"
+              label="Access Key"
+              rules={[{ required: true, message: '请输入 Access Key' }]}
+            >
+              <Input placeholder="Access Key ID" autoComplete="off" />
+            </Form.Item>
+          )}
+
           <Form.Item
             name="secret_key"
-            label="Secret Key"
-            rules={editingId == null ? [{ required: true, message: '请输入 Secret Key' }] : []}
+            label={policyType === 'github' ? 'GitHub Token' : 'Secret Key'}
+            rules={editingId == null ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : '请输入 Secret Key' }] : []}
             extra={editingId != null ? '留空表示不修改原密钥' : undefined}
           >
-            <Input.Password placeholder={editingId != null ? '留空则不修改' : 'Secret Access Key'} autoComplete="new-password" />
+            <Input.Password
+              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : 'Secret Access Key')}
+              autoComplete="new-password"
+            />
           </Form.Item>
+
           <Form.Item
             name="default_quota_gib"
             label="每用户默认配额 (GiB)"
@@ -492,23 +586,27 @@ export default function StoragePolicies() {
           >
             <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
           </Form.Item>
-          <Form.Item
-            name="chunk_size_mib"
-            label="分片大小 (MiB)"
-            extra="大文件分片上传时每片大小。0 表示默认 25 MiB；非 0 时最小 5 MiB（S3 协议要求），单文件最多 10000 片。"
-            rules={[
-              {
-                validator: async (_, v) => {
-                  if (v === null || v === undefined || v === '') return
-                  const n = Number(v)
-                  if (n < 0) throw new Error('不能为负数')
-                  if (n !== 0 && n < 5) throw new Error('非 0 时至少为 5 MiB')
+
+          {policyType === 's3' && (
+            <Form.Item
+              name="chunk_size_mib"
+              label="分片大小 (MiB)"
+              extra="大文件分片上传时每片大小。0 表示默认 25 MiB；非 0 时最小 5 MiB（S3 协议要求），单文件最多 10000 片。"
+              rules={[
+                {
+                  validator: async (_, v) => {
+                    if (v === null || v === undefined || v === '') return
+                    const n = Number(v)
+                    if (n < 0) throw new Error('不能为负数')
+                    if (n !== 0 && n < 5) throw new Error('非 0 时至少为 5 MiB')
+                  },
                 },
-              },
-            ]}
-          >
-            <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0（默认 25）" />
-          </Form.Item>
+              ]}
+            >
+              <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0（默认 25）" />
+            </Form.Item>
+          )}
+
           <Form.Item name="is_default" label="设为默认策略" valuePropName="checked">
             <Switch />
           </Form.Item>

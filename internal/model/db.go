@@ -42,6 +42,16 @@ func InitDB(cfg *config.Config) error {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
 
+	// 手动添加 StoragePolicy 表的 branch 字段（如果不存在）
+	// GORM AutoMigrate 在表已存在时可能不会添加新字段
+	if db.Migrator().HasTable(&StoragePolicy{}) {
+		if !db.Migrator().HasColumn(&StoragePolicy{}, "branch") {
+			if err := db.Migrator().AddColumn(&StoragePolicy{}, "branch"); err != nil {
+				return fmt.Errorf("添加 branch 字段失败: %w", err)
+			}
+		}
+	}
+
 	DB = db
 	return nil
 }

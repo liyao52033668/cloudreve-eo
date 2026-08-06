@@ -25,6 +25,7 @@ export interface StoragePolicyAdmin {
   force_path_style: boolean
   custom_host: string
   base_path: string
+  branch: string
   chunk_size: number
   is_default: boolean
   default_quota: number
@@ -35,7 +36,7 @@ export interface StoragePolicyAdmin {
 export interface StoragePolicyDetail {
   id: number
   name: string
-  type: string
+  type: 's3' | 'github'
   endpoint: string
   region: string
   bucket: string
@@ -44,6 +45,7 @@ export interface StoragePolicyDetail {
   force_path_style: boolean
   custom_host: string
   base_path: string
+  branch: string
   chunk_size: number
   is_default: boolean
   default_quota: number
@@ -51,6 +53,7 @@ export interface StoragePolicyDetail {
 
 export interface PolicyForm {
   name: string
+  type: 's3' | 'github'
   endpoint: string
   region: string
   bucket: string
@@ -62,6 +65,8 @@ export interface PolicyForm {
   custom_host: string
   /** 上传目录前缀，对象键 = base_path/userID/uuid */
   base_path: string
+  /** GitHub 分支名（仅 GitHub 类型使用） */
+  branch: string
   /** 分片大小（字节）；0 表示默认 25MB，非 0 时最小 5MB */
   chunk_size: number
   is_default: boolean

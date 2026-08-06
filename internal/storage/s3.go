@@ -280,5 +280,10 @@ func (d *S3Driver) SetBucketCORS() error {
 	return nil
 }
 
+// UploadFile S3 驱动不支持服务端直接上传，应使用预签名 URL 客户端直传。
+func (d *S3Driver) UploadFile(key string, content []byte) error {
+	return errors.New("S3 存储不支持服务端直接上传，请使用客户端直传")
+}
+
 // 确保 S3Driver 实现 StorageDriver 接口
 var _ StorageDriver = (*S3Driver)(nil)

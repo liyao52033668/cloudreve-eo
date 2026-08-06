@@ -67,7 +67,16 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 	// 各策略相互独立：某一条初始化失败不影响其它策略加载。
 	var loadErrs []string
 	for _, p := range list {
-		driver, err := NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle, p.CustomHost)
+		var driver StorageDriver
+		var err error
+
+		switch p.Type {
+		case "github":
+			driver, err = NewGitHubDriver(p.Endpoint, p.SecretKey, p.BasePath, p.CustomHost, p.Branch)
+		default: // s3
+			driver, err = NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle, p.CustomHost)
+		}
+
 		if err != nil {
 			loadErrs = append(loadErrs, fmt.Sprintf("%s: %v", p.Name, err))
 			continue

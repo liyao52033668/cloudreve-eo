@@ -133,6 +133,16 @@ body {
   align-items: center;
 }
 
+.files-toolbar__quota {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  border: 1px solid #f0f0f0;
+}
+
 .files-toolbar__action-divider.ant-divider-vertical {
   height: 1.6em;
   margin-inline: 4px;

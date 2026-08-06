@@ -43,6 +43,7 @@ type adminPolicyView struct {
 	ForcePathStyle bool   `json:"force_path_style"`
 	CustomHost     string `json:"custom_host"`
 	BasePath       string `json:"base_path"`
+	Branch         string `json:"branch"`
 	ChunkSize      int64  `json:"chunk_size"`
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
@@ -66,6 +67,7 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		ForcePathStyle: p.ForcePathStyle,
 		CustomHost:     p.CustomHost,
 		BasePath:       p.BasePath,
+		Branch:         p.Branch,
 		ChunkSize:      p.ChunkSize,
 		IsDefault:      p.IsDefault,
 		DefaultQuota:   p.DefaultQuota,
@@ -108,15 +110,17 @@ func (h *PolicyHandler) GetAdmin(c *gin.Context) {
 
 type policyBody struct {
 	Name           string `json:"name" binding:"required,min=1,max=64"`
-	Endpoint       string `json:"endpoint" binding:"required"`
+	Type           string `json:"type"` // s3 或 github
+	Endpoint       string `json:"endpoint"`
 	Region         string `json:"region"`
-	Bucket         string `json:"bucket" binding:"required"`
-	AccessKey      string `json:"access_key" binding:"required"`
+	Bucket         string `json:"bucket"`
+	AccessKey      string `json:"access_key"`
 	SecretKey      string `json:"secret_key"`
-	ForcePathStyle *bool  `json:"force_path_style"` // nil 时默认 true（兼容旧客户端）
-	CustomHost     string `json:"custom_host"`     // 自定义下载/预览域名（COS / 七牛 CDN 加速域名）
+	ForcePathStyle *bool  `json:"force_path_style"`
+	CustomHost     string `json:"custom_host"`
 	BasePath       string `json:"base_path"`
-	ChunkSize      int64  `json:"chunk_size"` // 分片大小（字节）；0 用默认 25MB，非 0 时最小 5MB
+	Branch         string `json:"branch"` // GitHub 分支
+	ChunkSize      int64  `json:"chunk_size"`
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
 }
@@ -129,10 +133,42 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
-	if req.SecretKey == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Secret Key 不能为空"})
-		return
+
+	policyType := "s3"
+	if req.Type != "" {
+		policyType = req.Type
 	}
+
+	// 按类型校验必填字段
+	if policyType == "github" {
+		if req.Endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "GitHub 仓库地址不能为空"})
+			return
+		}
+		if req.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "GitHub Token 不能为空"})
+			return
+		}
+	} else {
+		// S3 类型
+		if req.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Secret Key 不能为空"})
+			return
+		}
+		if req.Endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Endpoint 不能为空"})
+			return
+		}
+		if req.Bucket == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Bucket 不能为空"})
+			return
+		}
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Access Key 不能为空"})
+			return
+		}
+	}
+
 	if req.Region == "" {
 		req.Region = "us-east-1"
 	}
@@ -151,7 +187,7 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 	}
 	p := &model.StoragePolicy{
 		Name:           req.Name,
-		Type:           "s3",
+		Type:           policyType,
 		Endpoint:       strings.TrimSpace(req.Endpoint),
 		Region:         strings.TrimSpace(req.Region),
 		Bucket:         strings.TrimSpace(req.Bucket),
@@ -160,6 +196,7 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		ForcePathStyle: forcePath,
 		CustomHost:     normalizeCustomHost(req.CustomHost),
 		BasePath:       normalizeBasePath(req.BasePath),
+		Branch:         strings.TrimSpace(req.Branch),
 		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,
@@ -193,6 +230,36 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
+
+	policyType := "s3"
+	if req.Type != "" {
+		policyType = req.Type
+	}
+
+	// 按类型校验必填字段
+	if policyType == "github" {
+		if req.Endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "GitHub 仓库地址不能为空"})
+			return
+		}
+		// SecretKey 在编辑时可以为空（表示不修改）
+	} else {
+		// S3 类型
+		if req.Endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Endpoint 不能为空"})
+			return
+		}
+		if req.Bucket == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Bucket 不能为空"})
+			return
+		}
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Access Key 不能为空"})
+			return
+		}
+		// SecretKey 在编辑时可以为空（表示不修改）
+	}
+
 	if req.Region == "" {
 		req.Region = "us-east-1"
 	}
@@ -211,7 +278,7 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 	}
 	updates := &model.StoragePolicy{
 		Name:           req.Name,
-		Type:           "s3",
+		Type:           policyType,
 		Endpoint:       strings.TrimSpace(req.Endpoint),
 		Region:         strings.TrimSpace(req.Region),
 		Bucket:         strings.TrimSpace(req.Bucket),
@@ -220,6 +287,7 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		ForcePathStyle: forcePath,
 		CustomHost:     normalizeCustomHost(req.CustomHost),
 		BasePath:       normalizeBasePath(req.BasePath),
+		Branch:         strings.TrimSpace(req.Branch),
 		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,

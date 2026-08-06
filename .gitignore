@@ -5,7 +5,8 @@ node_modules/
 dist/
 
 # Go build output
-/cloudreve-eo
+cloudreve-eo
+cloudreve.db
 
 # EdgeOne Makers 构建产物与本地凭证（源码在 cloud-functions/ + internal/）
 .edgeone/

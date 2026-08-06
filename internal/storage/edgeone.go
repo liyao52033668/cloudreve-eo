@@ -68,5 +68,9 @@ func (d *EdgeOneDriver) SetBucketCORS() error {
 	return d.s3.SetBucketCORS()
 }
 
+func (d *EdgeOneDriver) UploadFile(key string, content []byte) error {
+	return d.s3.UploadFile(key, content)
+}
+
 // 确保 EdgeOneDriver 实现 StorageDriver 接口
 var _ StorageDriver = (*EdgeOneDriver)(nil)

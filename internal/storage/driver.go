@@ -36,4 +36,7 @@ type StorageDriver interface {
 
 	// SetBucketCORS 为存储桶写入允许浏览器直传的 CORS 规则。
 	SetBucketCORS() error
+
+	// UploadFile 服务端直接上传文件内容。不支持的驱动返回 ErrServerUploadNotSupported。
+	UploadFile(key string, content []byte) error
 }

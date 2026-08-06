@@ -104,6 +104,15 @@ func (h *FileHandler) Upload(c *gin.Context) {
 
 	url, key, policy, err := h.fileService.GetUploadURL(userID, req.FileName, req.ContentType)
 	if err != nil {
+		// 如果驱动不支持预签名 URL（如 GitHub），返回标志让前端用服务端上传
+		if strings.Contains(err.Error(), "不支持客户端直传") || strings.Contains(err.Error(), "服务端上传") {
+			c.JSON(http.StatusOK, gin.H{
+				"server_upload":  true,
+				"storage_key":    key,
+				"storage_policy": policy,
+			})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -112,6 +121,59 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		"storage_key":    key,
 		"storage_policy": policy,
 	})
+}
+
+// UploadServer 服务端直接上传（用于 GitHub 等不支持预签名 URL 的存储）
+func (h *FileHandler) UploadServer(c *gin.Context) {
+	userID := c.GetUint("user_id")
+
+	// 读取文件
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到文件"})
+		return
+	}
+
+	storageKey := c.PostForm("storage_key")
+	contentType := c.PostForm("content_type")
+	parentIDStr := c.PostForm("parent_id")
+	var parentID uint
+	if parentIDStr != "" {
+		id, _ := strconv.ParseUint(parentIDStr, 10, 32)
+		parentID = uint(id)
+	}
+
+	if storageKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 storage_key"})
+		return
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	// 打开文件
+	src, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法打开文件"})
+		return
+	}
+	defer src.Close()
+
+	// 读取文件内容
+	content := make([]byte, file.Size)
+	if _, err := src.Read(content); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取文件失败"})
+		return
+	}
+
+	// 上传到存储并创建文件记录
+	result, err := h.fileService.UploadServer(userID, parentID, file.Filename, storageKey, content, file.Size, contentType)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"file": result})
 }
 
 type uploadCallbackRequest struct {

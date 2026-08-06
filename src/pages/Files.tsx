@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Segmented, Alert, Card, Progress, Typography, Divider } from 'antd'
-import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, TeamOutlined, UserOutlined, BarsOutlined, AppstoreOutlined } from '@ant-design/icons'
+import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Segmented, Alert, Card, Progress, Typography, Divider, Dropdown } from 'antd'
+import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, TeamOutlined, UserOutlined, BarsOutlined, AppstoreOutlined, DownOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import {
   listFiles,
@@ -10,6 +10,7 @@ import {
   mkdir,
   getUploadURL,
   uploadCallback,
+  uploadServer,
   listStoragePolicies,
   initMultipartUpload,
   completeMultipartUpload,
@@ -114,7 +115,8 @@ export default function Files() {
     try {
       const res = await getProfile()
       setIsAdmin(!!res.data.user?.is_admin)
-      setStorageQuota(res.data.user?.storage_quota || 0)
+      // 额度来自用户组的 max_storage，user.storage_quota 已废弃
+      setStorageQuota(res.data.group?.max_storage || 0)
       setStorageUsed(res.data.user?.storage_used || 0)
       localStorage.setItem('user', JSON.stringify(res.data.user))
     } catch (err: any) {
@@ -247,7 +249,16 @@ export default function Files() {
   ) => {
     const contentType = file.type || 'application/octet-stream'
     const { data } = await getUploadURL(file.name, contentType, parentId)
-    await putWithProgress(data.upload_url, file, contentType, (loaded) => {
+
+    // 检查是否需要服务端上传（如 GitHub 存储）
+    if (data.server_upload) {
+      await uploadServer(file, data.storage_key, contentType, parentId)
+      onProgress(100)
+      return
+    }
+
+    // 客户端直传（S3 等支持预签名 URL 的存储）
+    await putWithProgress(data.upload_url!, file, contentType, (loaded) => {
       onProgress(file.size === 0 ? 100 : Math.round((loaded / file.size) * 100))
     })
     await uploadCallback(
@@ -563,9 +574,6 @@ export default function Files() {
           Cloudreve-EO
         </span>
         <Space>
-          <span style={{ color: '#fff', fontSize: 14 }}>
-            已用额度: {formatSize(storageUsed)} / {formatSize(storageQuota)}
-          </span>
           {isAdmin && (
             <>
               <Button
@@ -684,29 +692,68 @@ export default function Files() {
               )}
             </div>
 
-            {!viewPolicy && (
-              <div className="files-toolbar__actions">
-                <div className="files-toolbar__action-group" role="group" aria-label="上传">
-                  <Upload beforeUpload={beforeUpload} showUploadList={false} multiple>
-                    <Button icon={<UploadOutlined />} type="primary">
-                      上传文件
-                    </Button>
-                  </Upload>
-                  <Button icon={<FolderOpenOutlined />} onClick={() => folderInputRef.current?.click()}>
-                    上传文件夹
-                  </Button>
-                </div>
-                <Divider type="vertical" className="files-toolbar__action-divider" />
-                <div className="files-toolbar__action-group" role="group" aria-label="新建">
-                  <Button icon={<FileAddOutlined />} onClick={() => setNewFileModal(true)}>
-                    新建文件
-                  </Button>
-                  <Button icon={<FolderAddOutlined />} onClick={() => setMkdirModal(true)}>
-                    新建文件夹
-                  </Button>
-                </div>
+            <div className="files-toolbar__actions">
+              <div className="files-toolbar__quota">
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  存储额度
+                </Typography.Text>
+                <Progress
+                  percent={storageQuota > 0 ? Math.round((storageUsed / storageQuota) * 100) : 0}
+                  size="small"
+                  style={{ width: 120 }}
+                  showInfo={false}
+                />
+                <Typography.Text style={{ fontSize: 12 }}>
+                  {formatSize(storageUsed)} / {storageQuota > 0 ? formatSize(storageQuota) : '无限制'}
+                </Typography.Text>
               </div>
-            )}
+              {!viewPolicy && (
+                <>
+                  <Divider type="vertical" className="files-toolbar__action-divider" />
+                  <div className="files-toolbar__action-group" role="group" aria-label="上传">
+                    <Dropdown
+                      menu={{
+                        items: [
+                          {
+                            key: 'folder',
+                            icon: <FolderOpenOutlined />,
+                            label: '上传文件夹',
+                            onClick: () => folderInputRef.current?.click(),
+                          },
+                        ],
+                      }}
+                      trigger={['hover']}
+                    >
+                      <Upload beforeUpload={beforeUpload} showUploadList={false} multiple>
+                        <Button icon={<UploadOutlined />} type="primary">
+                          上传文件 <DownOutlined />
+                        </Button>
+                      </Upload>
+                    </Dropdown>
+                  </div>
+                  <Divider type="vertical" className="files-toolbar__action-divider" />
+                  <div className="files-toolbar__action-group" role="group" aria-label="新建">
+                    <Dropdown
+                      menu={{
+                        items: [
+                          {
+                            key: 'folder',
+                            icon: <FolderAddOutlined />,
+                            label: '新建文件夹',
+                            onClick: () => setMkdirModal(true),
+                          },
+                        ],
+                      }}
+                      trigger={['hover']}
+                    >
+                      <Button icon={<FileAddOutlined />} onClick={() => setNewFileModal(true)}>
+                        新建文件 <DownOutlined />
+                      </Button>
+                    </Dropdown>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="files-toolbar__bottom">

@@ -11,7 +11,7 @@ import (
 type StoragePolicy struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Name      string    `gorm:"uniqueIndex;size:64;not null" json:"name"`
-	Type      string    `gorm:"size:16;not null;default:s3" json:"type"` // 当前仅 s3
+	Type      string    `gorm:"size:16;not null;default:s3" json:"type"` // s3 或 github
 	Endpoint  string    `gorm:"size:512;not null" json:"endpoint"`
 	Region    string    `gorm:"size:64" json:"region"`
 	Bucket    string    `gorm:"size:255;not null" json:"bucket"`
@@ -23,6 +23,8 @@ type StoragePolicy struct {
 	CustomHost string `gorm:"size:512" json:"custom_host"`
 	// BasePath 对象键前缀（上传目录），如 uploads 或 cloudreve/prod；空表示 bucket 根。
 	BasePath string `gorm:"size:255" json:"base_path"`
+	// Branch GitHub 存储的分支名，仅 GitHub 类型使用
+	Branch string `gorm:"size:64" json:"branch"`
 	// ChunkSize 分片上传每片大小（字节）；0 表示使用默认 25MB。
 	ChunkSize int64 `gorm:"not null;default:0" json:"chunk_size"`
 	IsDefault    bool      `gorm:"not null;default:false" json:"is_default"`
@@ -112,6 +114,7 @@ func UpdateStoragePolicy(id uint, updates *StoragePolicy, updateSecret bool) err
 	existing.ForcePathStyle = updates.ForcePathStyle
 	existing.CustomHost = updates.CustomHost
 	existing.BasePath = updates.BasePath
+	existing.Branch = updates.Branch
 	existing.ChunkSize = updates.ChunkSize
 	existing.DefaultQuota = updates.DefaultQuota
 	if updateSecret && updates.SecretKey != "" {

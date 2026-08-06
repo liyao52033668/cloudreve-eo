@@ -157,6 +157,7 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		files.GET("", fileHandler.List)
 		files.POST("/mkdir", fileHandler.Mkdir)
 		files.POST("/upload", fileHandler.Upload)
+		files.POST("/upload/server", fileHandler.UploadServer)
 		files.POST("/upload/callback", fileHandler.UploadCallback)
 		files.POST("/upload/multipart", fileHandler.MultipartInit)
 		files.GET("/upload/multipart/sessions", fileHandler.MultipartSessions)

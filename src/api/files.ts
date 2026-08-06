@@ -51,11 +51,29 @@ export const getUploadURL = (
   contentType: string,
   parentId: number = 0,
 ) =>
-  client.post<{ upload_url: string; storage_key: string }>('/files/upload', {
+  client.post<{ upload_url?: string; storage_key: string; server_upload?: boolean }>('/files/upload', {
     file_name: fileName,
     content_type: contentType,
     parent_id: parentId,
   })
+
+export const uploadServer = (
+  file: File,
+  storageKey: string,
+  contentType: string,
+  parentId: number = 0,
+) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('storage_key', storageKey)
+  formData.append('content_type', contentType)
+  formData.append('parent_id', parentId.toString())
+  return client.post('/files/upload/server', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+}
 
 export const uploadCallback = (
   fileName: string,
