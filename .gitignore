@@ -4,6 +4,9 @@ node_modules/
 # Frontend build output
 dist/
 
+# Go build output
+/cloudreve-eo
+
 # EdgeOne Makers 构建产物与本地凭证（源码在 cloud-functions/ + internal/）
 .edgeone/
 !.edgeone/.gitkeep
