@@ -4,7 +4,7 @@ import "time"
 
 type File struct {
 	ID            uint      `gorm:"primaryKey" json:"id"`
-	UserID        uint      `gorm:"index;not null" json:"user_id"`
+	UserID        int64     `gorm:"index;not null" json:"user_id"`
 	ParentID      uint      `gorm:"index;not null;default:0" json:"parent_id"`
 	Name          string    `gorm:"size:255;not null" json:"name"`
 	IsDir         bool      `gorm:"not null;default:false" json:"is_dir"`

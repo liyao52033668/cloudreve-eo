@@ -54,6 +54,10 @@ func (m *mockDriver) SetBucketCORS() error {
 	return nil
 }
 
+func (m *mockDriver) UploadFile(key string, content []byte) error {
+	return nil
+}
+
 func TestStorageDriver_InterfaceContract(t *testing.T) {
 	// Compile-time and runtime check that the interface methods match expectations.
 	var _ StorageDriver = (*mockDriver)(nil)

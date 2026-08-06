@@ -15,6 +15,7 @@ import (
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/persist"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/service"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/snowflake"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/storage"
 	"github.com/gin-gonic/gin"
 )
@@ -74,6 +75,11 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 
 	if err := model.InitDB(cfg); err != nil {
 		return nil, fmt.Errorf("初始化数据库失败: %w", err)
+	}
+
+	// 初始化雪花 ID 生成器
+	if err := snowflake.Init(0); err != nil {
+		return nil, fmt.Errorf("初始化雪花 ID 生成器失败: %w", err)
 	}
 
 	// 默认用户组：新注册用户自动归入；老库升级时也保证存在

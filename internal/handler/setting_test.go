@@ -68,7 +68,7 @@ func setupSettingHandler(t *testing.T) (*gin.Engine, *service.JWTSecretStore, *m
 	return r, store, admin, user
 }
 
-func authHeader(t *testing.T, userID uint, secret string) string {
+func authHeader(t *testing.T, userID int64, secret string) string {
 	t.Helper()
 	tok, err := middleware.GenerateToken(userID, secret)
 	if err != nil {

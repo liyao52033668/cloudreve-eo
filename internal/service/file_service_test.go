@@ -85,6 +85,10 @@ func (m *mockStorageDriver) SetBucketCORS() error {
 	return nil
 }
 
+func (m *mockStorageDriver) UploadFile(key string, content []byte) error {
+	return nil
+}
+
 func setupFileService(t *testing.T) (*FileService, *mockStorageDriver, *model.User) {
 	t.Helper()
 	model.DB = nil

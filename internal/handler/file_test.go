@@ -67,6 +67,10 @@ func (m *mockStorageDriver) SetBucketCORS() error {
 	return nil
 }
 
+func (m *mockStorageDriver) UploadFile(key string, content []byte) error {
+	return nil
+}
+
 func setupFileHandler(t *testing.T) (*FileHandler, *gin.Engine, *model.User) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)

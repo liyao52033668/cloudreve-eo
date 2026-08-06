@@ -17,7 +17,7 @@ func TestFile_FieldsAndTags(t *testing.T) {
 		wantType reflect.Type
 	}{
 		{"ID", reflect.Uint, `primaryKey`, "id", nil},
-		{"UserID", reflect.Uint, `index;not null`, "user_id", nil},
+		{"UserID", reflect.Int64, `index;not null`, "user_id", nil},
 		{"ParentID", reflect.Uint, `index;not null;default:0`, "parent_id", nil},
 		{"Name", reflect.String, `size:255;not null`, "name", nil},
 		{"IsDir", reflect.Bool, `not null;default:false`, "is_dir", nil},

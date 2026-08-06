@@ -1,11 +1,21 @@
 import { useState } from 'react'
 import { Modal, Input, DatePicker, Button, message, Space } from 'antd'
+import { ThunderboltOutlined } from '@ant-design/icons'
 import { createShare } from '../api/shares'
 
 interface Props {
   open: boolean
   fileId: number | null
   onClose: () => void
+}
+
+function generateRandomPassword(length = 8): string {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return result
 }
 
 export default function ShareModal({ open, fileId, onClose }: Props) {
@@ -34,7 +44,12 @@ export default function ShareModal({ open, fileId, onClose }: Props) {
   return (
     <Modal title="创建分享" open={open} onCancel={() => { onClose(); setShareLink(''); setPassword('') }} footer={null}>
       <Space direction="vertical" style={{ width: '100%' }}>
-        <Input.Password placeholder="提取码（可选）" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+        <Space.Compact style={{ width: '100%' }}>
+          <Input.Password placeholder="提取码（可选）" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" style={{ flex: 1 }} />
+          <Button icon={<ThunderboltOutlined />} onClick={() => setPassword(generateRandomPassword())}>
+            随机
+          </Button>
+        </Space.Compact>
         <DatePicker showTime placeholder="过期时间（可选）" onChange={(_, dateStr) => setExpireAt(dateStr as string)} style={{ width: '100%' }} />
         <Button type="primary" onClick={handleCreate} block>生成链接</Button>
         {shareLink && (

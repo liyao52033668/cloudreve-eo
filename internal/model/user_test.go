@@ -16,7 +16,7 @@ func TestUser_FieldsAndTags(t *testing.T) {
 		jsonTag  string
 		wantType reflect.Type // optional exact type for non-basic kinds
 	}{
-		{"ID", reflect.Uint, `primaryKey`, "id", nil},
+		{"ID", reflect.Int64, `primaryKey`, "id", nil},
 		{"Username", reflect.String, `uniqueIndex;size:64;not null`, "username", nil},
 		{"PasswordHash", reflect.String, `size:128;not null`, "-", nil},
 		{"IsAdmin", reflect.Bool, `not null;default:false`, "is_admin", nil},

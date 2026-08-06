@@ -23,19 +23,20 @@ func NewFileService(mgr *storage.StoragePolicyManager) *FileService {
 }
 
 // buildStorageKey 生成对象键：{basePath/}userID/uuid{.ext}，保留原文件扩展名便于在存储桶中识别与预览。
-func (s *FileService) buildStorageKey(userID uint, policy string, fileName string) string {
+func (s *FileService) buildStorageKey(userID int64, policy string, fileName string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(fileName))
 	if len(ext) > 16 || strings.ContainsAny(ext, "/\\?#%") {
 		ext = ""
 	}
+	// userID 已经是雪花 ID
 	key := fmt.Sprintf("%d/%s%s", userID, uuid.New().String(), ext)
 	if info, ok := s.storageMgr.GetPolicyInfo(policy); ok && info.BasePath != "" {
 		key = strings.Trim(info.BasePath, "/") + "/" + key
 	}
-	return key
+	return key, nil
 }
 
-func (s *FileService) ListFiles(userID uint, parentID uint) ([]model.File, error) {
+func (s *FileService) ListFiles(userID int64, parentID uint) ([]model.File, error) {
 	var files []model.File
 	err := model.DB.Where("user_id = ? AND parent_id = ?", userID, parentID).
 		Order("is_dir DESC, name ASC").
@@ -44,7 +45,7 @@ func (s *FileService) ListFiles(userID uint, parentID uint) ([]model.File, error
 }
 
 // ListFilesByPolicy 跨目录列出用户在某存储策略下的全部文件（不含文件夹）。
-func (s *FileService) ListFilesByPolicy(userID uint, policy string) ([]model.File, error) {
+func (s *FileService) ListFilesByPolicy(userID int64, policy string) ([]model.File, error) {
 	var files []model.File
 	err := model.DB.Where("user_id = ? AND storage_policy = ? AND is_dir = ?", userID, policy, false).
 		Order("name ASC").
@@ -53,7 +54,7 @@ func (s *FileService) ListFilesByPolicy(userID uint, policy string) ([]model.Fil
 }
 
 // ListFilesByMimePrefix 跨目录列出用户在指定 mime 类型前缀下的全部文件（如 image/% 或 video/%）。
-func (s *FileService) ListFilesByMimePrefix(userID uint, mimePrefix string) ([]model.File, error) {
+func (s *FileService) ListFilesByMimePrefix(userID int64, mimePrefix string) ([]model.File, error) {
 	var files []model.File
 	err := model.DB.Where("user_id = ? AND is_dir = ? AND mime_type LIKE ?", userID, false, mimePrefix+"%").
 		Order("updated_at DESC").
@@ -62,7 +63,7 @@ func (s *FileService) ListFilesByMimePrefix(userID uint, mimePrefix string) ([]m
 }
 
 // SearchFiles 按文件名跨全部目录搜索用户文件；policy 非空时限定存储策略。
-func (s *FileService) SearchFiles(userID uint, keyword string, policy string) ([]model.File, error) {
+func (s *FileService) SearchFiles(userID int64, keyword string, policy string) ([]model.File, error) {
 	query := model.DB.Where("user_id = ? AND is_dir = ?", userID, false)
 	if policy != "" {
 		query = query.Where("storage_policy = ?", policy)
@@ -75,7 +76,7 @@ func (s *FileService) SearchFiles(userID uint, keyword string, policy string) ([
 	return files, err
 }
 
-func (s *FileService) Mkdir(userID uint, parentID uint, name string) (*model.File, error) {
+func (s *FileService) Mkdir(userID int64, parentID uint, name string) (*model.File, error) {
 	dir := &model.File{
 		UserID:   userID,
 		ParentID: parentID,
@@ -89,7 +90,7 @@ func (s *FileService) Mkdir(userID uint, parentID uint, name string) (*model.Fil
 }
 
 // ResolveUserPolicy 解析用户上传使用的存储策略：取用户所属用户组绑定的策略。
-func (s *FileService) ResolveUserPolicy(userID uint) (string, error) {
+func (s *FileService) ResolveUserPolicy(userID int64) (string, error) {
 	group, err := s.UserGroupOf(userID)
 	if err != nil {
 		return "", err
@@ -98,7 +99,7 @@ func (s *FileService) ResolveUserPolicy(userID uint) (string, error) {
 }
 
 // UserGroupOf 返回用户所属的用户组；未分组或组不存在时返回默认组（仍无则报错）。
-func (s *FileService) UserGroupOf(userID uint) (*model.UserGroup, error) {
+func (s *FileService) UserGroupOf(userID int64) (*model.UserGroup, error) {
 	user, err := model.GetUserByID(userID)
 	if err != nil {
 		return nil, errors.New("用户不存在")
@@ -121,7 +122,7 @@ func (s *FileService) UserGroupOf(userID uint) (*model.UserGroup, error) {
 
 // GetUploadURL 生成上传预签名 URL。存储策略由用户所属用户组决定。
 // 返回 uploadURL, storageKey, resolvedPolicy。
-func (s *FileService) GetUploadURL(userID uint, fileName string, contentType string) (string, string, string, error) {
+func (s *FileService) GetUploadURL(userID int64, fileName string, contentType string) (string, string, string, error) {
 	resolved, err := s.ResolveUserPolicy(userID)
 	if err != nil {
 		return "", "", "", err
@@ -131,7 +132,10 @@ func (s *FileService) GetUploadURL(userID uint, fileName string, contentType str
 		return "", "", "", err
 	}
 
-	key := s.buildStorageKey(userID, resolved, fileName)
+	key, err := s.buildStorageKey(userID, resolved, fileName)
+	if err != nil {
+		return "", "", "", err
+	}
 	url, err := driver.GenerateUploadURL(key, contentType, 30*time.Minute)
 	if err != nil {
 		// 即使生成 URL 失败，也返回 key 和 policy，以便服务端上传使用
@@ -141,7 +145,7 @@ func (s *FileService) GetUploadURL(userID uint, fileName string, contentType str
 }
 
 // UploadCallback 写入文件记录。存储策略由用户所属用户组决定。
-func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, storageKey string, size int64, mimeType string) (*model.File, error) {
+func (s *FileService) UploadCallback(userID int64, parentID uint, fileName, storageKey string, size int64, mimeType string) (*model.File, error) {
 	resolved, err := s.ResolveUserPolicy(userID)
 	if err != nil {
 		return nil, err
@@ -182,7 +186,7 @@ func (s *FileService) UploadCallback(userID uint, parentID uint, fileName, stora
 }
 
 // UploadServer 服务端直接上传(用于 GitHub 等不支持预签名 URL 的存储)
-func (s *FileService) UploadServer(userID uint, parentID uint, fileName, storageKey string, content []byte, size int64, mimeType string) (*model.File, error) {
+func (s *FileService) UploadServer(userID int64, parentID uint, fileName, storageKey string, content []byte, size int64, mimeType string) (*model.File, error) {
 	resolved, err := s.ResolveUserPolicy(userID)
 	if err != nil {
 		return nil, err
@@ -237,7 +241,7 @@ func (s *FileService) UploadServer(userID uint, parentID uint, fileName, storage
 
 // checkQuota 校验用户新增 size 字节后是否超出配额。
 // 配额优先取用户组的最大容量；为 0 时沿用存储策略的每用户默认配额。
-func (s *FileService) checkQuota(userID uint, resolvedPolicy string, size int64) error {
+func (s *FileService) checkQuota(userID int64, resolvedPolicy string, size int64) error {
 	info, ok := s.storageMgr.GetPolicyInfo(resolvedPolicy)
 	if !ok {
 		return fmt.Errorf("存储策略 %s 不存在", resolvedPolicy)
@@ -300,7 +304,7 @@ type MultipartSession struct {
 // InitMultipartUpload 创建分片上传会话：生成对象键、发起 multipart、
 // 按分片数量预签名各分片 URL，并持久化会话以支持断点续传。
 // 存储策略由用户所属用户组决定。
-func (s *FileService) InitMultipartUpload(userID uint, fileName, contentType string, size int64, parentID uint) (*MultipartSession, error) {
+func (s *FileService) InitMultipartUpload(userID int64, fileName, contentType string, size int64, parentID uint) (*MultipartSession, error) {
 	if size <= 0 {
 		return nil, errors.New("文件大小无效")
 	}
@@ -322,7 +326,10 @@ func (s *FileService) InitMultipartUpload(userID uint, fileName, contentType str
 		return nil, fmt.Errorf("文件过大：分片数 %d 超过上限 %d，请调大策略分片大小", partCount, maxMultipartParts)
 	}
 
-	key := s.buildStorageKey(userID, resolved, fileName)
+	key, err := s.buildStorageKey(userID, resolved, fileName)
+	if err != nil {
+		return nil, err
+	}
 
 	uploadID, err := driver.InitMultipartUpload(key, contentType)
 	if err != nil {
@@ -376,12 +383,12 @@ func (s *FileService) presignParts(driver storage.StorageDriver, key, uploadID s
 }
 
 // ListMultipartSessions 列出用户未过期的上传会话（前端展示可续传任务）。
-func (s *FileService) ListMultipartSessions(userID uint) ([]model.UploadSession, error) {
+func (s *FileService) ListMultipartSessions(userID int64) ([]model.UploadSession, error) {
 	return model.ListUploadSessions(userID)
 }
 
 // ResumeMultipartUpload 恢复会话：查询存储端已上传分片，重新预签名全部分片 URL。
-func (s *FileService) ResumeMultipartUpload(userID uint, storageKey string) (*MultipartSession, error) {
+func (s *FileService) ResumeMultipartUpload(userID int64, storageKey string) (*MultipartSession, error) {
 	sess, err := model.GetUploadSession(userID, storageKey)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -426,7 +433,7 @@ func (s *FileService) ResumeMultipartUpload(userID uint, storageKey string) (*Mu
 
 // CompleteMultipartUpload 合并分片并写入文件记录，随后清理会话。
 // 要求用户当前生效策略与会话记录一致，否则文件会落到错误存储，应重新上传。
-func (s *FileService) CompleteMultipartUpload(userID uint, parentID uint, fileName, storageKey, uploadID string, size int64, mimeType string, parts []storage.CompletedPart) (*model.File, error) {
+func (s *FileService) CompleteMultipartUpload(userID int64, parentID uint, fileName, storageKey, uploadID string, size int64, mimeType string, parts []storage.CompletedPart) (*model.File, error) {
 	if len(parts) == 0 {
 		return nil, errors.New("分片列表为空")
 	}
@@ -461,7 +468,7 @@ func (s *FileService) CompleteMultipartUpload(userID uint, parentID uint, fileNa
 
 // AbortMultipartUpload 取消分片上传，清理存储端分片与本地会话。
 // 存储端策略以会话记录为准，不受用户当前所属组影响。
-func (s *FileService) AbortMultipartUpload(userID uint, storageKey, uploadID string) error {
+func (s *FileService) AbortMultipartUpload(userID int64, storageKey, uploadID string) error {
 	sess, err := model.GetUploadSession(userID, storageKey)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -481,7 +488,7 @@ func (s *FileService) AbortMultipartUpload(userID uint, storageKey, uploadID str
 }
 
 // GetDownloadURL 生成下载/预览 URL。preview 为 true 时内联展示（图片预览等），否则强制附件下载。
-func (s *FileService) GetDownloadURL(userID uint, fileID uint, preview bool) (string, error) {
+func (s *FileService) GetDownloadURL(userID int64, fileID uint, preview bool) (string, error) {
 	var file model.File
 	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -505,7 +512,7 @@ func (s *FileService) GetDownloadURL(userID uint, fileID uint, preview bool) (st
 }
 
 // DownloadDir 将用户文件夹打包为 zip 并写入 w，返回建议的文件名。
-func (s *FileService) DownloadDir(userID uint, fileID uint, w io.Writer) (string, error) {
+func (s *FileService) DownloadDir(userID int64, fileID uint, w io.Writer) (string, error) {
 	var root model.File
 	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&root).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -527,7 +534,7 @@ func (s *FileService) DownloadDir(userID uint, fileID uint, w io.Writer) (string
 	return root.Name + ".zip", nil
 }
 
-func (s *FileService) Delete(userID uint, fileID uint) error {
+func (s *FileService) Delete(userID int64, fileID uint) error {
 	var file model.File
 	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -583,7 +590,7 @@ func (s *FileService) Delete(userID uint, fileID uint) error {
 	})
 }
 
-func (s *FileService) Rename(userID uint, fileID uint, newName string) error {
+func (s *FileService) Rename(userID int64, fileID uint, newName string) error {
 	result := model.DB.Model(&model.File{}).
 		Where("id = ? AND user_id = ?", fileID, userID).
 		Update("name", newName)
@@ -593,7 +600,7 @@ func (s *FileService) Rename(userID uint, fileID uint, newName string) error {
 	return result.Error
 }
 
-func (s *FileService) Move(userID uint, fileID uint, newParentID uint) error {
+func (s *FileService) Move(userID int64, fileID uint, newParentID uint) error {
 	var file model.File
 	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

@@ -16,7 +16,7 @@ func (s staticSecret) Get() string { return string(s) }
 
 func TestGenerateToken_ParsesUserID(t *testing.T) {
 	const secret = "test-secret"
-	const userID uint = 42
+	const userID int64 = 42
 
 	tokenStr, err := GenerateToken(userID, secret)
 	if err != nil {
@@ -83,7 +83,7 @@ func TestJWTAuth_InvalidToken(t *testing.T) {
 func TestJWTAuth_ValidTokenSetsUserID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const secret = "test-secret"
-	const userID uint = 7
+	const userID int64 = 7
 
 	tokenStr, err := GenerateToken(userID, secret)
 	if err != nil {
@@ -105,9 +105,9 @@ func TestJWTAuth_ValidTokenSetsUserID(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusOK, w.Body.String())
 	}
-	id, ok := gotUserID.(uint)
+	id, ok := gotUserID.(int64)
 	if !ok {
-		t.Fatalf("user_id type = %T, want uint", gotUserID)
+		t.Fatalf("user_id type = %T, want int64", gotUserID)
 	}
 	if id != userID {
 		t.Errorf("user_id = %d, want %d", id, userID)

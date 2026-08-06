@@ -2,7 +2,7 @@ import client from './client'
 
 export interface FileItem {
   id: number
-  user_id: number
+  user_id: string
   parent_id: number
   name: string
   is_dir: boolean

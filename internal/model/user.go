@@ -2,11 +2,12 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
 type User struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
+	ID           int64     `gorm:"primaryKey" json:"id"`
 	Username     string    `gorm:"uniqueIndex;size:64;not null" json:"username"`
 	PasswordHash string    `gorm:"size:128;not null" json:"-"`
 	IsAdmin      bool      `gorm:"not null;default:false" json:"is_admin"`
@@ -17,20 +18,31 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// MarshalJSON 自定义 JSON 序列化，格式化时间为易读格式
+// MarshalJSON 自定义 JSON 序列化，格式化时间为易读格式，ID 转为字符串避免 JS 精度丢失。
 func (u User) MarshalJSON() ([]byte, error) {
-	type Alias User
 	return json.Marshal(&struct {
-		Alias
-		CreatedAt string `json:"created_at"`
+		ID           string `json:"id"`
+		Username     string `json:"username"`
+		IsAdmin      bool   `json:"is_admin"`
+		GroupID      uint   `json:"group_id"`
+		StorageQuota int64  `json:"storage_quota"`
+		StorageUsed  int64  `json:"storage_used"`
+		Banned       bool   `json:"banned"`
+		CreatedAt    string `json:"created_at"`
 	}{
-		Alias:     (Alias)(u),
-		CreatedAt: u.CreatedAt.Format("2006-01-02 15:04:05"),
+		ID:           fmt.Sprintf("%d", u.ID),
+		Username:     u.Username,
+		IsAdmin:      u.IsAdmin,
+		GroupID:      u.GroupID,
+		StorageQuota: u.StorageQuota,
+		StorageUsed:  u.StorageUsed,
+		Banned:       u.Banned,
+		CreatedAt:    u.CreatedAt.Format("2006-01-02 15:04:05"),
 	})
 }
 
 // IsUserAdmin 查询用户是否为管理员。
-func IsUserAdmin(userID uint) (bool, error) {
+func IsUserAdmin(userID int64) (bool, error) {
 	var user User
 	if err := DB.Select("id", "is_admin").First(&user, userID).Error; err != nil {
 		return false, err
@@ -39,7 +51,7 @@ func IsUserAdmin(userID uint) (bool, error) {
 }
 
 // GetUserByID 按 ID 查询用户。
-func GetUserByID(id uint) (*User, error) {
+func GetUserByID(id int64) (*User, error) {
 	var user User
 	if err := DB.First(&user, id).Error; err != nil {
 		return nil, err

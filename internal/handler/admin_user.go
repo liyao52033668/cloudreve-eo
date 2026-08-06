@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/snowflake"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/storage"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -55,12 +56,12 @@ func (h *AdminUserHandler) List(c *gin.Context) {
 
 // Get GET /api/admin/users/:id
 func (h *AdminUserHandler) Get(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效 ID"})
 		return
 	}
-	user, err := model.GetUserByID(uint(id))
+	user, err := model.GetUserByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
@@ -118,6 +119,7 @@ func (h *AdminUserHandler) Create(c *gin.Context) {
 	}
 
 	user := &model.User{
+		ID:           snowflake.Generate(),
 		Username:     req.Username,
 		PasswordHash: string(hash),
 		IsAdmin:      req.IsAdmin,
@@ -144,7 +146,7 @@ type adminUpdateUserRequest struct {
 
 // Update PUT /api/admin/users/:id
 func (h *AdminUserHandler) Update(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效 ID"})
 		return
@@ -156,7 +158,7 @@ func (h *AdminUserHandler) Update(c *gin.Context) {
 	}
 	req.Username = strings.TrimSpace(req.Username)
 
-	user, err := model.GetUserByID(uint(id))
+	user, err := model.GetUserByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
@@ -211,17 +213,17 @@ func (h *AdminUserHandler) Update(c *gin.Context) {
 
 // Delete DELETE /api/admin/users/:id —— 一并删除其文件记录；存储端对象需另行清理。
 func (h *AdminUserHandler) Delete(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效 ID"})
 		return
 	}
-	operatorID := c.GetUint("user_id")
-	if uint(id) == operatorID {
+	operatorID := c.GetInt64("user_id")
+	if id == operatorID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "不能删除当前登录的管理员账号"})
 		return
 	}
-	if _, err := model.GetUserByID(uint(id)); err != nil {
+	if _, err := model.GetUserByID(id); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
 			return
@@ -269,18 +271,18 @@ func (h *AdminUserHandler) Delete(c *gin.Context) {
 
 // ToggleBan PUT /api/admin/users/:id/ban - 切换封号状态
 func (h *AdminUserHandler) ToggleBan(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效 ID"})
 		return
 	}
-	operatorID := c.GetUint("user_id")
-	if uint(id) == operatorID {
+	operatorID := c.GetInt64("user_id")
+	if id == operatorID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "不能封禁当前登录的管理员账号"})
 		return
 	}
 
-	user, err := model.GetUserByID(uint(id))
+	user, err := model.GetUserByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})

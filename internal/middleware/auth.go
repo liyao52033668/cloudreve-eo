@@ -11,7 +11,7 @@ import (
 )
 
 type Claims struct {
-	UserID uint `json:"user_id"`
+	UserID int64 `json:"user_id"`
 	jwt.RegisteredClaims
 }
 
@@ -20,7 +20,7 @@ type SecretProvider interface {
 	Get() string
 }
 
-func GenerateToken(userID uint, secret string) (string, error) {
+func GenerateToken(userID int64, secret string) (string, error) {
 	claims := Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -68,7 +68,7 @@ func JWTAuth(secrets SecretProvider) gin.HandlerFunc {
 // RequireAdmin 要求当前用户为管理员（须在 JWTAuth 之后使用）。
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := c.GetUint("user_id")
+		userID := c.GetInt64("user_id")
 		ok, err := model.IsUserAdmin(userID)
 		if err != nil || !ok {
 			c.JSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})

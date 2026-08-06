@@ -25,7 +25,7 @@ type policyUsage struct {
 }
 
 func (h *UserHandler) Profile(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var user model.User
 	if err := model.DB.First(&user, userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
@@ -72,7 +72,7 @@ type changePasswordRequest struct {
 }
 
 func (h *UserHandler) ChangePassword(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var req changePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

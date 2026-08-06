@@ -26,7 +26,7 @@ type createShareRequest struct {
 }
 
 func (h *ShareHandler) Create(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var req createShareRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

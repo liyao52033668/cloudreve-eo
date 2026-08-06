@@ -21,7 +21,7 @@ func NewFileHandler(fs *service.FileService) *FileHandler {
 }
 
 func (h *FileHandler) List(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	policy := c.Query("policy")
 	mimePrefix := c.Query("mime_prefix")
 
@@ -73,7 +73,7 @@ type mkdirRequest struct {
 }
 
 func (h *FileHandler) Mkdir(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var req mkdirRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -95,7 +95,7 @@ type uploadRequest struct {
 }
 
 func (h *FileHandler) Upload(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var req uploadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -125,7 +125,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 
 // UploadServer 服务端直接上传（用于 GitHub 等不支持预签名 URL 的存储）
 func (h *FileHandler) UploadServer(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 
 	// 读取文件
 	file, err := c.FormFile("file")
@@ -185,7 +185,7 @@ type uploadCallbackRequest struct {
 }
 
 func (h *FileHandler) UploadCallback(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var req uploadCallbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -209,7 +209,7 @@ type multipartInitRequest struct {
 
 // MultipartInit POST /api/files/upload/multipart —— 创建分片上传会话。
 func (h *FileHandler) MultipartInit(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var req multipartInitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -226,7 +226,7 @@ func (h *FileHandler) MultipartInit(c *gin.Context) {
 
 // MultipartSessions GET /api/files/upload/multipart/sessions —— 列出可续传的会话。
 func (h *FileHandler) MultipartSessions(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	sessions, err := h.fileService.ListMultipartSessions(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -241,7 +241,7 @@ type multipartResumeRequest struct {
 
 // MultipartResume POST /api/files/upload/multipart/resume —— 恢复会话：返回已传分片与新签名 URL。
 func (h *FileHandler) MultipartResume(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var req multipartResumeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -268,7 +268,7 @@ type multipartCompleteRequest struct {
 
 // MultipartComplete POST /api/files/upload/multipart/complete —— 合并分片并落库。
 func (h *FileHandler) MultipartComplete(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var req multipartCompleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -290,7 +290,7 @@ type multipartAbortRequest struct {
 
 // MultipartAbort POST /api/files/upload/multipart/abort —— 取消分片上传。
 func (h *FileHandler) MultipartAbort(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	var req multipartAbortRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -318,7 +318,7 @@ func (h *FileHandler) ListStoragePolicies(c *gin.Context) {
 }
 
 func (h *FileHandler) Download(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	fileID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	preview := c.Query("preview") == "1"
 
@@ -332,7 +332,7 @@ func (h *FileHandler) Download(c *gin.Context) {
 
 // DownloadDir GET /api/files/:id/zip —— 文件夹打包下载。
 func (h *FileHandler) DownloadDir(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	fileID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
 	fileName, err := h.fileService.DownloadDir(userID, uint(fileID), c.Writer)
@@ -345,7 +345,7 @@ func (h *FileHandler) DownloadDir(c *gin.Context) {
 }
 
 func (h *FileHandler) Delete(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	fileID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
 	if err := h.fileService.Delete(userID, uint(fileID)); err != nil {
@@ -360,7 +360,7 @@ type renameRequest struct {
 }
 
 func (h *FileHandler) Rename(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	fileID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	var req renameRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -380,7 +380,7 @@ type moveRequest struct {
 }
 
 func (h *FileHandler) Move(c *gin.Context) {
-	userID := c.GetUint("user_id")
+	userID := c.GetInt64("user_id")
 	fileID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	var req moveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

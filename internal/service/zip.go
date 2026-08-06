@@ -16,7 +16,7 @@ type zipEntry struct {
 }
 
 // collectZipEntries 递归收集目录下的全部子项（保持目录结构）。
-func collectZipEntries(userID uint, root model.File) ([]zipEntry, error) {
+func collectZipEntries(userID int64, root model.File) ([]zipEntry, error) {
 	entries := []zipEntry{{relPath: root.Name, isDir: true, file: root}}
 	queue := []zipEntry{{relPath: root.Name, isDir: true, file: root}}
 	for len(queue) > 0 {

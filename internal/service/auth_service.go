@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/snowflake"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -43,6 +44,7 @@ func (s *AuthService) Register(username, password string) (*model.User, error) {
 
 	// 容量由用户组（绑定存储策略与最大容量）控制；用户级 StorageQuota 字段保留兼容，固定为 0。
 	user := &model.User{
+		ID:           snowflake.Generate(),
 		Username:     username,
 		PasswordHash: string(hash),
 		IsAdmin:      count == 0,

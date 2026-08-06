@@ -4,7 +4,7 @@ import "time"
 
 type Share struct {
 	ID        uint       `gorm:"primaryKey" json:"id"`
-	UserID    uint       `gorm:"index;not null" json:"user_id"`
+	UserID    int64      `gorm:"index;not null" json:"user_id"`
 	FileID    uint       `gorm:"index;not null" json:"file_id"`
 	Code      string     `gorm:"uniqueIndex;size:16;not null" json:"code"`
 	Password  string     `gorm:"size:16" json:"-"`

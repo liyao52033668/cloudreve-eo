@@ -42,7 +42,7 @@ func setupShareService(t *testing.T) (*ShareService, *mockStorageDriver, *model.
 	return NewShareService(mgr), mock, user
 }
 
-func createTestFile(t *testing.T, userID uint, name string, isDir bool) *model.File {
+func createTestFile(t *testing.T, userID int64, name string, isDir bool) *model.File {
 	t.Helper()
 	file := &model.File{
 		UserID:        userID,

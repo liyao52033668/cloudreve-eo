@@ -13,7 +13,7 @@ export interface RegisterParams {
 export interface AuthResponse {
   token: string
   user: {
-    id: number
+    id: string
     username: string
     is_admin: boolean
     storage_quota: number

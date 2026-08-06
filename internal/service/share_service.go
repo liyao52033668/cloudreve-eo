@@ -28,7 +28,7 @@ func generateCode() string {
 	return string(b)
 }
 
-func (s *ShareService) Create(userID uint, fileID uint, password string, expireAt *time.Time) (*model.Share, error) {
+func (s *ShareService) Create(userID int64, fileID uint, password string, expireAt *time.Time) (*model.Share, error) {
 	var file model.File
 	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -77,7 +77,7 @@ func (s *ShareService) GetByCode(code string, password string) (*model.Share, *m
 }
 
 // ensureInShare 校验 dirID 位于分享根 rootID 的子树内（沿父链上溯）。
-func (s *ShareService) ensureInShare(userID, rootID, dirID uint) error {
+func (s *ShareService) ensureInShare(userID int64, rootID, dirID uint) error {
 	visited := make(map[uint]struct{})
 	current := dirID
 	for current != 0 {

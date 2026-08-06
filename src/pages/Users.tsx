@@ -26,6 +26,7 @@ import {
   UserOutlined,
   SearchOutlined,
   StopOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -71,7 +72,7 @@ export default function Users() {
   const [loading, setLoading] = useState(false)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [modalOpen, setModalOpen] = useState(false)
-  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<any>()
   const [groups, setGroups] = useState<GroupView[]>([])
@@ -140,7 +141,7 @@ export default function Users() {
     setModalOpen(true)
   }
 
-  const openEdit = async (id: number) => {
+  const openEdit = async (id: string) => {
     try {
       const res = await getAdminUser(id)
       const u = res.data.user
@@ -186,7 +187,7 @@ export default function Users() {
     }
   }
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     try {
       await deleteUser(id)
       message.success('已删除')
@@ -196,7 +197,7 @@ export default function Users() {
     }
   }
 
-  const handleToggleBan = async (id: number, banned: boolean) => {
+  const handleToggleBan = async (id: string, banned: boolean) => {
     try {
       const res = await toggleBanUser(id)
       message.success(res.data.message)
@@ -370,7 +371,23 @@ export default function Users() {
             label={editingId == null ? '密码 (至少6位)' : '新密码 (留空不修改)'}
             rules={editingId == null ? [{ required: true, min: 6, message: '密码至少6位' }] : []}
           >
-            <Input.Password placeholder="请输入密码" autoComplete="new-password" />
+            <Input.Password
+              placeholder="请输入密码"
+              autoComplete="new-password"
+              addonAfter={
+                <ThunderboltOutlined
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => {
+                    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+                    let pwd = ''
+                    for (let i = 0; i < 8; i++) {
+                      pwd += chars.charAt(Math.floor(Math.random() * chars.length))
+                    }
+                    form.setFieldsValue({ password: pwd })
+                  }}
+                />
+              }
+            />
           </Form.Item>
           <Form.Item
             name="group_id"

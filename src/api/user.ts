@@ -1,7 +1,7 @@
 import client from './client'
 
 export interface UserProfile {
-  id: number
+  id: string
   username: string
   is_admin: boolean
   storage_quota: number
