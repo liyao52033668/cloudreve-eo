@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type User struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
@@ -12,6 +15,18 @@ type User struct {
 	StorageUsed  int64     `gorm:"not null;default:0" json:"storage_used"`
 	Banned       bool      `gorm:"not null;default:false" json:"banned"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// MarshalJSON 自定义 JSON 序列化，格式化时间为易读格式
+func (u User) MarshalJSON() ([]byte, error) {
+	type Alias User
+	return json.Marshal(&struct {
+		Alias
+		CreatedAt string `json:"created_at"`
+	}{
+		Alias:     (Alias)(u),
+		CreatedAt: u.CreatedAt.Format("2006-01-02 15:04:05"),
+	})
 }
 
 // IsUserAdmin 查询用户是否为管理员。

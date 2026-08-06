@@ -216,7 +216,6 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 				adminUsers.PUT("/:id", adminUserHandler.Update)
 				adminUsers.DELETE("/:id", adminUserHandler.Delete)
 				adminUsers.PUT("/:id/ban", adminUserHandler.ToggleBan)
-				adminUsers.POST("/:id/reset-password", adminUserHandler.ResetPassword)
 			}
 		}
 	}

@@ -39,6 +39,3 @@ export const deleteUser = (id: number) =>
 
 export const toggleBanUser = (id: number) =>
   client.put<{ message: string; banned: boolean }>(`/admin/users/${id}/ban`)
-
-export const resetPassword = (id: number, password: string) =>
-  client.post<{ message: string }>(`/admin/users/${id}/reset-password`, { password })

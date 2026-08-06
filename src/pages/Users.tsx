@@ -26,7 +26,6 @@ import {
   UserOutlined,
   SearchOutlined,
   StopOutlined,
-  KeyOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -40,7 +39,6 @@ import {
   updateUser,
   deleteUser,
   toggleBanUser,
-  resetPassword,
   type AdminUser,
 } from '../api/adminUsers'
 import { getProfile } from '../api/user'
@@ -89,8 +87,10 @@ export default function Users() {
         return false
       }
       return true
-    } catch {
-      navigate('/login')
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        navigate('/login')
+      }
       return false
     }
   }, [navigate])
@@ -206,35 +206,6 @@ export default function Users() {
     }
   }
 
-  const handleResetPassword = (id: number) => {
-    Modal.confirm({
-      title: '重置密码',
-      content: (
-        <Input.Password
-          id="reset-password-input"
-          placeholder="输入新密码（至少6位）"
-          autoComplete="new-password"
-        />
-      ),
-      okText: '确认',
-      cancelText: '取消',
-      onOk: async () => {
-        const input = document.getElementById('reset-password-input') as HTMLInputElement
-        const password = input?.value || ''
-        if (password.length < 6) {
-          message.error('密码至少6位')
-          return Promise.reject()
-        }
-        try {
-          await resetPassword(id, password)
-          message.success('密码已重置')
-        } catch (err: any) {
-          message.error(err.response?.data?.error || '重置失败')
-        }
-      },
-    })
-  }
-
   const handleLogout = () => {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
@@ -298,9 +269,6 @@ export default function Users() {
               {u.banned ? '解封' : '封号'}
             </Button>
           </Popconfirm>
-          <Button type="link" icon={<KeyOutlined />} onClick={() => handleResetPassword(u.id)}>
-            重置密码
-          </Button>
           <Popconfirm
             title="确认删除该用户？"
             description="将删除该用户全部文件与存储端对象，不可恢复"
