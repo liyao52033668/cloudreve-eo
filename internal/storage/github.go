@@ -129,10 +129,8 @@ func trimPath(path string) string {
 }
 
 func (d *GitHubDriver) buildPath(key string) string {
-	if d.basePath == "" {
-		return key
-	}
-	return d.basePath + "/" + key
+	// key 已经包含 basePath（由 FileService.buildStorageKey 拼接），不需要重复添加
+	return key
 }
 
 func (d *GitHubDriver) apiURL(path string) string {
