@@ -95,7 +95,14 @@ func (s *FileService) ResolveUserPolicy(userID int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return s.storageMgr.ResolvePolicy(group.StoragePolicy)
+	policies := group.StoragePolicies
+	if len(policies) == 0 {
+		policies = []string{group.StoragePolicy}
+	}
+	if len(policies) > 0 {
+		return s.storageMgr.ResolvePolicy(policies[0])
+	}
+	return "", errors.New("用户组没有策略")
 }
 
 // UserGroupOf 返回用户所属的用户组；未分组或组不存在时返回默认组（仍无则报错）。
