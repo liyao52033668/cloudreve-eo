@@ -10,7 +10,7 @@ import (
 type UserGroup struct {
 	ID            uint   `gorm:"primaryKey" json:"id"`
 	Name          string `gorm:"uniqueIndex;size:64;not null" json:"name"`
-	StoragePolicies []string `gorm:"type:text[]" json:"storage_policies"` // 多选存储策略名称；空表示跟随默认策略
+	StoragePolicies string `gorm:"type:text" json:"storage_policies"` // 多选存储策略名称（逗号分隔）；空表示跟随默认策略
 	// MaxStorage 组内每个用户的最大容量（字节）；0 表示沿用所有策略的默认配额总和。
 	MaxStorage int64  `gorm:"not null;default:0" json:"max_storage"`
 	IsDefault  bool   `gorm:"not null;default:false" json:"is_default"`
