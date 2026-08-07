@@ -97,7 +97,7 @@ func (s *FileService) ResolveUserPolicy(userID int64) (string, error) {
 	}
 	policies := group.StoragePolicies
 	if len(policies) == 0 {
-		policies = []string{group.StoragePolicy}
+		policies = []string{""} // fallback to default strategy
 	}
 	if len(policies) > 0 {
 		return s.storageMgr.ResolvePolicy(policies[0])
