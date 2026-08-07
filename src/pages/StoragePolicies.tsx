@@ -27,6 +27,7 @@ import {
   StarFilled,
   CloudServerOutlined,
   GlobalOutlined,
+  SearchOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -87,6 +88,7 @@ export default function StoragePolicies() {
   const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null; chunk_size_mib?: number | null }>()
   const [policyType, setPolicyType] = useState<'s3' | 'github'>('s3')
   const [filterType, setFilterType] = useState<string | undefined>(undefined)
+  const [searchKeyword, setSearchKeyword] = useState('')
 
   const typeLabel = (t: string) => (t === 'github' ? 'GitHub' : 'S3 兼容')
 
@@ -104,9 +106,16 @@ export default function StoragePolicies() {
   }, [categoryOptions, filterType])
 
   const filteredPolicies = useMemo(() => {
-    if (!filterType) return policies
-    return policies.filter((p) => (p.type || 's3') === filterType)
-  }, [policies, filterType])
+    const kw = searchKeyword.trim().toLowerCase()
+    return policies.filter((p) => {
+      if (filterType && (p.type || 's3') !== filterType) return false
+      if (!kw) return true
+      return (
+        p.name.toLowerCase().includes(kw) ||
+        (p.endpoint || '').toLowerCase().includes(kw)
+      )
+    })
+  }, [policies, filterType, searchKeyword])
 
   const ensureAdmin = useCallback(async () => {
     try {
@@ -367,6 +376,14 @@ export default function StoragePolicies() {
       <AppHeader title="存储策略" />
       <Content style={{ padding: 24, maxWidth: 1308, margin: '0 auto', width: '100%' }}>
         <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+          <Input
+            allowClear
+            placeholder="搜索策略名称 / Endpoint"
+            prefix={<SearchOutlined />}
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            style={{ width: 220 }}
+          />
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
             刷新
           </Button>
@@ -405,7 +422,7 @@ export default function StoragePolicies() {
             loading={loading}
             pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 个策略` }}
             locale={{
-              emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该分类下暂无存储策略" />,
+              emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的存储策略" />,
             }}
             scroll={{ x: 1260 }}
           />

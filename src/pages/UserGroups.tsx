@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Layout,
   Card,
@@ -26,6 +26,7 @@ import {
   StarOutlined,
   StarFilled,
   TeamOutlined,
+  SearchOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -77,6 +78,13 @@ export default function UserGroups() {
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<GroupForm>()
   const [policies, setPolicies] = useState<StoragePolicyAdmin[]>([])
+  const [searchKeyword, setSearchKeyword] = useState('')
+
+  const filteredGroups = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase()
+    if (!kw) return groups
+    return groups.filter((g) => g.name.toLowerCase().includes(kw))
+  }, [groups, searchKeyword])
 
   const ensureAdmin = useCallback(async () => {
     try {
@@ -206,7 +214,15 @@ export default function UserGroups() {
     <Layout style={{ minHeight: '100vh' }}>
       <AppHeader title="用户组" />
       <Content style={{ padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
-        <Space style={{ marginBottom: 16 }}>
+        <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+          <Input
+            allowClear
+            placeholder="搜索用户组名称"
+            prefix={<SearchOutlined />}
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            style={{ width: 220 }}
+          />
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
             刷新
           </Button>
@@ -227,9 +243,13 @@ export default function UserGroups() {
               </Button>
             </Empty>
           </Card>
+        ) : filteredGroups.length === 0 && searchKeyword.trim() ? (
+          <Card>
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的用户组" />
+          </Card>
         ) : (
           <Row gutter={[16, 16]}>
-            {groups.map((g) => (
+            {filteredGroups.map((g) => (
               <Col key={g.id} xs={24} sm={12} lg={8}>
                 <Card
                   loading={loading}
