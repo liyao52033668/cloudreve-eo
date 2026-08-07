@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,6 +29,31 @@ func NewAdminUserHandler(mgr *storage.StoragePolicyManager) *AdminUserHandler {
 type adminUserView struct {
 	model.User
 	GroupName string `json:"group_name"`
+}
+
+// MarshalJSON 覆盖内嵌 User 提升的 MarshalJSON：否则会丢失 group_name 等附加字段。
+func (v adminUserView) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		ID           string `json:"id"`
+		Username     string `json:"username"`
+		IsAdmin      bool   `json:"is_admin"`
+		GroupID      uint   `json:"group_id"`
+		StorageQuota int64  `json:"storage_quota"`
+		StorageUsed  int64  `json:"storage_used"`
+		Banned       bool   `json:"banned"`
+		CreatedAt    string `json:"created_at"`
+		GroupName    string `json:"group_name"`
+	}{
+		ID:           fmt.Sprintf("%d", v.ID),
+		Username:     v.Username,
+		IsAdmin:      v.IsAdmin,
+		GroupID:      v.GroupID,
+		StorageQuota: v.StorageQuota,
+		StorageUsed:  v.StorageUsed,
+		Banned:       v.Banned,
+		CreatedAt:    v.CreatedAt.Format("2006-01-02 15:04:05"),
+		GroupName:    v.GroupName,
+	})
 }
 
 func withGroupName(users []model.User, groups map[uint]string) []adminUserView {
