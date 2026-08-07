@@ -17,8 +17,6 @@ import {
 } from 'antd'
 import type { TableColumnsType } from 'antd'
 import {
-  ArrowLeftOutlined,
-  LogoutOutlined,
   PlusOutlined,
   ReloadOutlined,
   EditOutlined,
@@ -43,8 +41,9 @@ import {
   type AdminUser,
 } from '../api/adminUsers'
 import { getProfile } from '../api/user'
+import AppHeader from '../components/AppHeader'
 
-const { Header, Content } = Layout
+const { Content } = Layout
 const { Paragraph } = Typography
 
 const GiB = 1024 * 1024 * 1024
@@ -207,12 +206,6 @@ export default function Users() {
     }
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    navigate('/login')
-  }
-
   const groupOptions = groups.map((g) => ({
     value: g.id,
     label: g.name,
@@ -286,17 +279,7 @@ export default function Users() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529' }}>
-        <Space>
-          <Button type="text" icon={<ArrowLeftOutlined />} style={{ color: '#fff' }} onClick={() => navigate('/')}>
-            返回
-          </Button>
-          <span style={{ color: '#fff', fontSize: 18 }}>用户</span>
-        </Space>
-        <Button icon={<LogoutOutlined />} type="text" style={{ color: '#fff' }} onClick={handleLogout}>
-          退出
-        </Button>
-      </Header>
+      <AppHeader title="用户" />
       <Content style={{ padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
         <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
           <Input

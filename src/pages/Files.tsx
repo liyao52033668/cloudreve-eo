@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Segmented, Alert, Card, Progress, Typography, Divider, Dropdown } from 'antd'
-import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, LogoutOutlined, SettingOutlined, CloudServerOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, TeamOutlined, UserOutlined, BarsOutlined, AppstoreOutlined, DownOutlined } from '@ant-design/icons'
+import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, BarsOutlined, AppstoreOutlined, DownOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
+import AppHeader from '../components/AppHeader'
 import {
   listFiles,
   listFilesByPolicy,
@@ -27,7 +28,7 @@ import { getProfile } from '../api/user'
 import { isImage, isVideo } from '../utils/fileType'
 import { useNavigate } from 'react-router-dom'
 
-const { Header, Content } = Layout
+const { Content } = Layout
 
 interface BreadcrumbItem { title: string; id: number }
 
@@ -58,7 +59,6 @@ export default function Files() {
   const [newFileContent, setNewFileContent] = useState('')
   const [newFileSubmitting, setNewFileSubmitting] = useState(false)
   const [policies, setPolicies] = useState<StoragePolicy[]>([])
-  const [isAdmin, setIsAdmin] = useState(false)
   const [pendingSessions, setPendingSessions] = useState<UploadSessionInfo[]>([])
   const [uploadTasks, setUploadTasks] = useState<Record<string, UploadTask>>({})
   // 非空时进入「按策略查看」模式：跨目录展示该策略下全部文件
@@ -114,7 +114,6 @@ export default function Files() {
   const loadProfile = useCallback(async () => {
     try {
       const res = await getProfile()
-      setIsAdmin(!!res.data.user?.is_admin)
       // 额度优先用后端计算的有效总额度；兼容旧字段 max_storage
       const group = res.data.group
       let quota = group?.effective_max_storage ?? group?.max_storage ?? 0
@@ -562,12 +561,6 @@ export default function Files() {
     return n + ' B'
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    navigate('/login')
-  }
-
   const activeSearch = searchKeyword.trim()
   const canGoUp = !viewPolicy && !activeSearch && breadcrumb.length > 1
 
@@ -581,55 +574,7 @@ export default function Files() {
 
   return (
     <Layout style={{ minHeight: '100vh', width: '100%' }}>
-      <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529', padding: '0 24px' }}>
-        <span
-          style={{ color: '#fff', fontSize: 18, cursor: 'pointer', userSelect: 'none' }}
-          onClick={handleGoHome}
-        >
-          Cloudreve-EO
-        </span>
-        <Space>
-          {isAdmin && (
-            <>
-              <Button
-                icon={<CloudServerOutlined />}
-                type="text"
-                style={{ color: '#fff' }}
-                onClick={() => navigate('/storage-policies')}
-              >
-                存储策略
-              </Button>
-              <Button
-                icon={<TeamOutlined />}
-                type="text"
-                style={{ color: '#fff' }}
-                onClick={() => navigate('/user-groups')}
-              >
-                用户组
-              </Button>
-              <Button
-                icon={<UserOutlined />}
-                type="text"
-                style={{ color: '#fff' }}
-                onClick={() => navigate('/users')}
-              >
-                用户
-              </Button>
-              <Button
-                icon={<SettingOutlined />}
-                type="text"
-                style={{ color: '#fff' }}
-                onClick={() => navigate('/settings')}
-              >
-                参数设置
-              </Button>
-            </>
-          )}
-          <Button icon={<LogoutOutlined />} type="text" style={{ color: '#fff' }} onClick={handleLogout}>
-            退出
-          </Button>
-        </Space>
-      </Header>
+      <AppHeader onHome={handleGoHome} />
       <Content style={{ padding: 24, width: '100%', maxWidth: 1400, margin: '0 auto', flex: 1 }}>
         <section className="files-toolbar" aria-label="文件浏览工具栏">
           <div className="files-toolbar__top">

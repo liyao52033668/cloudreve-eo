@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Layout, Card, Button, Typography, Space, message, Modal, Input, Alert, Switch } from 'antd'
-import { ArrowLeftOutlined, ReloadOutlined, CopyOutlined, LogoutOutlined } from '@ant-design/icons'
+import { ReloadOutlined, CopyOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
   getSecuritySettings,
@@ -8,8 +8,9 @@ import {
   updateAllowRegister,
 } from '../api/settings'
 import { getProfile } from '../api/user'
+import AppHeader from '../components/AppHeader'
 
-const { Header, Content } = Layout
+const { Content } = Layout
 const { Text, Paragraph } = Typography
 
 export default function Settings() {
@@ -107,25 +108,9 @@ export default function Settings() {
     }
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    navigate('/login')
-  }
-
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529' }}>
-        <Space>
-          <Button type="text" icon={<ArrowLeftOutlined />} style={{ color: '#fff' }} onClick={() => navigate('/')}>
-            返回
-          </Button>
-          <span style={{ color: '#fff', fontSize: 18 }}>参数设置</span>
-        </Space>
-        <Button icon={<LogoutOutlined />} type="text" style={{ color: '#fff' }} onClick={handleLogout}>
-          退出
-        </Button>
-      </Header>
+      <AppHeader title="参数设置" />
       <Content style={{ padding: 24, maxWidth: 800, margin: '0 auto', width: '100%' }}>
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Card title="注册与登录" loading={loading}>
