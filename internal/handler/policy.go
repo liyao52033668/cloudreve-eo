@@ -45,6 +45,7 @@ type adminPolicyView struct {
 	BasePath       string `json:"base_path"`
 	Branch         string `json:"branch"`
 	ChunkSize      int64  `json:"chunk_size"`
+	CORSEnabled    bool   `json:"cors_enabled"`
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
 	CreatedAt      string `json:"created_at,omitempty"`
@@ -69,6 +70,7 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		BasePath:       p.BasePath,
 		Branch:         p.Branch,
 		ChunkSize:      p.ChunkSize,
+		CORSEnabled:    p.CORSEnabled,
 		IsDefault:      p.IsDefault,
 		DefaultQuota:   p.DefaultQuota,
 		CreatedAt:      p.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -384,6 +386,10 @@ func (h *PolicyHandler) SetCORS(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := model.SetStoragePolicyCORSEnabled(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "CORS 已配置但状态保存失败: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "存储桶 CORS 已配置"})

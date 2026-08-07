@@ -265,6 +265,7 @@ export default function StoragePolicies() {
     try {
       await setPolicyCORS(id)
       message.success('存储桶 CORS 已配置，浏览器可直传')
+      load()
     } catch (err: any) {
       message.error(err.response?.data?.error || 'CORS 配置失败，请检查密钥权限或到服务商控制台手动配置')
     }
@@ -286,8 +287,13 @@ export default function StoragePolicies() {
     {
       title: '类型',
       dataIndex: 'type',
-      width: 110,
-      render: (t: string) => <Tag>{typeLabel(t || 's3')}</Tag>,
+      width: 170,
+      render: (t: string, p) => (
+        <Space size={4}>
+          <Tag>{typeLabel(t || 's3')}</Tag>
+          {p.cors_enabled && <Tag color="green">CORS</Tag>}
+        </Space>
+      ),
     },
     {
       title: '存储位置',
@@ -359,7 +365,7 @@ export default function StoragePolicies() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <AppHeader title="存储策略" />
-      <Content style={{ padding: 24, maxWidth: 1248, margin: '0 auto', width: '100%' }}>
+      <Content style={{ padding: 24, maxWidth: 1308, margin: '0 auto', width: '100%' }}>
         <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
             刷新
@@ -401,7 +407,7 @@ export default function StoragePolicies() {
             locale={{
               emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该分类下暂无存储策略" />,
             }}
-            scroll={{ x: 1200 }}
+            scroll={{ x: 1260 }}
           />
         )}
       </Content>

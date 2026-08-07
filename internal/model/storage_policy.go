@@ -27,6 +27,8 @@ type StoragePolicy struct {
 	Branch string `gorm:"size:64" json:"branch"`
 	// ChunkSize 分片上传每片大小（字节）；0 表示使用默认 25MB。
 	ChunkSize int64 `gorm:"not null;default:0" json:"chunk_size"`
+	// CORSEnabled 标记已为存储桶配置浏览器直传 CORS 规则（仅 S3 类型有意义）。
+	CORSEnabled bool      `gorm:"not null;default:false" json:"cors_enabled"`
 	IsDefault    bool      `gorm:"not null;default:false" json:"is_default"`
 	// DefaultQuota 该策略下每个用户的默认配额（字节）；0 表示未配置/不可用。
 	DefaultQuota int64     `gorm:"not null;default:0" json:"default_quota"`
@@ -158,6 +160,11 @@ func DeleteStoragePolicy(id uint) error {
 		}
 		return tx.Model(&next).Update("is_default", true).Error
 	})
+}
+
+// SetStoragePolicyCORSEnabled 标记策略的存储桶已配置浏览器直传 CORS 规则。
+func SetStoragePolicyCORSEnabled(id uint) error {
+	return DB.Model(&StoragePolicy{}).Where("id = ?", id).Update("cors_enabled", true).Error
 }
 
 // SetDefaultStoragePolicy 将指定策略设为默认。

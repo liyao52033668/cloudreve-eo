@@ -27,6 +27,7 @@ export interface StoragePolicyAdmin {
   base_path: string
   branch: string
   chunk_size: number
+  cors_enabled: boolean
   is_default: boolean
   default_quota: number
   created_at?: string
