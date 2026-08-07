@@ -504,6 +504,13 @@ export default function StoragePolicies() {
                 <Input placeholder="us-east-1" />
               </Form.Item>
               <Form.Item
+                name="base_path"
+                label="存储路径前缀"
+                extra="文件将存储在 bucket 的这个目录下，留空表示 bucket 根目录"
+              >
+                <Input placeholder="例如 files 或 uploads" allowClear />
+              </Form.Item>
+              <Form.Item
                 name="force_path_style"
                 label="强制 ForcePathStyle"
                 valuePropName="checked"
