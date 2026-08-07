@@ -5,6 +5,7 @@ import type { FileItem } from '../api/files'
 import { deleteFile, renameFile, getDownloadURL, getDownloadZip, listFiles, moveFile } from '../api/files'
 import { useEffect, useMemo, useState } from 'react'
 import { isImage, isVideo } from '../utils/fileType'
+import { formatDateTime } from '../utils/time'
 import ShareModal from './ShareModal'
 
 interface Props {
@@ -326,7 +327,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       onFilter: (value, record) => record.storage_policy === value,
       render: (policy: string, record) => (record.is_dir ? '-' : (policy || '-')),
     },
-    { title: '修改时间', dataIndex: 'updated_at', width: 180, render: (v: string) => new Date(v).toLocaleString() },
+    { title: '修改时间', dataIndex: 'updated_at', width: 180, render: (v: string) => formatDateTime(v) },
     {
       title: '操作', width: 120,
       render: (_, record) => (

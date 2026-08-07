@@ -5,6 +5,7 @@ import { DownloadOutlined, FolderOutlined, FileOutlined } from '@ant-design/icon
 import type { ColumnsType } from 'antd/es/table'
 import { getShare, getShareDownload, getShareFiles, getShareZip, getShareChildDownload } from '../api/shares'
 import type { FileItem } from '../api/files'
+import { formatDateTime } from '../utils/time'
 
 const { Title, Text } = Typography
 
@@ -161,7 +162,7 @@ export default function ShareView() {
       ),
     },
     { title: '大小', width: 120, render: (_, r) => (r.is_dir ? '-' : formatSize(r.size)) },
-    { title: '修改时间', width: 180, render: (_, r) => new Date(r.updated_at).toLocaleString() },
+    { title: '修改时间', width: 180, render: (_, r) => formatDateTime(r.updated_at) },
     {
       title: '操作', width: 100,
       render: (_, r) => r.is_dir ? (
