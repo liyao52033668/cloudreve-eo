@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Layout,
   Card,
@@ -14,10 +14,10 @@ import {
   Empty,
   Popconfirm,
   Typography,
-  Row,
-  Col,
   Select,
+  Table,
 } from 'antd'
+import type { TableColumnsType } from 'antd'
 import {
   ArrowLeftOutlined,
   LogoutOutlined,
@@ -45,7 +45,7 @@ import {
 import { getProfile } from '../api/user'
 
 const { Header, Content } = Layout
-const { Text, Paragraph } = Typography
+const { Paragraph } = Typography
 
 const GiB = 1024 * 1024 * 1024
 const MiB = 1024 * 1024
@@ -87,6 +87,27 @@ export default function StoragePolicies() {
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null; chunk_size_mib?: number | null }>()
   const [policyType, setPolicyType] = useState<'s3' | 'github'>('s3')
+  const [filterType, setFilterType] = useState<string | undefined>(undefined)
+
+  const typeLabel = (t: string) => (t === 'github' ? 'GitHub' : 'S3 兼容')
+
+  // 分类选项只包含已添加的存储类型
+  const categoryOptions = useMemo(() => {
+    const present = Array.from(new Set(policies.map((p) => p.type || 's3')))
+    const order = (t: string) => (t === 'github' ? 1 : 0)
+    return present.sort((a, b) => order(a) - order(b)).map((t) => ({ label: typeLabel(t), value: t }))
+  }, [policies])
+
+  useEffect(() => {
+    if (filterType && !categoryOptions.some((o) => o.value === filterType)) {
+      setFilterType(undefined)
+    }
+  }, [categoryOptions, filterType])
+
+  const filteredPolicies = useMemo(() => {
+    if (!filterType) return policies
+    return policies.filter((p) => (p.type || 's3') === filterType)
+  }, [policies, filterType])
 
   const ensureAdmin = useCallback(async () => {
     try {
@@ -256,6 +277,92 @@ export default function StoragePolicies() {
     navigate('/login')
   }
 
+  const columns: TableColumnsType<StoragePolicyAdmin> = [
+    {
+      title: '策略名称',
+      dataIndex: 'name',
+      width: 160,
+      render: (_, p) => (
+        <Space>
+          <CloudServerOutlined style={{ color: '#1677ff' }} />
+          <span>{p.name}</span>
+          {p.is_default && <Tag color="blue">默认</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: '类型',
+      dataIndex: 'type',
+      width: 110,
+      render: (t: string) => <Tag>{typeLabel(t || 's3')}</Tag>,
+    },
+    {
+      title: '存储位置',
+      width: 220,
+      render: (_, p) => (
+        <span style={{ wordBreak: 'break-all' }}>{p.custom_host || p.endpoint}</span>
+      ),
+    },
+    {
+      title: '上传路径',
+      dataIndex: 'base_path',
+      width: 140,
+      render: (v: string, p) =>
+        v ? `/${v}/` : p.type === 'github' ? '（仓库根）' : '（bucket 根）',
+    },
+    {
+      title: '每用户配额',
+      dataIndex: 'default_quota',
+      width: 140,
+      render: (v: number) => formatBytes(v || 0),
+    },
+    {
+      title: '分片大小',
+      dataIndex: 'chunk_size',
+      width: 130,
+      render: (v: number, p) =>
+        p.type === 'github' ? '—' : v > 0 ? `${(v / MiB).toFixed(0)} MiB` : '默认（25 MiB）',
+    },
+    {
+      title: '操作',
+      width: 300,
+      render: (_, p) => (
+        <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={p.is_default ? <StarFilled /> : <StarOutlined />}
+            disabled={p.is_default}
+            onClick={() => handleSetDefault(p.id)}
+          >
+            {p.is_default ? '默认' : '设为默认'}
+          </Button>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(p.id)}>
+            编辑
+          </Button>
+          <Popconfirm
+            title="配置存储桶 CORS？"
+            description="将向该 Bucket 写入允许浏览器直传（含分片上传 ETag 暴露）的 CORS 规则。"
+            onConfirm={() => handleSetCORS(p.id)}
+          >
+            <Button type="link" size="small" icon={<GlobalOutlined />} disabled={p.type === 'github'}>
+              CORS
+            </Button>
+          </Popconfirm>
+          <Popconfirm
+            title="确认删除该策略？"
+            description="已上传到该策略的文件记录不会自动迁移。"
+            onConfirm={() => handleDelete(p.id)}
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ]
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#001529' }}>
@@ -269,14 +376,23 @@ export default function StoragePolicies() {
           退出
         </Button>
       </Header>
-      <Content style={{ padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
-        <Space style={{ marginBottom: 16 }}>
+      <Content style={{ padding: 24, maxWidth: 1248, margin: '0 auto', width: '100%' }}>
+        <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
             刷新
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             添加存储策略
           </Button>
+          <Select
+            allowClear
+            placeholder="分类"
+            options={categoryOptions}
+            value={filterType}
+            onChange={(v) => setFilterType(v)}
+            style={{ width: 160 }}
+            disabled={categoryOptions.length === 0}
+          />
         </Space>
 
         <Paragraph type="secondary" style={{ marginBottom: 16 }}>
@@ -293,151 +409,17 @@ export default function StoragePolicies() {
             </Empty>
           </Card>
         ) : (
-          <Row gutter={[16, 16]}>
-            {policies.map((p) => (
-              <Col key={p.id} xs={24} sm={12} lg={8}>
-                <Card
-                  loading={loading}
-                  hoverable
-                  actions={[
-                    <Button
-                      key="default"
-                      type="link"
-                      icon={p.is_default ? <StarFilled /> : <StarOutlined />}
-                      disabled={p.is_default}
-                      onClick={() => handleSetDefault(p.id)}
-                    >
-                      {p.is_default ? '默认' : '设为默认'}
-                    </Button>,
-                    <Button key="edit" type="link" icon={<EditOutlined />} onClick={() => openEdit(p.id)}>
-                      编辑
-                    </Button>,
-                    <Popconfirm
-                      key="cors"
-                      title="配置存储桶 CORS？"
-                      description="将向该 Bucket 写入允许浏览器直传（含分片上传 ETag 暴露）的 CORS 规则。"
-                      onConfirm={() => handleSetCORS(p.id)}
-                    >
-                      <Button type="link" icon={<GlobalOutlined />}>
-                        CORS
-                      </Button>
-                    </Popconfirm>,
-                    <Popconfirm
-                      key="del"
-                      title="确认删除该策略？"
-                      description="已上传到该策略的文件记录不会自动迁移。"
-                      onConfirm={() => handleDelete(p.id)}
-                    >
-                      <Button type="link" danger icon={<DeleteOutlined />}>
-                        删除
-                      </Button>
-                    </Popconfirm>,
-                  ]}
-                >
-                  <Card.Meta
-                    avatar={<CloudServerOutlined style={{ fontSize: 28, color: '#1677ff' }} />}
-                    title={
-                      <Space>
-                        <span>{p.name}</span>
-                        {p.is_default && <Tag color="blue">默认</Tag>}
-                        <Tag>{p.type === 'github' ? 'GitHub' : 'S3 兼容'}</Tag>
-                      </Space>
-                    }
-                    description={
-                      <div style={{ marginTop: 8 }}>
-                        {p.type === 'github' ? (
-                          <>
-                            <div style={{ wordBreak: 'break-all' }}>
-                              <Text type="secondary">仓库地址：</Text>
-                              {p.endpoint}
-                            </div>
-                            <div>
-                              <Text type="secondary">分支：</Text>
-                              {p.branch || 'main'}
-                            </div>
-                            <div>
-                              <Text type="secondary">上传路径：</Text>
-                              {p.base_path ? `/${p.base_path}/` : '（仓库根）'}
-                            </div>
-                            {p.custom_host && (
-                              <div style={{ wordBreak: 'break-all' }}>
-                                <Text type="secondary">CDN 域名：</Text>
-                                {p.custom_host}
-                              </div>
-                            )}
-                            <div>
-                              <Text type="secondary">每用户配额：</Text>
-                              {formatBytes(p.default_quota || 0)}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div>
-                              <Text type="secondary">Bucket：</Text>
-                              {p.bucket}
-                            </div>
-                            <div style={{ wordBreak: 'break-all' }}>
-                              <Text type="secondary">Endpoint：</Text>
-                              {p.endpoint}
-                            </div>
-                            <div>
-                              <Text type="secondary">Region：</Text>
-                              {p.region || '—'}
-                            </div>
-                            <div>
-                              <Text type="secondary">上传路径：</Text>
-                              {p.base_path ? `/${p.base_path}/` : '（bucket 根）'}
-                            </div>
-                            <div>
-                              <Text type="secondary">Path Style：</Text>
-                              {p.force_path_style !== false ? '强制开启' : '关闭（virtual-hosted）'}
-                            </div>
-                            {p.custom_host && (
-                              <div style={{ wordBreak: 'break-all' }}>
-                                <Text type="secondary">自定义域名：</Text>
-                                {p.custom_host}
-                              </div>
-                            )}
-                            <div>
-                              <Text type="secondary">Access Key：</Text>
-                              {p.access_key ? `${p.access_key.slice(0, 4)}••••` : '—'}
-                            </div>
-                            <div>
-                              <Text type="secondary">每用户配额：</Text>
-                              {formatBytes(p.default_quota || 0)}
-                            </div>
-                            <div>
-                              <Text type="secondary">分片大小：</Text>
-                              {p.chunk_size > 0 ? `${(p.chunk_size / MiB).toFixed(0)} MiB` : '默认（25 MiB）'}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    }
-                  />
-                </Card>
-              </Col>
-            ))}
-            <Col xs={24} sm={12} lg={8}>
-              <Card
-                hoverable
-                style={{
-                  height: '100%',
-                  minHeight: 180,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderStyle: 'dashed',
-                }}
-                onClick={openCreate}
-              >
-                <div style={{ textAlign: 'center', color: '#999' }}>
-                  <PlusOutlined style={{ fontSize: 28 }} />
-                  <div style={{ marginTop: 8 }}>添加存储策略</div>
-                </div>
-              </Card>
-            </Col>
-          </Row>
+          <Table
+            rowKey="id"
+            columns={columns}
+            dataSource={filteredPolicies}
+            loading={loading}
+            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 个策略` }}
+            locale={{
+              emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该分类下暂无存储策略" />,
+            }}
+            scroll={{ x: 1200 }}
+          />
         )}
       </Content>
 
