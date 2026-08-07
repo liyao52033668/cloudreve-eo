@@ -19,10 +19,10 @@ func NewGroupHandler() *GroupHandler {
 }
 
 type groupBody struct {
-	Name          string   `json:"name" binding:"required,min=1,max=64"`
+	Name            string   `json:"name" binding:"required,min=1,max=64"`
 	StoragePolicies []string `json:"storage_policies"` // 多选存储策略名称；空表示跟随默认策略
-	MaxStorage    int64    `json:"max_storage"`      // 每用户最大容量（字节）；0 沿用所有策略的默认配额总和
-	IsDefault     bool     `json:"is_default"`
+	MaxStorage      int64    `json:"max_storage"`      // 每用户最大容量（字节）；0 沿用所有策略的默认配额总和
+	IsDefault       bool     `json:"is_default"`
 }
 
 func (h *GroupHandler) validate(req *groupBody) error {
@@ -30,15 +30,13 @@ func (h *GroupHandler) validate(req *groupBody) error {
 	if req.MaxStorage < 0 {
 		return errors.New("最大容量不能为负数")
 	}
+	// 规范化并去重
+	req.StoragePolicies = model.SplitStoragePolicies(strings.Join(req.StoragePolicies, ","))
 	if len(req.StoragePolicies) == 0 {
 		// 空数组 = 跟随默认策略（保持兼容）
 		return nil
 	}
 	for _, p := range req.StoragePolicies {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
 		if _, err := model.GetStoragePolicyByName(p); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return errors.New("存储策略不存在: " + p)
@@ -75,7 +73,7 @@ func (h *GroupHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"group": g})
+	c.JSON(http.StatusOK, gin.H{"group": model.ToUserGroupView(*g, 0, 0)})
 }
 
 // Create POST /api/admin/groups
@@ -91,10 +89,10 @@ func (h *GroupHandler) Create(c *gin.Context) {
 	}
 
 	g := &model.UserGroup{
-		Name:          req.Name,
-		StoragePolicies: req.StoragePolicies,
-		MaxStorage:    req.MaxStorage,
-		IsDefault:     req.IsDefault,
+		Name:            req.Name,
+		StoragePolicies: model.JoinStoragePolicies(req.StoragePolicies),
+		MaxStorage:      req.MaxStorage,
+		IsDefault:       req.IsDefault,
 	}
 	if err := model.CreateUserGroup(g); err != nil {
 		msg := err.Error()
@@ -105,7 +103,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"group": g})
+	c.JSON(http.StatusCreated, gin.H{"group": model.ToUserGroupView(*g, 0, 0)})
 }
 
 // Update PUT /api/admin/groups/:id
@@ -126,10 +124,10 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	}
 
 	updates := &model.UserGroup{
-		Name:          req.Name,
-		StoragePolicies: req.StoragePolicies,
-		MaxStorage:    req.MaxStorage,
-		IsDefault:     req.IsDefault,
+		Name:            req.Name,
+		StoragePolicies: model.JoinStoragePolicies(req.StoragePolicies),
+		MaxStorage:      req.MaxStorage,
+		IsDefault:       req.IsDefault,
 	}
 	if err := model.UpdateUserGroup(uint(id), updates); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -145,7 +143,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		return
 	}
 	g, _ := model.GetUserGroupByID(uint(id))
-	c.JSON(http.StatusOK, gin.H{"group": g})
+	c.JSON(http.StatusOK, gin.H{"group": model.ToUserGroupView(*g, 0, 0)})
 }
 
 // Delete DELETE /api/admin/groups/:id —— 组内用户自动并入默认组。

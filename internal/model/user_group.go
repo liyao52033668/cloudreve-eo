@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -8,14 +9,51 @@ import (
 
 // UserGroup 用户组：绑定存储策略与本组用户的最大容量。
 type UserGroup struct {
-	ID            uint   `gorm:"primaryKey" json:"id"`
-	Name          string `gorm:"uniqueIndex;size:64;not null" json:"name"`
-	StoragePolicies string `gorm:"type:text" json:"storage_policies"` // 多选存储策略名称（逗号分隔）；空表示跟随默认策略
+	ID   uint   `gorm:"primaryKey" json:"id"`
+	Name string `gorm:"uniqueIndex;size:64;not null" json:"name"`
+	// StoragePolicies 多选策略名称，数据库以逗号分隔文本存储。
+	StoragePolicies string `gorm:"type:text" json:"-"`
 	// MaxStorage 组内每个用户的最大容量（字节）；0 表示沿用所有策略的默认配额总和。
-	MaxStorage int64  `gorm:"not null;default:0" json:"max_storage"`
-	IsDefault  bool   `gorm:"not null;default:false" json:"is_default"`
+	MaxStorage int64     `gorm:"not null;default:0" json:"max_storage"`
+	IsDefault  bool      `gorm:"not null;default:false" json:"is_default"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// SplitStoragePolicies 把逗号分隔字符串拆成策略名列表。
+func SplitStoragePolicies(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{})
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
+}
+
+// JoinStoragePolicies 把策略名列表编码成逗号分隔字符串。
+func JoinStoragePolicies(policies []string) string {
+	cleaned := SplitStoragePolicies(strings.Join(policies, ","))
+	return strings.Join(cleaned, ",")
+}
+
+// PolicyNames 返回用户组绑定的策略名列表。
+func (g *UserGroup) PolicyNames() []string {
+	if g == nil {
+		return []string{}
+	}
+	return SplitStoragePolicies(g.StoragePolicies)
 }
 
 // EnsureDefaultGroup 保证存在默认用户组（新注册用户自动归入），返回组 ID。
@@ -63,11 +101,32 @@ func GetUserGroupByID(id uint) (*UserGroup, error) {
 	return &g, nil
 }
 
-// ListUserGroups 全部用户组（默认组排前），附带用户数与已用容量合计。
+// UserGroupView 列表/详情对外视图：storage_policies 以数组返回给前端。
 type UserGroupView struct {
-	UserGroup
-	UserCount   int64 `json:"user_count"`
-	StorageUsed int64 `json:"storage_used"`
+	ID              uint      `json:"id"`
+	Name            string    `json:"name"`
+	StoragePolicies []string  `json:"storage_policies"`
+	MaxStorage      int64     `json:"max_storage"`
+	IsDefault       bool      `json:"is_default"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	UserCount       int64     `json:"user_count"`
+	StorageUsed     int64     `json:"storage_used"`
+}
+
+// ToUserGroupView 把模型转成前端可用视图。
+func ToUserGroupView(g UserGroup, userCount, storageUsed int64) UserGroupView {
+	return UserGroupView{
+		ID:              g.ID,
+		Name:            g.Name,
+		StoragePolicies: g.PolicyNames(),
+		MaxStorage:      g.MaxStorage,
+		IsDefault:       g.IsDefault,
+		CreatedAt:       g.CreatedAt,
+		UpdatedAt:       g.UpdatedAt,
+		UserCount:       userCount,
+		StorageUsed:     storageUsed,
+	}
 }
 
 func ListUserGroups() ([]UserGroupView, error) {
@@ -83,7 +142,7 @@ func ListUserGroups() ([]UserGroupView, error) {
 		var used int64
 		DB.Model(&User{}).Where("group_id = ?", g.ID).
 			Select("COALESCE(SUM(storage_used), 0)").Scan(&used)
-		views = append(views, UserGroupView{UserGroup: g, UserCount: cnt, StorageUsed: used})
+		views = append(views, ToUserGroupView(g, cnt, used))
 	}
 	return views, nil
 }
@@ -114,9 +173,7 @@ func UpdateUserGroup(id uint, updates *UserGroup) error {
 		return err
 	}
 	existing.Name = updates.Name
-	if len(updates.StoragePolicies) > 0 {
-		existing.StoragePolicies = updates.StoragePolicies
-	}
+	existing.StoragePolicies = updates.StoragePolicies
 	existing.MaxStorage = updates.MaxStorage
 
 	return DB.Transaction(func(tx *gorm.DB) error {

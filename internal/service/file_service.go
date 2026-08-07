@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"path/filepath"
 	"strings"
 	"time"
@@ -90,19 +91,39 @@ func (s *FileService) Mkdir(userID int64, parentID uint, name string) (*model.Fi
 }
 
 // ResolveUserPolicy 解析用户上传使用的存储策略：取用户所属用户组绑定的策略。
+// 多策略时随机挑选一个仍有剩余配额的策略；都满则返回配额不足。
 func (s *FileService) ResolveUserPolicy(userID int64) (string, error) {
 	group, err := s.UserGroupOf(userID)
 	if err != nil {
 		return "", err
 	}
-	policies := group.StoragePolicies
-	if len(policies) == 0 {
-		policies = []string{""} // fallback to default strategy
+	names := group.PolicyNames()
+	if len(names) == 0 {
+		// 空列表表示跟随默认策略
+		return s.storageMgr.ResolvePolicy("")
 	}
-	if len(policies) > 0 {
-		return s.storageMgr.ResolvePolicy(policies[0])
+
+	// 打乱顺序，实现随机挑选
+	rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
+
+	var lastErr error
+	for _, name := range names {
+		resolved, err := s.storageMgr.ResolvePolicy(name)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		// size=0 仅检查当前策略是否还有空间（已满则跳过）
+		if err := s.checkQuota(userID, resolved, 0); err != nil {
+			lastErr = err
+			continue
+		}
+		return resolved, nil
 	}
-	return "", errors.New("用户组没有策略")
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", errors.New("用户组没有可用策略")
 }
 
 // UserGroupOf 返回用户所属的用户组；未分组或组不存在时返回默认组（仍无则报错）。
@@ -247,7 +268,8 @@ func (s *FileService) UploadServer(userID int64, parentID uint, fileName, storag
 }
 
 // checkQuota 校验用户新增 size 字节后是否超出配额。
-// 配额优先取用户组的最大容量；为 0 时沿用存储策略的每用户默认配额。
+// 若用户组 MaxStorage > 0，按组总容量校验（跨策略合计已用）；
+// 若 MaxStorage == 0，按当前策略 default_quota 校验该策略已用。
 func (s *FileService) checkQuota(userID int64, resolvedPolicy string, size int64) error {
 	info, ok := s.storageMgr.GetPolicyInfo(resolvedPolicy)
 	if !ok {
@@ -257,9 +279,25 @@ func (s *FileService) checkQuota(userID int64, resolvedPolicy string, size int64
 	if err != nil {
 		return err
 	}
-	quota := group.MaxStorage
-	if quota == 0 {
-		quota = info.DefaultQuota
+
+	// 组级总容量优先
+	if group.MaxStorage > 0 {
+		var used int64
+		if err := model.DB.Model(&model.File{}).
+			Where("user_id = ? AND is_dir = ?", userID, false).
+			Select("COALESCE(SUM(size), 0)").Scan(&used).Error; err != nil {
+			return fmt.Errorf("统计已用容量失败: %w", err)
+		}
+		if used+size > group.MaxStorage {
+			return errors.New("存储配额不足")
+		}
+		return nil
+	}
+
+	// 未设组容量：使用该策略默认配额；若策略配额也为 0 视为不限
+	quota := info.DefaultQuota
+	if quota <= 0 {
+		return nil
 	}
 	var used int64
 	if err := model.DB.Model(&model.File{}).

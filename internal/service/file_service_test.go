@@ -436,11 +436,11 @@ func TestFileService_UploadCallback_GroupQuota(t *testing.T) {
 		t.Fatalf("InitDB: %v", err)
 	}
 
-	groupA := &model.UserGroup{Name: "ga", StoragePolicy: "a", MaxStorage: 1000}
+	groupA := &model.UserGroup{Name: "ga", StoragePolicies: "a", MaxStorage: 1000}
 	if err := model.DB.Create(groupA).Error; err != nil {
 		t.Fatal(err)
 	}
-	groupB := &model.UserGroup{Name: "gb", StoragePolicy: "b", MaxStorage: 1 << 40}
+	groupB := &model.UserGroup{Name: "gb", StoragePolicies: "b", MaxStorage: 1 << 40}
 	if err := model.DB.Create(groupB).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,7 @@ func TestFileService_UploadCallback_GroupQuota(t *testing.T) {
 	svcA := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("a", newMockStorageDriver(), 1000))
 	if err := model.DB.Create(&model.File{
 		UserID: userA.ID, ParentID: 0, Name: "old.bin", IsDir: false,
-		Size: 800, StorageKey: "k1", StoragePolicy: "a",
+		Size: 800, StorageKey: "k1", StoragePolicies: "a",
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func TestFileService_UploadCallback_QuotaFallbackToPolicyDefault(t *testing.T) {
 		t.Fatalf("InitDB: %v", err)
 	}
 
-	group := &model.UserGroup{Name: "g", StoragePolicy: "s3", MaxStorage: 0}
+	group := &model.UserGroup{Name: "g", StoragePolicies: "s3", MaxStorage: 0}
 	if err := model.DB.Create(group).Error; err != nil {
 		t.Fatal(err)
 	}
