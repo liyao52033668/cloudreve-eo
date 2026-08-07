@@ -56,12 +56,59 @@ func (h *UserHandler) Profile(c *gin.Context) {
 		}
 	}
 
+	// 计算展示用有效总额度：
+	// - MaxStorage > 0：直接使用组容量
+	// - MaxStorage == 0：汇总绑定策略的 default_quota；任一策略配额为 0（不限）则总额不限
+	effectiveMaxStorage := int64(0)
+	if group != nil {
+		effectiveMaxStorage = group.MaxStorage
+		if effectiveMaxStorage == 0 {
+			names := group.PolicyNames()
+			selected := make([]policyUsage, 0)
+			if len(names) == 0 {
+				selected = policies
+			} else {
+				byName := make(map[string]policyUsage, len(policies))
+				for _, p := range policies {
+					byName[p.Name] = p
+				}
+				for _, name := range names {
+					if p, ok := byName[name]; ok {
+						selected = append(selected, p)
+					}
+				}
+			}
+			unlimited := false
+			var sum int64
+			for _, p := range selected {
+				if p.DefaultQuota <= 0 {
+					unlimited = true
+					break
+				}
+				sum += p.DefaultQuota
+			}
+			if !unlimited {
+				effectiveMaxStorage = sum
+			}
+		}
+	}
+
 	resp := gin.H{
 		"user":             user,
 		"storage_policies": policies,
 	}
 	if group != nil {
-		resp["group"] = group
+		// 返回视图，避免污染持久化模型字段
+		resp["group"] = gin.H{
+			"id":               group.ID,
+			"name":             group.Name,
+			"storage_policies": group.PolicyNames(),
+			"max_storage":      group.MaxStorage,
+			"effective_max_storage": effectiveMaxStorage,
+			"is_default":       group.IsDefault,
+			"created_at":       group.CreatedAt,
+			"updated_at":       group.UpdatedAt,
+		}
 	}
 	c.JSON(http.StatusOK, resp)
 }

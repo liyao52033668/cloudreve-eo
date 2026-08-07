@@ -115,8 +115,23 @@ export default function Files() {
     try {
       const res = await getProfile()
       setIsAdmin(!!res.data.user?.is_admin)
-      // 额度来自用户组的 max_storage，user.storage_quota 已废弃
-      setStorageQuota(res.data.group?.max_storage || 0)
+      // 额度优先用后端计算的有效总额度；兼容旧字段 max_storage
+      const group = res.data.group
+      let quota = group?.effective_max_storage ?? group?.max_storage ?? 0
+      // 后端未返回 effective 时：max_storage=0 则汇总策略默认配额
+      if ((group?.effective_max_storage == null) && (group?.max_storage || 0) === 0) {
+        const names = group?.storage_policies?.filter(Boolean) || []
+        const list = res.data.storage_policies || []
+        const selected = names.length
+          ? list.filter((p) => names.includes(p.name))
+          : list
+        if (selected.length > 0 && selected.every((p) => (p.default_quota || 0) > 0)) {
+          quota = selected.reduce((sum, p) => sum + (p.default_quota || 0), 0)
+        } else {
+          quota = 0
+        }
+      }
+      setStorageQuota(quota)
       setStorageUsed(res.data.user?.storage_used || 0)
       localStorage.setItem('user', JSON.stringify(res.data.user))
     } catch (err: any) {

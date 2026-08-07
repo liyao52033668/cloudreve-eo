@@ -457,7 +457,7 @@ func TestFileService_UploadCallback_GroupQuota(t *testing.T) {
 	svcA := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("a", newMockStorageDriver(), 1000))
 	if err := model.DB.Create(&model.File{
 		UserID: userA.ID, ParentID: 0, Name: "old.bin", IsDir: false,
-		Size: 800, StorageKey: "k1", StoragePolicies: "a",
+		Size: 800, StorageKey: "k1", StoragePolicy: "a",
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
