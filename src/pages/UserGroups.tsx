@@ -53,7 +53,7 @@ const GiB = 1024 * 1024 * 1024
 
 const emptyForm: GroupForm = {
   name: '',
-  storage_policy: '',
+  storage_policies: [],
   max_storage: 0,
   is_default: false,
 }
@@ -146,7 +146,7 @@ export default function UserGroups() {
       setEditingId(id)
       form.setFieldsValue({
         name: g.name,
-        storage_policy: g.storage_policy,
+        storage_policies: g.storage_policies || [g.storage_policy || ''],
         max_storage: (g.max_storage || 0) / GiB,
         is_default: g.is_default,
       })
@@ -162,7 +162,7 @@ export default function UserGroups() {
       setSaving(true)
       const payload: GroupForm = {
         name: values.name,
-        storage_policy: values.storage_policy,
+        storage_policies: values.storage_policies || [],
         max_storage: Math.round(Number(values.max_storage) * GiB),
         is_default: !!values.is_default,
       }
@@ -288,7 +288,9 @@ export default function UserGroups() {
                       <div style={{ marginTop: 8 }}>
                         <div>
                           <Text type="secondary">存储策略：</Text>
-                          {g.storage_policy ? g.storage_policy : '默认策略'}
+                          {g.storage_policies && g.storage_policies.length > 0
+                            ? g.storage_policies.join(', ')
+                            : (g.storage_policy || '默认策略')}
                         </div>
                         <div>
                           <Text type="secondary">每用户最大容量：</Text>
@@ -332,16 +334,21 @@ export default function UserGroups() {
             <Input placeholder="例如 admin, user" />
           </Form.Item>
           <Form.Item
-            name="storage_policy"
+            name="storage_policies"
             label="存储策略"
-            extra="空串表示跟随默认策略"
+            extra="可多选，空表示跟随默认策略"
+            rules={[{ required: true, message: '请选择至少一个策略' }]}
           >
             <Select
+              mode="multiple"
               options={[
                 { value: '', label: '跟随默认策略' },
                 ...policies.map((p) => ({ value: p.name, label: p.name })),
               ]}
-              placeholder="选择存储策略"
+              placeholder="选择存储策略（支持多选）"
+              filterOption={(input, option) =>
+                (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+              }
             />
           </Form.Item>
           <Form.Item

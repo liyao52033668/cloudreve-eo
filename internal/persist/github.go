@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
 )
 
 type gitHubBackend struct {
@@ -48,6 +49,7 @@ func (b *gitHubBackend) Download() ([]byte, bool, error) {
 	req.Header.Set("Accept", "application/vnd.github.raw+json")
 	resp, err := b.client.Do(req)
 	if err != nil {
+		logx.Error(logx.ModulePersist, "GitHub 下载失败", logx.Err(err))
 		return nil, false, err
 	}
 	defer resp.Body.Close()
@@ -56,7 +58,9 @@ func (b *gitHubBackend) Download() ([]byte, bool, error) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, false, fmt.Errorf("GitHub 下载失败 HTTP %d: %s", resp.StatusCode, body)
+		err = fmt.Errorf("GitHub 下载失败 HTTP %d: %s", resp.StatusCode, body)
+		logx.Error(logx.ModulePersist, "GitHub 下载失败", logx.Err(err))
+		return nil, false, err
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {

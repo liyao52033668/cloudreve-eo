@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
 )
 
 // GitHubDriver 使用 GitHub Contents API 实现存储驱动。
@@ -134,12 +136,14 @@ func (d *GitHubDriver) buildPath(key string) string {
 }
 
 func (d *GitHubDriver) apiURL(path string) string {
-	return fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", d.owner, d.repo, path)
+	escapedPath := url.PathEscape(path)
+	return fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", d.owner, d.repo, escapedPath)
 }
 
 func (d *GitHubDriver) setHeaders(req *http.Request) {
 	req.Header.Set("Authorization", "token "+d.token)
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "CloudreveEO")
 }
 
@@ -190,13 +194,14 @@ func (d *GitHubDriver) GenerateDownloadURL(key string, fileName string, expire t
 		if err != nil {
 			return "", fmt.Errorf("解析自定义域名失败: %w", err)
 		}
-		u.Path = "/" + path
+		u.Path = "/" + url.PathEscape(path)
 		return u.String(), nil
 	}
 
 	// 使用 GitHub raw URL
+	escapedPath := url.PathEscape(path)
 	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s",
-		d.owner, d.repo, d.branch, path), nil
+		d.owner, d.repo, d.branch, escapedPath), nil
 }
 
 // Delete 删除文件。
@@ -231,14 +236,18 @@ func (d *GitHubDriver) Delete(key string) error {
 
 	resp, err := d.client.Do(req)
 	if err != nil {
+		logx.Error(logx.ModuleStorage, "删除文件失败", logx.Err(err), "key", key)
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("删除文件失败: HTTP %d, %s", resp.StatusCode, string(bodyBytes))
+		err = fmt.Errorf("删除文件失败: HTTP %d, %s", resp.StatusCode, string(bodyBytes))
+		logx.Error(logx.ModuleStorage, "删除文件失败", logx.Err(err), "key", key)
+		return err
 	}
+	logx.Info(logx.ModuleStorage, "文件已删除", "key", key)
 	return nil
 }
 
@@ -360,13 +369,17 @@ func (d *GitHubDriver) UploadFile(key string, content []byte) error {
 
 	resp, err := d.client.Do(req)
 	if err != nil {
+		logx.Error(logx.ModuleStorage, "上传文件失败", logx.Err(err), "key", key)
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("上传文件失败: HTTP %d, %s", resp.StatusCode, string(bodyBytes))
+		err = fmt.Errorf("上传文件失败: HTTP %d, %s", resp.StatusCode, string(bodyBytes))
+		logx.Error(logx.ModuleStorage, "上传文件失败", logx.Err(err), "key", key)
+		return err
 	}
+	logx.Info(logx.ModuleStorage, "文件已上传", "key", key)
 	return nil
 }

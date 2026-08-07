@@ -19,22 +19,29 @@ func NewGroupHandler() *GroupHandler {
 }
 
 type groupBody struct {
-	Name          string `json:"name" binding:"required,min=1,max=64"`
-	StoragePolicy string `json:"storage_policy"` // 存储策略名称；空表示跟随默认策略
-	MaxStorage    int64  `json:"max_storage"`    // 每用户最大容量（字节）；0 沿用策略默认配额
-	IsDefault     bool   `json:"is_default"`
+	Name          string   `json:"name" binding:"required,min=1,max=64"`
+	StoragePolicies []string `json:"storage_policies"` // 多选存储策略名称；空表示跟随默认策略
+	MaxStorage    int64    `json:"max_storage"`      // 每用户最大容量（字节）；0 沿用所有策略的默认配额总和
+	IsDefault     bool     `json:"is_default"`
 }
 
 func (h *GroupHandler) validate(req *groupBody) error {
 	req.Name = strings.TrimSpace(req.Name)
-	req.StoragePolicy = strings.TrimSpace(req.StoragePolicy)
 	if req.MaxStorage < 0 {
 		return errors.New("最大容量不能为负数")
 	}
-	if req.StoragePolicy != "" {
-		if _, err := model.GetStoragePolicyByName(req.StoragePolicy); err != nil {
+	if len(req.StoragePolicies) == 0 {
+		// 空数组 = 跟随默认策略（保持兼容）
+		return nil
+	}
+	for _, p := range req.StoragePolicies {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, err := model.GetStoragePolicyByName(p); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return errors.New("存储策略不存在")
+				return errors.New("存储策略不存在: " + p)
 			}
 			return err
 		}
