@@ -114,7 +114,9 @@ func UpdateUserGroup(id uint, updates *UserGroup) error {
 		return err
 	}
 	existing.Name = updates.Name
-	existing.StoragePolicy = updates.StoragePolicy
+	if len(updates.StoragePolicies) > 0 {
+		existing.StoragePolicies = updates.StoragePolicies
+	}
 	existing.MaxStorage = updates.MaxStorage
 
 	return DB.Transaction(func(tx *gorm.DB) error {
