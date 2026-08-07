@@ -135,6 +135,7 @@ func (h *FileHandler) UploadServer(c *gin.Context) {
 	}
 
 	storageKey := c.PostForm("storage_key")
+	storagePolicy := c.PostForm("storage_policy")
 	contentType := c.PostForm("content_type")
 	parentIDStr := c.PostForm("parent_id")
 	var parentID uint
@@ -167,7 +168,7 @@ func (h *FileHandler) UploadServer(c *gin.Context) {
 	}
 
 	// 上传到存储并创建文件记录
-	result, err := h.fileService.UploadServer(userID, parentID, file.Filename, storageKey, content, file.Size, contentType)
+	result, err := h.fileService.UploadServer(userID, parentID, file.Filename, storageKey, content, file.Size, contentType, storagePolicy)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -177,11 +178,12 @@ func (h *FileHandler) UploadServer(c *gin.Context) {
 }
 
 type uploadCallbackRequest struct {
-	FileName   string `json:"file_name" binding:"required"`
-	StorageKey string `json:"storage_key" binding:"required"`
-	Size       int64  `json:"size"`
-	MimeType   string `json:"mime_type"`
-	ParentID   uint   `json:"parent_id"`
+	FileName      string `json:"file_name" binding:"required"`
+	StorageKey    string `json:"storage_key" binding:"required"`
+	StoragePolicy string `json:"storage_policy"`
+	Size          int64  `json:"size"`
+	MimeType      string `json:"mime_type"`
+	ParentID      uint   `json:"parent_id"`
 }
 
 func (h *FileHandler) UploadCallback(c *gin.Context) {
@@ -192,7 +194,7 @@ func (h *FileHandler) UploadCallback(c *gin.Context) {
 		return
 	}
 
-	file, err := h.fileService.UploadCallback(userID, req.ParentID, req.FileName, req.StorageKey, req.Size, req.MimeType)
+	file, err := h.fileService.UploadCallback(userID, req.ParentID, req.FileName, req.StorageKey, req.Size, req.MimeType, req.StoragePolicy)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

@@ -172,9 +172,21 @@ func (s *FileService) GetUploadURL(userID int64, fileName string, contentType st
 	return url, key, resolved, nil
 }
 
-// UploadCallback 写入文件记录。存储策略由用户所属用户组决定。
-func (s *FileService) UploadCallback(userID int64, parentID uint, fileName, storageKey string, size int64, mimeType string) (*model.File, error) {
-	resolved, err := s.ResolveUserPolicy(userID)
+// resolveCallbackPolicy 确定回调落库的存储策略。
+// 上传时对象实际落地的策略才是权威来源；若调用方传入则校验后直接采用，
+// 避免多策略随机挑选导致文件记录与对象实际位置不一致（进而预览/下载损坏）。
+// policy 为空时回退到按用户组重新挑选（兼容旧行为）。
+func (s *FileService) resolveCallbackPolicy(userID int64, policy string) (string, error) {
+	if policy == "" {
+		return s.ResolveUserPolicy(userID)
+	}
+	return s.storageMgr.ResolvePolicy(policy)
+}
+
+// UploadCallback 写入文件记录。policy 为上传时对象实际落地的存储策略，
+// 传入则直接采用，保证记录与实际存储位置一致。
+func (s *FileService) UploadCallback(userID int64, parentID uint, fileName, storageKey string, size int64, mimeType string, policy string) (*model.File, error) {
+	resolved, err := s.resolveCallbackPolicy(userID, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -213,9 +225,10 @@ func (s *FileService) UploadCallback(userID int64, parentID uint, fileName, stor
 	return file, nil
 }
 
-// UploadServer 服务端直接上传(用于 GitHub 等不支持预签名 URL 的存储)
-func (s *FileService) UploadServer(userID int64, parentID uint, fileName, storageKey string, content []byte, size int64, mimeType string) (*model.File, error) {
-	resolved, err := s.ResolveUserPolicy(userID)
+// UploadServer 服务端直接上传(用于 GitHub 等不支持预签名 URL 的存储)。
+// policy 为上传入口已解析的落地策略，传入则沿用，保证与 storage_key 生成时的策略一致。
+func (s *FileService) UploadServer(userID int64, parentID uint, fileName, storageKey string, content []byte, size int64, mimeType string, policy string) (*model.File, error) {
+	resolved, err := s.resolveCallbackPolicy(userID, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -477,7 +490,7 @@ func (s *FileService) ResumeMultipartUpload(userID int64, storageKey string) (*M
 }
 
 // CompleteMultipartUpload 合并分片并写入文件记录，随后清理会话。
-// 要求用户当前生效策略与会话记录一致，否则文件会落到错误存储，应重新上传。
+// 存储策略以会话记录为准（分片实际写入的位置），不随用户当前所属组重新挑选。
 func (s *FileService) CompleteMultipartUpload(userID int64, parentID uint, fileName, storageKey, uploadID string, size int64, mimeType string, parts []storage.CompletedPart) (*model.File, error) {
 	if len(parts) == 0 {
 		return nil, errors.New("分片列表为空")
@@ -489,13 +502,6 @@ func (s *FileService) CompleteMultipartUpload(userID int64, parentID uint, fileN
 		}
 		return nil, err
 	}
-	current, err := s.ResolveUserPolicy(userID)
-	if err != nil {
-		return nil, err
-	}
-	if current != sess.StoragePolicy {
-		return nil, errors.New("存储策略已变更，请放弃该任务后重新上传")
-	}
 	driver, err := s.storageMgr.GetDriver(sess.StoragePolicy)
 	if err != nil {
 		return nil, err
@@ -503,7 +509,7 @@ func (s *FileService) CompleteMultipartUpload(userID int64, parentID uint, fileN
 	if err := driver.CompleteMultipartUpload(storageKey, uploadID, parts); err != nil {
 		return nil, err
 	}
-	file, err := s.UploadCallback(userID, parentID, fileName, storageKey, size, mimeType)
+	file, err := s.UploadCallback(userID, parentID, fileName, storageKey, size, mimeType, sess.StoragePolicy)
 	if err != nil {
 		return nil, err
 	}

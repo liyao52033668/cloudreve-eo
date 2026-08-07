@@ -51,7 +51,7 @@ export const getUploadURL = (
   contentType: string,
   parentId: number = 0,
 ) =>
-  client.post<{ upload_url?: string; storage_key: string; server_upload?: boolean }>('/files/upload', {
+  client.post<{ upload_url?: string; storage_key: string; storage_policy: string; server_upload?: boolean }>('/files/upload', {
     file_name: fileName,
     content_type: contentType,
     parent_id: parentId,
@@ -62,12 +62,14 @@ export const uploadServer = (
   storageKey: string,
   contentType: string,
   parentId: number = 0,
+  storagePolicy: string = '',
 ) => {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('storage_key', storageKey)
   formData.append('content_type', contentType)
   formData.append('parent_id', parentId.toString())
+  if (storagePolicy) formData.append('storage_policy', storagePolicy)
   return client.post('/files/upload/server', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
@@ -81,6 +83,7 @@ export const uploadCallback = (
   size: number,
   mimeType: string,
   parentId: number = 0,
+  storagePolicy: string = '',
 ) =>
   client.post('/files/upload/callback', {
     file_name: fileName,
@@ -88,6 +91,7 @@ export const uploadCallback = (
     size,
     mime_type: mimeType,
     parent_id: parentId,
+    storage_policy: storagePolicy,
   })
 
 export interface MultipartSession {

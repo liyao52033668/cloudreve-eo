@@ -266,7 +266,7 @@ export default function Files() {
 
     // 检查是否需要服务端上传（如 GitHub 存储）
     if (data.server_upload) {
-      await uploadServer(file, data.storage_key, contentType, parentId)
+      await uploadServer(file, data.storage_key, contentType, parentId, data.storage_policy)
       onProgress(100)
       return
     }
@@ -281,6 +281,7 @@ export default function Files() {
       file.size,
       contentType,
       parentId,
+      data.storage_policy,
     )
   }
 

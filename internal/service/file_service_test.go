@@ -208,7 +208,7 @@ func TestFileService_GetUploadURL(t *testing.T) {
 func TestFileService_UploadCallback(t *testing.T) {
 	svc, _, user := setupFileService(t)
 
-	file, err := svc.UploadCallback(user.ID, 0, "doc.txt", "1/abc-key", 1024, "text/plain")
+	file, err := svc.UploadCallback(user.ID, 0, "doc.txt", "1/abc-key", 1024, "text/plain", "s3")
 	if err != nil {
 		t.Fatalf("UploadCallback: %v", err)
 	}
@@ -461,11 +461,11 @@ func TestFileService_UploadCallback_GroupQuota(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	_, err := svcA.UploadCallback(userA.ID, 0, "new.bin", "k2", 300, "application/octet-stream")
+	_, err := svcA.UploadCallback(userA.ID, 0, "new.bin", "k2", 300, "application/octet-stream", "a")
 	if err == nil || err.Error() != "存储配额不足" {
 		t.Fatalf("expected 存储配额不足, got %v", err)
 	}
-	f, err := svcA.UploadCallback(userA.ID, 0, "ok.bin", "k3", 200, "application/octet-stream")
+	f, err := svcA.UploadCallback(userA.ID, 0, "ok.bin", "k3", 200, "application/octet-stream", "a")
 	if err != nil {
 		t.Fatalf("UploadCallback 200: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestFileService_UploadCallback_GroupQuota(t *testing.T) {
 
 	// userB 属于 B 组（策略 b，容量很大），不受 userA 已用容量影响
 	svcB := NewFileService(storage.NewTestStoragePolicyManagerWithQuota("b", newMockStorageDriver(), 1<<40))
-	fb, err := svcB.UploadCallback(userB.ID, 0, "b.bin", "kb", 5000, "application/octet-stream")
+	fb, err := svcB.UploadCallback(userB.ID, 0, "b.bin", "kb", 5000, "application/octet-stream", "b")
 	if err != nil {
 		t.Fatalf("policy b upload: %v", err)
 	}
@@ -484,7 +484,7 @@ func TestFileService_UploadCallback_GroupQuota(t *testing.T) {
 	}
 
 	// userA 仍满（800+200）
-	_, err = svcA.UploadCallback(userA.ID, 0, "one.bin", "k4", 1, "application/octet-stream")
+	_, err = svcA.UploadCallback(userA.ID, 0, "one.bin", "k4", 1, "application/octet-stream", "a")
 	if err == nil || err.Error() != "存储配额不足" {
 		t.Fatalf("expected a still full after b upload, got %v", err)
 	}
@@ -522,11 +522,11 @@ func TestFileService_UploadCallback_QuotaFallbackToPolicyDefault(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	_, err := svc.UploadCallback(user.ID, 0, "big.bin", "k2", 200, "application/octet-stream")
+	_, err := svc.UploadCallback(user.ID, 0, "big.bin", "k2", 200, "application/octet-stream", "s3")
 	if err == nil || err.Error() != "存储配额不足" {
 		t.Fatalf("expected 存储配额不足, got %v", err)
 	}
-	f, err := svc.UploadCallback(user.ID, 0, "small.bin", "k3", 100, "application/octet-stream")
+	f, err := svc.UploadCallback(user.ID, 0, "small.bin", "k3", 100, "application/octet-stream", "s3")
 	if err != nil {
 		t.Fatalf("UploadCallback 100: %v", err)
 	}
