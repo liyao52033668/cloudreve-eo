@@ -3,7 +3,8 @@ import client from './client'
 export interface GroupView {
   id: number
   name: string
-  storage_policy: string
+  storage_policy?: string
+  storage_policies?: string[]
   max_storage: number
   is_default: boolean
   created_at: string
