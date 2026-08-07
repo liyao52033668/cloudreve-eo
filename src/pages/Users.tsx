@@ -315,7 +315,7 @@ export default function Users() {
           columns={columns}
           dataSource={filteredUsers}
           loading={loading}
-          pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 个用户` }}
+          pagination={{ defaultPageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 个用户` }}
           locale={{
             emptyText: users.length === 0 ? (
               <Empty description="尚未创建用户">

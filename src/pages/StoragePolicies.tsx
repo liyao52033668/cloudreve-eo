@@ -384,12 +384,6 @@ export default function StoragePolicies() {
             onChange={(e) => setSearchKeyword(e.target.value)}
             style={{ width: 220 }}
           />
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            添加存储策略
-          </Button>
           <Select
             allowClear
             placeholder="分类"
@@ -399,6 +393,12 @@ export default function StoragePolicies() {
             style={{ width: 160 }}
             disabled={categoryOptions.length === 0}
           />
+          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
+            刷新
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            添加存储策略
+          </Button>
         </Space>
 
         <Paragraph type="secondary" style={{ marginBottom: 16 }}>
@@ -420,7 +420,7 @@ export default function StoragePolicies() {
             columns={columns}
             dataSource={filteredPolicies}
             loading={loading}
-            pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 个策略` }}
+            pagination={{ defaultPageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 个策略` }}
             locale={{
               emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的存储策略" />,
             }}
