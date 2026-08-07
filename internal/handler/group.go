@@ -92,7 +92,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 
 	g := &model.UserGroup{
 		Name:          req.Name,
-		StoragePolicy: req.StoragePolicy,
+		StoragePolicies: req.StoragePolicies,
 		MaxStorage:    req.MaxStorage,
 		IsDefault:     req.IsDefault,
 	}
@@ -127,7 +127,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 
 	updates := &model.UserGroup{
 		Name:          req.Name,
-		StoragePolicy: req.StoragePolicy,
+		StoragePolicies: req.StoragePolicies,
 		MaxStorage:    req.MaxStorage,
 		IsDefault:     req.IsDefault,
 	}
