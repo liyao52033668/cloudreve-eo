@@ -347,7 +347,23 @@ export default function Users() {
             label="用户名"
             rules={[{ required: true, message: '请输入用户名' }]}
           >
-            <Input placeholder="用户名" />
+            <Input
+              placeholder="用户名"
+              autoComplete="off"
+              addonAfter={
+                <ThunderboltOutlined
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => {
+                    const chars = 'abcdefghjkmnpqrstuvwxyz23456789'
+                    let suffix = ''
+                    for (let i = 0; i < 6; i++) {
+                      suffix += chars.charAt(Math.floor(Math.random() * chars.length))
+                    }
+                    form.setFieldsValue({ username: `user_${suffix}` })
+                  }}
+                />
+              }
+            />
           </Form.Item>
           <Form.Item
             name="password"

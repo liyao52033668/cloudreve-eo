@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { Card, Input, Button, message, Space, Typography, Table, Breadcrumb, Spin } from 'antd'
 import { DownloadOutlined, FolderOutlined, FileOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { getShare, getShareDownload, getShareFiles, getShareZip, getShareChildDownload } from '../api/shares'
+import { getShare, getShareDownload, getShareFiles, getShareZip, getShareChildDownload, type ShareInfo } from '../api/shares'
 import type { FileItem } from '../api/files'
 import { formatDateTime } from '../utils/time'
 
@@ -22,6 +22,7 @@ export default function ShareView() {
   const { code } = useParams<{ code: string }>()
   const [password, setPassword] = useState('')
   const [file, setFile] = useState<FileItem | null>(null)
+  const [share, setShare] = useState<ShareInfo | null>(null)
   const [error, setError] = useState('')
   const [needPassword, setNeedPassword] = useState(false)
 
@@ -54,6 +55,7 @@ export default function ShareView() {
     try {
       const res = await getShare(code, pwd)
       setFile(res.data.file)
+      setShare(res.data.share)
       setError('')
       if (res.data.file.is_dir) {
         setBreadcrumb([{ id: res.data.file.id, title: res.data.file.name }])
@@ -199,6 +201,9 @@ export default function ShareView() {
               <Title level={4} style={{ margin: 0 }}>{file.name}</Title>
               <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownloadZip} loading={downloading}>下载全部(zip)</Button>
             </Space>
+            {share?.expire_at && (
+              <Text type="secondary">过期时间：{formatDateTime(share.expire_at)}</Text>
+            )}
             <Breadcrumb
               items={breadcrumb.map((b, index) => ({
                 key: b.id,
@@ -221,6 +226,11 @@ export default function ShareView() {
       <Card title="分享文件" style={{ width: 400 }}>
         <Title level={4}>{file.name}</Title>
         <Text type="secondary">大小: {(file.size / 1024 / 1024).toFixed(2)} MB</Text>
+        {share?.expire_at && (
+          <div style={{ marginTop: 8 }}>
+            <Text type="secondary">过期时间：{formatDateTime(share.expire_at)}</Text>
+          </div>
+        )}
         <div style={{ marginTop: 24 }}>
           <Button type="primary" icon={<DownloadOutlined />} block onClick={handleDownload} loading={downloading}>下载文件</Button>
         </div>

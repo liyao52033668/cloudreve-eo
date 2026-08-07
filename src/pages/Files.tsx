@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Segmented, Alert, Card, Progress, Typography, Divider, Dropdown } from 'antd'
-import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, BarsOutlined, AppstoreOutlined, DownOutlined } from '@ant-design/icons'
+import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, BarsOutlined, AppstoreOutlined, DownOutlined, CloudOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import AppHeader from '../components/AppHeader'
 import {
@@ -655,18 +655,24 @@ export default function Files() {
 
             <div className="files-toolbar__actions">
               <div className="files-toolbar__quota">
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  存储额度
-                </Typography.Text>
+                <CloudOutlined className="files-toolbar__quota-icon" />
+                <span className="files-toolbar__quota-label">存储额度</span>
                 <Progress
+                  className="files-toolbar__quota-progress"
                   percent={storageQuota > 0 ? Math.round((storageUsed / storageQuota) * 100) : 0}
                   size="small"
-                  style={{ width: 120 }}
                   showInfo={false}
+                  strokeColor={
+                    storageQuota > 0 && storageUsed / storageQuota >= 0.9
+                      ? '#ff4d4f'
+                      : storageQuota > 0 && storageUsed / storageQuota >= 0.7
+                        ? '#faad14'
+                        : '#1677ff'
+                  }
                 />
-                <Typography.Text style={{ fontSize: 12 }}>
+                <span className="files-toolbar__quota-value">
                   {formatSize(storageUsed)} / {storageQuota > 0 ? formatSize(storageQuota) : '无限制'}
-                </Typography.Text>
+                </span>
               </div>
               {!viewPolicy && (
                 <>
