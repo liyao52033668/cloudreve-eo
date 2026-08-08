@@ -9,14 +9,14 @@ import (
 
 // StoragePolicy 存储策略（S3 兼容），由管理员在前端配置，持久化到数据库。
 type StoragePolicy struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Name      string    `gorm:"uniqueIndex;size:64;not null" json:"name"`
-	Type      string    `gorm:"size:16;not null;default:s3" json:"type"` // s3 或 github
-	Endpoint  string    `gorm:"size:512;not null" json:"endpoint"`
-	Region    string    `gorm:"size:64" json:"region"`
-	Bucket    string    `gorm:"size:255;not null" json:"bucket"`
-	AccessKey string    `gorm:"size:255;not null" json:"access_key"`
-	SecretKey string    `gorm:"size:255;not null" json:"secret_key"`
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	Name      string `gorm:"uniqueIndex;size:64;not null" json:"name"`
+	Type      string `gorm:"size:16;not null;default:s3" json:"type"` // s3 或 github
+	Endpoint  string `gorm:"size:512;not null" json:"endpoint"`
+	Region    string `gorm:"size:64" json:"region"`
+	Bucket    string `gorm:"size:255;not null" json:"bucket"`
+	AccessKey string `gorm:"size:255;not null" json:"access_key"`
+	SecretKey string `gorm:"size:255;not null" json:"secret_key"`
 	// ForcePathStyle 强制 path-style 访问（MinIO / 部分私有 S3 需要）；false 时用 virtual-hosted。
 	ForcePathStyle bool `gorm:"not null;default:true" json:"force_path_style"`
 	// CustomHost 自定义下载/预览域名（如 COS / 七牛的 CDN 加速域名）；空表示使用 Endpoint 域名。
@@ -28,12 +28,14 @@ type StoragePolicy struct {
 	// ChunkSize 分片上传每片大小（字节）；0 表示使用默认 25MB。
 	ChunkSize int64 `gorm:"not null;default:0" json:"chunk_size"`
 	// CORSEnabled 标记已为存储桶配置浏览器直传 CORS 规则（仅 S3 类型有意义）。
-	CORSEnabled bool      `gorm:"not null;default:false" json:"cors_enabled"`
-	IsDefault    bool      `gorm:"not null;default:false" json:"is_default"`
+	CORSEnabled bool `gorm:"not null;default:false" json:"cors_enabled"`
+	IsDefault   bool `gorm:"not null;default:false" json:"is_default"`
 	// DefaultQuota 该策略下每个用户的默认配额（字节）；0 表示未配置/不可用。
-	DefaultQuota int64     `gorm:"not null;default:0" json:"default_quota"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	DefaultQuota int64 `gorm:"not null;default:0" json:"default_quota"`
+	// OAuthToken TeraBox OAuth 凭据 JSON（access/refresh token）；json:"-" 避免回显给前端。
+	OAuthToken string    `gorm:"column:oauth_token;type:text" json:"-"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // ListStoragePolicies 全部策略，默认排前。
@@ -165,6 +167,11 @@ func DeleteStoragePolicy(id uint) error {
 // SetStoragePolicyCORSEnabled 标记策略的存储桶已配置浏览器直传 CORS 规则。
 func SetStoragePolicyCORSEnabled(id uint) error {
 	return DB.Model(&StoragePolicy{}).Where("id = ?", id).Update("cors_enabled", true).Error
+}
+
+// SetStoragePolicyOAuthToken 保存策略的 OAuth 凭据 JSON（TeraBox token 刷新后持久化）。
+func SetStoragePolicyOAuthToken(id uint, tokenJSON string) error {
+	return DB.Model(&StoragePolicy{}).Where("id = ?", id).Update("oauth_token", tokenJSON).Error
 }
 
 // SetDefaultStoragePolicy 将指定策略设为默认。

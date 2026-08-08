@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -330,6 +331,39 @@ func (h *FileHandler) Download(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"download_url": url})
+}
+
+// ProxyDownload GET /api/files/proxy —— 无外链直链存储（如 Filen）的服务端代理下载。
+// URL 携带 HMAC 签名，无需登录态，签名校验通过后按策略读取并流式输出。
+func (h *FileHandler) ProxyDownload(c *gin.Context) {
+	policy := c.Query("policy")
+	storageKey := c.Query("key")
+	attachment := c.Query("name")
+	exp := c.Query("exp")
+	sig := c.Query("sig")
+	if policy == "" || storageKey == "" || exp == "" || sig == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数不完整"})
+		return
+	}
+
+	rc, mime, err := h.fileService.ProxyRead(policy, storageKey, attachment, exp, sig)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+	defer rc.Close()
+
+	if attachment != "" {
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(attachment)))
+	} else {
+		c.Header("Content-Disposition", "inline")
+	}
+	c.Header("Content-Type", mime)
+	c.Header("Cache-Control", "no-store")
+	if _, err := io.Copy(c.Writer, rc); err != nil {
+		// 已开始写响应体，无法再返回 JSON，仅记录
+		return
+	}
 }
 
 // DownloadDir GET /api/files/:id/zip —— 文件夹打包下载。

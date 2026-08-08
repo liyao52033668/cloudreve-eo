@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewTestStoragePolicyManager(t *testing.T) {
@@ -91,3 +93,48 @@ func TestStoragePolicyManager_PoliciesAreIndependent(t *testing.T) {
 		t.Fatalf("ResolvePolicy b = %q %v", name, err)
 	}
 }
+
+func TestSignVerifyProxyURL(t *testing.T) {
+	mgr := NewTestStoragePolicyManager("filen", &mockDriver{})
+	mgr.SetProxySigner(func() string { return "test-secret" }, "/api/files/proxy")
+
+	proxyURL, err := mgr.SignProxyURL("filen", "1/abc.jpg", "照片.jpg", time.Minute)
+	if err != nil {
+		t.Fatalf("SignProxyURL: %v", err)
+	}
+	if !strings.Contains(proxyURL, "/api/files/proxy?") {
+		t.Errorf("URL 缺少基础地址: %s", proxyURL)
+	}
+	// 解析 query
+	q := proxyURL[strings.Index(proxyURL, "?")+1:]
+	vals := map[string]string{}
+	for _, kv := range strings.Split(q, "&") {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) == 2 {
+			got, _ := url.QueryUnescape(parts[1])
+			vals[parts[0]] = got
+		}
+	}
+
+	// 合法签名通过
+	if err := mgr.VerifyProxyURL(vals["policy"], vals["key"], vals["name"], vals["exp"], vals["sig"]); err != nil {
+		t.Errorf("VerifyProxyURL 合法签名被拒: %v", err)
+	}
+	// 篡改 key 应失败
+	if err := mgr.VerifyProxyURL(vals["policy"], "2/tampered.jpg", vals["name"], vals["exp"], vals["sig"]); err == nil {
+		t.Error("VerifyProxyURL 未检出篡改的 key")
+	}
+	// 篡改文件名应失败
+	if err := mgr.VerifyProxyURL(vals["policy"], vals["key"], "evil.jpg", vals["exp"], vals["sig"]); err == nil {
+		t.Error("VerifyProxyURL 未检出篡改的文件名")
+	}
+	// 篡改签名应失败
+	if err := mgr.VerifyProxyURL(vals["policy"], vals["key"], vals["name"], vals["exp"], "deadbeef"); err == nil {
+		t.Error("VerifyProxyURL 未检出伪造签名")
+	}
+	// 过期应失败
+	if err := mgr.VerifyProxyURL(vals["policy"], vals["key"], vals["name"], "1", vals["sig"]); err == nil {
+		t.Error("VerifyProxyURL 未检出过期链接")
+	}
+}
+

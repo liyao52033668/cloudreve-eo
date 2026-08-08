@@ -562,6 +562,31 @@ func (s *FileService) GetDownloadURL(userID int64, fileID uint, preview bool) (s
 	return driver.GenerateDownloadURL(file.StorageKey, attachmentName, 30*time.Minute)
 }
 
+// ProxyRead 校验代理下载 URL 签名后，返回文件内容流与 MIME 类型。
+// 供无外链直链的存储（如 Filen）经服务端中转下载/预览，调用方负责关闭返回的流。
+func (s *FileService) ProxyRead(policy, storageKey, attachment, exp, sig string) (io.ReadCloser, string, error) {
+	if err := s.storageMgr.VerifyProxyURL(policy, storageKey, attachment, exp, sig); err != nil {
+		return nil, "", err
+	}
+	driver, err := s.storageMgr.GetDriver(policy)
+	if err != nil {
+		return nil, "", err
+	}
+	rc, err := driver.Read(storageKey)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// 尽力查 MIME 类型（预览时浏览器按此渲染），查不到则按流处理
+	mime := "application/octet-stream"
+	var file model.File
+	if err := model.DB.Where("storage_policy = ? AND storage_key = ? AND is_dir = ?", policy, storageKey, false).
+		First(&file).Error; err == nil && file.MimeType != "" {
+		mime = file.MimeType
+	}
+	return rc, mime, nil
+}
+
 // DownloadDir 将用户文件夹打包为 zip 并写入 w，返回建议的文件名。
 func (s *FileService) DownloadDir(userID int64, fileID uint, w io.Writer) (string, error) {
 	var root model.File

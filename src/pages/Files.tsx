@@ -369,9 +369,25 @@ export default function Files() {
     parentId: number = currentDir,
   ) => {
     const contentType = file.type || 'application/octet-stream'
-    const { data } = await initMultipartUpload(file.name, contentType, file.size, parentId)
+    let session: MultipartSession
     try {
-      await runMultipart(file, data.session, parentId, onProgress)
+      const { data } = await initMultipartUpload(file.name, contentType, file.size, parentId)
+      session = data.session
+    } catch (err: any) {
+      // 策略不支持客户端分片直传（如 TeraBox/GitHub）时，回退到服务端中转上传
+      const errMsg: string = err?.response?.data?.error || ''
+      if (errMsg.includes('不支持客户端')) {
+        const { data } = await getUploadURL(file.name, contentType, parentId)
+        if (data.server_upload) {
+          await uploadServer(file, data.storage_key, contentType, parentId, data.storage_policy)
+          onProgress(100)
+          return
+        }
+      }
+      throw err
+    }
+    try {
+      await runMultipart(file, session, parentId, onProgress)
     } catch (err) {
       // 不 abort：会话保留在服务端，可稍后从「未完成的上传」恢复
       loadSessions()

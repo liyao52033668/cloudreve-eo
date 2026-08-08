@@ -31,13 +31,15 @@ export interface StoragePolicyAdmin {
   is_default: boolean
   default_quota: number
   created_at?: string
+  /** 仅 TeraBox：是否已完成 OAuth 授权 */
+  authorized?: boolean
 }
 
 /** 管理端编辑详情（含密钥） */
 export interface StoragePolicyDetail {
   id: number
   name: string
-  type: 's3' | 'github'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox'
   endpoint: string
   region: string
   bucket: string
@@ -54,7 +56,7 @@ export interface StoragePolicyDetail {
 
 export interface PolicyForm {
   name: string
-  type: 's3' | 'github'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox'
   endpoint: string
   region: string
   bucket: string
@@ -98,3 +100,25 @@ export const setDefaultPolicy = (id: number) =>
 
 export const setPolicyCORS = (id: number) =>
   client.post(`/admin/storage/policies/${id}/cors`)
+
+// ============ TeraBox OAuth 授权 ============
+
+/** 获取网页授权（iframe）地址 */
+export const getTeraBoxAuthURL = (id: number) =>
+  client.get<{ auth_url: string }>(`/admin/storage/policies/${id}/terabox/auth-url`)
+
+/** 用网页授权回调的 code 换取 token */
+export const teraboxAuthByCode = (id: number, code: string) =>
+  client.post(`/admin/storage/policies/${id}/terabox/auth-code`, { code })
+
+/** 获取扫码授权二维码（base64 图片）与会话信息 */
+export const getTeraBoxDeviceCode = (id: number) =>
+  client.post<{ qrcode: string; policy_name: string; expires_in: number; interval: number }>(
+    `/admin/storage/policies/${id}/terabox/devicecode`,
+  )
+
+/** 轮询扫码授权结果 */
+export const getTeraBoxAuthStatus = (id: number) =>
+  client.post<{ status: 'pending' | 'authorized' | 'expired' | 'error' | 'no_session'; error?: string; message?: string }>(
+    `/admin/storage/policies/${id}/terabox/auth-status`,
+  )

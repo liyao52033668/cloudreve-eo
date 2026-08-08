@@ -49,6 +49,8 @@ type adminPolicyView struct {
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
 	CreatedAt      string `json:"created_at,omitempty"`
+	// Authorized 仅 TeraBox：是否已完成 OAuth 授权。
+	Authorized bool `json:"authorized"`
 }
 
 func toAdminView(p *model.StoragePolicy) adminPolicyView {
@@ -56,12 +58,17 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 	if p.SecretKey != "" {
 		hint = "••••••••"
 	}
+	// TeraBox 的 Region 字段复用为签名私钥，列表视图不回显明文
+	region := p.Region
+	if p.Type == "terabox" {
+		region = ""
+	}
 	return adminPolicyView{
 		ID:             p.ID,
 		Name:           p.Name,
 		Type:           p.Type,
 		Endpoint:       p.Endpoint,
-		Region:         p.Region,
+		Region:         region,
 		Bucket:         p.Bucket,
 		AccessKey:      p.AccessKey,
 		SecretKeyHint:  hint,
@@ -74,6 +81,7 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		IsDefault:      p.IsDefault,
 		DefaultQuota:   p.DefaultQuota,
 		CreatedAt:      p.CreatedAt.Format("2006-01-02 15:04:05"),
+		Authorized:     p.Type == "terabox" && p.OAuthToken != "",
 	}
 }
 
@@ -112,7 +120,7 @@ func (h *PolicyHandler) GetAdmin(c *gin.Context) {
 
 type policyBody struct {
 	Name           string `json:"name" binding:"required,min=1,max=64"`
-	Type           string `json:"type"` // s3 或 github
+	Type           string `json:"type"` // s3 / github / terabox
 	Endpoint       string `json:"endpoint"`
 	Region         string `json:"region"`
 	Bucket         string `json:"bucket"`
@@ -142,7 +150,8 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 	}
 
 	// 按类型校验必填字段
-	if policyType == "github" {
+	switch policyType {
+	case "github":
 		if req.Endpoint == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "GitHub 仓库地址不能为空"})
 			return
@@ -151,8 +160,39 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "GitHub Token 不能为空"})
 			return
 		}
-	} else {
-		// S3 类型
+	case "terabox":
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "TeraBox Client ID 不能为空"})
+			return
+		}
+		if req.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "TeraBox Client Secret 不能为空"})
+			return
+		}
+		if req.Region == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "TeraBox Private Secret 不能为空"})
+			return
+		}
+		if req.Endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "TeraBox 应用根目录不能为空"})
+			return
+		}
+	case "filen":
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Filen 邮箱不能为空"})
+			return
+		}
+		if req.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Filen 密码不能为空"})
+			return
+		}
+	case "dropbox":
+		if req.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Dropbox Access Token 不能为空"})
+			return
+		}
+	default: // s3
+		policyType = "s3"
 		if req.SecretKey == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Secret Key 不能为空"})
 			return
@@ -171,14 +211,14 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		}
 	}
 
-	if req.Region == "" {
+	if policyType == "s3" && req.Region == "" {
 		req.Region = "us-east-1"
 	}
 	if req.DefaultQuota < 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "默认配额不能为负数"})
 		return
 	}
-	if req.ChunkSize != 0 && req.ChunkSize < 5<<20 {
+	if policyType == "s3" && req.ChunkSize != 0 && req.ChunkSize < 5<<20 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "分片大小非 0 时至少为 5MB（S3 协议要求）"})
 		return
 	}
@@ -239,14 +279,33 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 	}
 
 	// 按类型校验必填字段
-	if policyType == "github" {
+	switch policyType {
+	case "github":
 		if req.Endpoint == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "GitHub 仓库地址不能为空"})
 			return
 		}
 		// SecretKey 在编辑时可以为空（表示不修改）
-	} else {
-		// S3 类型
+	case "terabox":
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "TeraBox Client ID 不能为空"})
+			return
+		}
+		// SecretKey / Private Secret 在编辑时可以为空（表示不修改）
+		if req.Endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "TeraBox 应用根目录不能为空"})
+			return
+		}
+	case "filen":
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Filen 邮箱不能为空"})
+			return
+		}
+		// SecretKey（密码）在编辑时可以为空（表示不修改）
+	case "dropbox":
+		// SecretKey（Access Token）在编辑时可以为空（表示不修改）
+	default: // s3
+		policyType = "s3"
 		if req.Endpoint == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Endpoint 不能为空"})
 			return
@@ -262,14 +321,20 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		// SecretKey 在编辑时可以为空（表示不修改）
 	}
 
-	if req.Region == "" {
+	if policyType == "s3" && req.Region == "" {
 		req.Region = "us-east-1"
+	}
+	// terabox 编辑时 Private Secret（存于 region 字段）留空表示不修改
+	if policyType == "terabox" && req.Region == "" {
+		if existing, err := model.GetStoragePolicyByID(uint(id)); err == nil {
+			req.Region = existing.Region
+		}
 	}
 	if req.DefaultQuota < 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "默认配额不能为负数"})
 		return
 	}
-	if req.ChunkSize != 0 && req.ChunkSize < 5<<20 {
+	if policyType == "s3" && req.ChunkSize != 0 && req.ChunkSize < 5<<20 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "分片大小非 0 时至少为 5MB（S3 协议要求）"})
 		return
 	}
@@ -423,4 +488,3 @@ func normalizeBasePath(p string) string {
 	}
 	return strings.Join(clean, "/")
 }
-

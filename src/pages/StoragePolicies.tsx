@@ -28,6 +28,7 @@ import {
   CloudServerOutlined,
   GlobalOutlined,
   SearchOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -43,6 +44,7 @@ import {
 } from '../api/policies'
 import { getProfile } from '../api/user'
 import AppHeader from '../components/AppHeader'
+import TeraBoxAuth from '../components/TeraBoxAuth'
 
 const { Content } = Layout
 const { Paragraph } = Typography
@@ -78,6 +80,13 @@ function formatBytes(n: number): string {
   return `${n} B`
 }
 
+/** 非 S3/GitHub 存储类型的服务商官网，在存储类型选择下方显示。 */
+const officialSites: Record<string, { label: string; url: string }> = {
+  terabox: { label: 'TeraBox 开放平台', url: 'https://www.terabox.com' },
+  filen: { label: 'Filen', url: 'https://filen.io/r/2b8a482d566c14ebef8f7c634d9a42ea' },
+  dropbox: { label: 'Dropbox Developers', url: 'https://www.dropbox.com/referrals/AAAPux-KYGhTqYV8Jfes9AZXxj53M4oeAcA?src=global9' },
+}
+
 export default function StoragePolicies() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
@@ -86,16 +95,26 @@ export default function StoragePolicies() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null; chunk_size_mib?: number | null }>()
-  const [policyType, setPolicyType] = useState<'s3' | 'github'>('s3')
+  const [policyType, setPolicyType] = useState<'s3' | 'github' | 'terabox' | 'filen' | 'dropbox'>('s3')
   const [filterType, setFilterType] = useState<string | undefined>(undefined)
   const [searchKeyword, setSearchKeyword] = useState('')
+  const [authPolicyId, setAuthPolicyId] = useState<number | null>(null)
 
-  const typeLabel = (t: string) => (t === 'github' ? 'GitHub' : 'S3 兼容')
+  const typeLabel = (t: string) =>
+    t === 'github'
+      ? 'GitHub'
+      : t === 'terabox'
+        ? 'TeraBox'
+        : t === 'filen'
+          ? 'Filen'
+          : t === 'dropbox'
+            ? 'Dropbox'
+            : 'S3 兼容'
 
   // 分类选项只包含已添加的存储类型
   const categoryOptions = useMemo(() => {
     const present = Array.from(new Set(policies.map((p) => p.type || 's3')))
-    const order = (t: string) => (t === 'github' ? 1 : 0)
+    const order = (t: string) => (t === 'github' ? 1 : t === 'terabox' ? 2 : t === 'filen' ? 3 : t === 'dropbox' ? 4 : 0)
     return present.sort((a, b) => order(a) - order(b)).map((t) => ({ label: typeLabel(t), value: t }))
   }, [policies])
 
@@ -160,6 +179,7 @@ export default function StoragePolicies() {
     setPolicyType('s3')
     form.setFieldsValue({
       ...emptyForm,
+      region: '',
       is_default: policies.length === 0,
       default_quota_gib: 0,
       chunk_size_mib: 0,
@@ -177,7 +197,8 @@ export default function StoragePolicies() {
         name: p.name,
         type: p.type || 's3',
         endpoint: p.endpoint,
-        region: p.region || 'us-east-1',
+        // terabox 的 region 复用为 Private Secret，filen/dropbox 不使用 region；编辑时留空表示不修改
+        region: p.type === 'terabox' || p.type === 'filen' || p.type === 'dropbox' ? '' : p.region || 'us-east-1',
         bucket: p.bucket,
         access_key: p.access_key,
         secret_key: '', // 留空表示不修改
@@ -209,7 +230,7 @@ export default function StoragePolicies() {
         message.error('分片大小不能为负数')
         return
       }
-      if (chunkMib !== 0 && chunkMib < 5) {
+      if (values.type !== 'terabox' && values.type !== 'filen' && values.type !== 'dropbox' && chunkMib !== 0 && chunkMib < 5) {
         message.error('分片大小非 0 时至少为 5 MiB（S3 协议要求）')
         return
       }
@@ -217,7 +238,7 @@ export default function StoragePolicies() {
         name: values.name,
         type: values.type || 's3',
         endpoint: values.endpoint,
-        region: values.region,
+        region: (values.region || '').trim(),
         bucket: values.bucket,
         access_key: values.access_key,
         secret_key: values.secret_key || '',
@@ -231,7 +252,7 @@ export default function StoragePolicies() {
       }
       if (editingId == null) {
         if (!payload.secret_key) {
-          message.error('新建时 Secret Key 不能为空')
+          message.error(payload.type === 'terabox' ? '新建时 Client Secret 不能为空' : '新建时 Secret Key 不能为空')
           return
         }
         await createPolicy(payload)
@@ -301,22 +322,34 @@ export default function StoragePolicies() {
         <Space size={4}>
           <Tag>{typeLabel(t || 's3')}</Tag>
           {p.cors_enabled && <Tag color="green">CORS</Tag>}
+          {t === 'terabox' &&
+            (p.authorized ? <Tag color="green">已授权</Tag> : <Tag color="orange">未授权</Tag>)}
         </Space>
       ),
     },
     {
       title: '存储位置',
       width: 220,
-      render: (_, p) => (
-        <span style={{ wordBreak: 'break-all' }}>{p.custom_host || p.endpoint}</span>
-      ),
+      render: (_, p) => {
+        // filen 无 endpoint，展示账号邮箱；其余展示自定义域名/Endpoint
+        const location = p.type === 'filen' ? p.access_key : p.custom_host || p.endpoint
+        return <span style={{ wordBreak: 'break-all' }}>{location || '—'}</span>
+      },
     },
     {
       title: '上传路径',
       dataIndex: 'base_path',
       width: 140,
       render: (v: string, p) =>
-        v ? `/${v}/` : p.type === 'github' ? '（仓库根）' : '（bucket 根）',
+        v
+          ? `/${v}/`
+          : p.type === 'github'
+            ? '（仓库根）'
+            : p.type === 'filen'
+              ? '（Filen 根）'
+              : p.type === 'dropbox'
+                ? '（Dropbox 根）'
+                : '（bucket 根）',
     },
     {
       title: '每用户配额',
@@ -348,15 +381,27 @@ export default function StoragePolicies() {
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(p.id)}>
             编辑
           </Button>
-          <Popconfirm
-            title="配置存储桶 CORS？"
-            description="将向该 Bucket 写入允许浏览器直传（含分片上传 ETag 暴露）的 CORS 规则。"
-            onConfirm={() => handleSetCORS(p.id)}
-          >
-            <Button type="link" size="small" icon={<GlobalOutlined />} disabled={p.type === 'github'}>
-              CORS
+          {p.type === 'terabox' && (
+            <Button
+              type="link"
+              size="small"
+              icon={<SafetyCertificateOutlined />}
+              onClick={() => setAuthPolicyId(p.id)}
+            >
+              {p.authorized ? '重新授权' : '授权'}
             </Button>
-          </Popconfirm>
+          )}
+          {p.type === 's3' && (
+            <Popconfirm
+              title="配置存储桶 CORS？"
+              description="将向该 Bucket 写入允许浏览器直传（含分片上传 ETag 暴露）的 CORS 规则。"
+              onConfirm={() => handleSetCORS(p.id)}
+            >
+              <Button type="link" size="small" icon={<GlobalOutlined />}>
+                CORS
+              </Button>
+            </Popconfirm>
+          )}
           <Popconfirm
             title="确认删除该策略？"
             description="已上传到该策略的文件记录不会自动迁移。"
@@ -402,8 +447,10 @@ export default function StoragePolicies() {
         </Space>
 
         <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          在此添加多套互相独立的 S3 兼容存储（腾讯云 COS、阿里云 OSS、MinIO、Cloudflare R2 等）。每套使用各自凭证、Bucket
-          与用户默认配额；上传时可任选其一。配置保存在数据库，修改后立即生效，无需环境变量与重启。
+          在此添加多套互相独立的存储（S3 兼容：腾讯云 COS、阿里云 OSS、MinIO、Cloudflare R2；GitHub；TeraBox
+          开放平台；Filen 端到端加密网盘；Dropbox）。每套使用各自凭证与用户默认配额；上传时可任选其一。配置保存在数据库，修改后立即生效，无需环境变量与重启。
+          TeraBox 类型创建后需在列表中点击「授权」完成 OAuth 扫码/网页授权方可使用；Filen 填写账号邮箱与密码即可；Dropbox 填写
+          App Console 生成的 Access Token 即可。
         </Paragraph>
 
         {policies.length === 0 && !loading ? (
@@ -463,13 +510,90 @@ export default function StoragePolicies() {
             name="type"
             label="存储类型"
             rules={[{ required: true, message: '请选择存储类型' }]}
-            extra="选择存储服务提供商"
+            extra={
+              officialSites[policyType] ? (
+                <span>
+                  选择存储服务提供商 · 官网：{' '}
+                  <Typography.Link
+                    href={officialSites[policyType].url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {officialSites[policyType].label}
+                  </Typography.Link>
+                </span>
+              ) : (
+                '选择存储服务提供商'
+              )
+            }
           >
             <Select disabled={editingId != null}>
               <Select.Option value="s3">S3 兼容存储</Select.Option>
               <Select.Option value="github">GitHub</Select.Option>
+              <Select.Option value="terabox">TeraBox</Select.Option>
+              <Select.Option value="filen">Filen</Select.Option>
+              <Select.Option value="dropbox">Dropbox</Select.Option>
             </Select>
           </Form.Item>
+
+          {policyType === 'terabox' && (
+            <>
+              <Form.Item
+                name="access_key"
+                label="Client ID"
+                rules={[{ required: true, message: '请输入 Client ID' }]}
+                extra="向 TeraBox 开放平台申请的 AppKey"
+              >
+                <Input placeholder="client_id" autoComplete="off" />
+              </Form.Item>
+              <Form.Item
+                name="region"
+                label="Private Secret"
+                rules={editingId == null ? [{ required: true, message: '请输入 Private Secret' }] : []}
+                extra="用于生成请求签名（sign）的私钥；编辑时留空表示不修改"
+              >
+                <Input.Password placeholder={editingId != null ? '留空则不修改' : 'private_secret'} autoComplete="new-password" />
+              </Form.Item>
+              <Form.Item
+                name="endpoint"
+                label="应用根目录"
+                rules={[{ required: true, message: '请输入应用根目录' }]}
+                extra='TeraBox 分配的应用文件空间，形如 /From: Other Applications/应用名-应用ID/'
+              >
+                <Input placeholder="/From: Other Applications/MyApp-123/" />
+              </Form.Item>
+            </>
+          )}
+
+          {policyType === 'filen' && (
+            <>
+              <Form.Item
+                name="access_key"
+                label="Filen 邮箱"
+                rules={[{ required: true, message: '请输入 Filen 账号邮箱' }]}
+                extra="用于登录 Filen 的账号邮箱"
+              >
+                <Input placeholder="you@example.com" autoComplete="off" />
+              </Form.Item>
+              <Form.Item
+                name="base_path"
+                label="存储路径前缀"
+                extra="文件将存储在该目录下（相对 Filen 根目录），留空默认 cloudreve-eo"
+              >
+                <Input placeholder="cloudreve-eo" allowClear />
+              </Form.Item>
+            </>
+          )}
+
+          {policyType === 'dropbox' && (
+            <Form.Item
+              name="base_path"
+              label="存储路径前缀"
+              extra="文件将存储在该目录下（相对 Dropbox 根目录），留空表示 Dropbox 根目录"
+            >
+              <Input placeholder="例如 cloudreve-eo" allowClear />
+            </Form.Item>
+          )}
 
           {policyType === 's3' && (
             <>
@@ -556,12 +680,26 @@ export default function StoragePolicies() {
 
           <Form.Item
             name="secret_key"
-            label={policyType === 'github' ? 'GitHub Token' : 'Secret Key'}
-            rules={editingId == null ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : '请输入 Secret Key' }] : []}
+            label={
+              policyType === 'github'
+                ? 'GitHub Token'
+                : policyType === 'terabox'
+                  ? 'Client Secret'
+                  : policyType === 'filen'
+                    ? 'Filen 密码'
+                    : policyType === 'dropbox'
+                      ? 'Access Token'
+                      : 'Secret Key'
+            }
+            rules={
+              editingId == null
+                ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox Access Token' : '请输入 Secret Key' }]
+                : []
+            }
             extra={editingId != null ? '留空表示不修改原密钥' : undefined}
           >
             <Input.Password
-              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : 'Secret Access Key')}
+              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox Access Token（App Console 生成）' : 'Secret Access Key')}
               autoComplete="new-password"
             />
           </Form.Item>
@@ -607,6 +745,18 @@ export default function StoragePolicies() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {authPolicyId != null && (
+        <TeraBoxAuth
+          policyId={authPolicyId}
+          open={authPolicyId != null}
+          onClose={() => setAuthPolicyId(null)}
+          onAuthorized={() => {
+            setAuthPolicyId(null)
+            load()
+          }}
+        />
+      )}
     </Layout>
   )
 }

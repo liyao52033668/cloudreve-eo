@@ -113,6 +113,11 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	fileService := service.NewFileService(storageMgr)
 	shareService := service.NewShareService(storageMgr)
 
+	// 无外链直链存储（如 Filen）的代理下载 URL 签名器：
+	// JWT 主密钥复用为签名密钥（传方法值，密钥轮转后自动跟随）；
+	// baseURL 为浏览器侧完整路径（网关剥离 /api 后 Gin 注册 /files/proxy）。
+	storageMgr.SetProxySigner(jwtSecrets.Get, "/api/files/proxy")
+
 	authHandler := handler.NewAuthHandler(authService, jwtSecrets)
 	fileHandler := handler.NewFileHandler(fileService)
 	shareHandler := handler.NewShareHandler(shareService)
@@ -125,6 +130,7 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	// gin.New 手动装配中间件：访问日志走结构化 JSON（EdgeOne 控制台检索），
 	// Recovery 保留默认（panic 时向 stderr 输出栈，同样被平台采集）。
 	r := gin.New()
+	r.Use(__edgeonePagesMiddleware())
 	r.Use(middleware.AccessLog(), gin.Recovery())
 
 	r.Use(func(c *gin.Context) {
@@ -155,6 +161,9 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 
 	// 公开站点信息（注册开关等，无需登录）
 	r.GET("/site", settingHandler.GetPublicSite)
+
+	// 无外链直链存储（如 Filen）的代理下载：无登录态，URL 携带 HMAC 签名校验
+	r.GET("/files/proxy", fileHandler.ProxyDownload)
 
 	protected := r.Group("")
 	protected.Use(middleware.JWTAuth(jwtSecrets))
@@ -203,6 +212,11 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 				adminPolicies.DELETE("/:id", policyHandler.Delete)
 				adminPolicies.POST("/:id/default", policyHandler.SetDefault)
 				adminPolicies.POST("/:id/cors", policyHandler.SetCORS)
+				// TeraBox OAuth 授权
+				adminPolicies.GET("/:id/terabox/auth-url", policyHandler.TeraBoxAuthURL)
+				adminPolicies.POST("/:id/terabox/auth-code", policyHandler.TeraBoxAuthByCode)
+				adminPolicies.POST("/:id/terabox/devicecode", policyHandler.TeraBoxDeviceCode)
+				adminPolicies.POST("/:id/terabox/auth-status", policyHandler.TeraBoxAuthStatus)
 			}
 
 			adminGroups := admin.Group("/admin/groups")

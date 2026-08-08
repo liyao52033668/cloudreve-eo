@@ -1,10 +1,17 @@
 package storage
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
@@ -14,7 +21,7 @@ import (
 type PolicyInfo struct {
 	ID             uint   `json:"id,omitempty"`
 	Name           string `json:"name"`
-	Type           string `json:"type"` // 当前固定 "s3"
+	Type           string `json:"type"` // s3 / github / terabox
 	Bucket         string `json:"bucket,omitempty"`
 	Endpoint       string `json:"endpoint,omitempty"`
 	Region         string `json:"region,omitempty"`
@@ -22,11 +29,13 @@ type PolicyInfo struct {
 	// CustomHost 自定义下载/预览域名；空表示使用 Endpoint。
 	CustomHost string `json:"custom_host,omitempty"`
 	// BasePath 对象键前缀，上传时拼到 storage_key 前面。
-	BasePath     string `json:"base_path,omitempty"`
+	BasePath string `json:"base_path,omitempty"`
 	// ChunkSize 分片大小（字节）；0 表示使用默认值。
-	ChunkSize    int64  `json:"chunk_size"`
-	IsDefault    bool   `json:"is_default"`
-	DefaultQuota int64  `json:"default_quota"`
+	ChunkSize    int64 `json:"chunk_size"`
+	IsDefault    bool  `json:"is_default"`
+	DefaultQuota int64 `json:"default_quota"`
+	// Authorized 仅 TeraBox 类型：是否已完成 OAuth 授权。
+	Authorized bool `json:"authorized"`
 }
 
 // StoragePolicyManager 管理多个存储策略及其对应驱动，支持从数据库热重载。
@@ -37,6 +46,10 @@ type StoragePolicyManager struct {
 	defaultPolicy string
 	drivers       map[string]StorageDriver
 	infos         map[string]PolicyInfo
+	// proxySecret 动态提供签名密钥（JWT 轮转后自动跟随）；
+	// proxyBaseURL 用于为无外链直链的驱动（如 Filen）签发服务端代理下载 URL。
+	proxySecret  func() string
+	proxyBaseURL string
 }
 
 // NewStoragePolicyManager 从数据库加载策略；库为空时管理器为空，管理员需在前端添加。
@@ -69,10 +82,43 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 	for _, p := range list {
 		var driver StorageDriver
 		var err error
+		var authorized bool
 
 		switch p.Type {
 		case "github":
 			driver, err = NewGitHubDriver(p.Endpoint, p.SecretKey, p.BasePath, p.CustomHost, p.Branch)
+		case "dropbox":
+			driver, err = NewDropboxDriver(p.SecretKey, p.BasePath)
+		case "filen":
+			var fd *FilenDriver
+			fd, err = NewFilenDriver(p.AccessKey, p.SecretKey, p.BasePath)
+			if err == nil {
+				policyName := p.Name
+				mgr := m
+				// Filen 无外链直链：下载/预览 URL 指向带签名的服务端代理。
+				fd.proxyURL = func(storageKey, attachment string) (string, error) {
+					return mgr.SignProxyURL(policyName, storageKey, attachment, 30*time.Minute)
+				}
+			}
+			driver = fd
+		case "terabox":
+			var tb *TeraBoxDriver
+			tb, err = NewTeraBoxDriver(p.AccessKey, p.SecretKey, p.Region, p.Endpoint, p.OAuthToken)
+			if err == nil {
+				policyID := p.ID
+				// token 刷新后持久化回数据库，保证进程重启后仍可用
+				tb.onTokenRefreshed = func(token TeraBoxToken) {
+					raw, marshalErr := json.Marshal(token)
+					if marshalErr != nil {
+						return
+					}
+					if saveErr := model.SetStoragePolicyOAuthToken(policyID, string(raw)); saveErr != nil {
+						logx.Warn(logx.ModuleStorage, "保存 TeraBox token 失败", "policy", p.Name, "err", saveErr.Error())
+					}
+				}
+				authorized = tb.IsAuthorized()
+			}
+			driver = tb
 		default: // s3
 			driver, err = NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle, p.CustomHost)
 		}
@@ -95,6 +141,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			ChunkSize:      p.ChunkSize,
 			IsDefault:      p.IsDefault,
 			DefaultQuota:   p.DefaultQuota,
+			Authorized:     authorized,
 		}
 		if p.IsDefault {
 			defaultName = p.Name
@@ -206,6 +253,76 @@ func (m *StoragePolicyManager) GetPolicyInfo(policy string) (PolicyInfo, bool) {
 	}
 	info, ok := m.infos[policy]
 	return info, ok
+}
+
+// SetProxySigner 配置服务端代理下载 URL 的签名密钥提供函数与基础地址。
+// baseURL 形如 "/api/files/proxy"（相对）或完整地址；代理 handler 用同一密钥校验。
+func (m *StoragePolicyManager) SetProxySigner(secretProvider func() string, baseURL string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.proxySecret = secretProvider
+	m.proxyBaseURL = strings.TrimRight(baseURL, "/")
+}
+
+// SignProxyURL 为 Filen 等无外链驱动生成带签名的代理下载 URL。
+// attachment 为下载时建议的文件名；空字符串表示内联预览。
+// URL 形如 {baseURL}?policy=x&key=y&name=z&exp=ts&sig=hex(hmac(...))。
+func (m *StoragePolicyManager) SignProxyURL(policy, storageKey, attachment string, expire time.Duration) (string, error) {
+	m.mu.RLock()
+	secretProvider := m.proxySecret
+	base := m.proxyBaseURL
+	m.mu.RUnlock()
+	if secretProvider == nil || base == "" {
+		return "", fmt.Errorf("代理下载未配置（缺少签名密钥或基础地址）")
+	}
+	secret := secretProvider()
+	if secret == "" {
+		return "", fmt.Errorf("代理下载未配置（签名密钥为空）")
+	}
+
+	exp := time.Now().Add(expire).Unix()
+	q := fmt.Sprintf("policy=%s&key=%s&name=%s&exp=%d",
+		urlQueryEscape(policy), urlQueryEscape(storageKey), urlQueryEscape(attachment), exp)
+	sig := proxySignature(secret, policy, storageKey, attachment, exp)
+	return base + "?" + q + "&sig=" + sig, nil
+}
+
+// VerifyProxyURL 校验代理下载 URL 的签名与有效期。
+func (m *StoragePolicyManager) VerifyProxyURL(policy, storageKey, attachment, exp, sig string) error {
+	m.mu.RLock()
+	secretProvider := m.proxySecret
+	m.mu.RUnlock()
+	if secretProvider == nil {
+		return fmt.Errorf("代理下载未配置")
+	}
+	secret := secretProvider()
+	if secret == "" {
+		return fmt.Errorf("代理下载未配置（签名密钥为空）")
+	}
+	expUnix, err := strconv.ParseInt(exp, 10, 64)
+	if err != nil {
+		return fmt.Errorf("无效的过期时间")
+	}
+	if time.Now().Unix() > expUnix {
+		return fmt.Errorf("下载链接已过期")
+	}
+	expected := proxySignature(secret, policy, storageKey, attachment, expUnix)
+	if !hmac.Equal([]byte(expected), []byte(sig)) {
+		return fmt.Errorf("下载链接签名无效")
+	}
+	return nil
+}
+
+// proxySignature 计算 HMAC-SHA256 十六进制签名。
+func proxySignature(secret, policy, key, attachment string, exp int64) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	fmt.Fprintf(mac, "%s|%s|%s|%d", policy, key, attachment, exp)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// urlQueryEscape URL 查询值转义。
+func urlQueryEscape(s string) string {
+	return url.QueryEscape(s)
 }
 
 // NewTestStoragePolicyManager 使用预置驱动构造管理器，供单测注入 mock。
