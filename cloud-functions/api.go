@@ -25,6 +25,10 @@ func main() {
 	// 之后所有输出（含 config 错误）都是单行 JSON。
 	logx.Setup(os.Getenv("LOG_LEVEL"))
 
+	// gin ReleaseMode：禁止 debug 模式的路由注册表与彩色纯文本日志，
+	// 所有日志统一走 logx 单行 JSON（EdgeOne 控制台按关键字检索）。
+	gin.SetMode(gin.ReleaseMode)
+
 	cfg, err := config.Load()
 	if err != nil {
 		logx.Error(logx.ModuleApp, "加载配置失败", logx.Err(err))
@@ -127,11 +131,11 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	groupHandler := handler.NewGroupHandler()
 	adminUserHandler := handler.NewAdminUserHandler(storageMgr)
 
-	// gin.New 手动装配中间件：访问日志走结构化 JSON（EdgeOne 控制台检索），
-	// Recovery 保留默认（panic 时向 stderr 输出栈，同样被平台采集）。
+	// gin.New 手动装配中间件：访问日志与 panic 恢复均走结构化单行 JSON，
+	// 保持 EdgeOne 控制台按关键字检索的格式。
 	r := gin.New()
 	r.Use(__edgeonePagesMiddleware())
-	r.Use(middleware.AccessLog(), gin.Recovery())
+	r.Use(middleware.AccessLog(), middleware.Recovery())
 
 	r.Use(func(c *gin.Context) {
 		origin := c.GetHeader("Origin")

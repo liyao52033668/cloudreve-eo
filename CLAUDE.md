@@ -12,8 +12,6 @@ edgeone makers dev
 
 ### 后端 Go 开发（本地测试）
 ```bash
-# 运行所有测试
-go test ./...
 
 # 运行单个测试（如 handler 测试）
 go test ./internal/handler -run TestXXX
@@ -57,6 +55,39 @@ go build -o cloudreve-eo ./cloud-functions/api.go
 2. Gin 路由在 `cloud-functions/api.go` 分发到 `internal/handler/`。
 3. 存储使用预签名 URL 直达对象存储（不经后端中转）。
 4. 认证：JWT + 注册/登录。
+
+## 日志规范（强制）
+
+所有后端日志**必须**统一使用 `internal/logx` 包输出 EdgeOne 单行 JSON 格式，禁止任何其他输出方式。
+
+- **原因**：EdgeOne Makers 云函数平台按行采集 stdout/stderr，日志夹在平台 START/END RequestId 之间，控制台按关键字检索。非 JSON 的彩色/纯文本日志无法被有效检索。
+- **格式**：`slog.NewJSONHandler` 单行 JSON 输出到 stdout，例如：
+  ```
+  {"time":"2026-08-04T10:00:00Z","level":"INFO","module":"persist","msg":"已从 edgeone-blob 恢复数据库","bytes":1048576}
+  ```
+- **级别**：由环境变量 `LOG_LEVEL` 控制，默认 info（debug / info / warn / error）。
+
+### 使用方式
+
+```go
+import "github.com/cloudreve-eo/cloudreve-eo/internal/logx"
+
+logx.Info(logx.ModuleStorage, "已加载存储策略", "count", n)      // INFO
+logx.Warn(logx.ModuleDB, "慢 SQL", "elapsed_ms", ms)             // WARN
+logx.Error(logx.ModuleApp, "启动失败", logx.Err(err))            // ERROR，error 必须用 logx.Err 包装
+logx.With(logx.ModuleDB).Debug("SQL", "sql", sql)                // 带属性的 logger
+```
+
+### 规则
+
+1. **禁止**直接使用 `fmt.Println` / `fmt.Printf` / `log.*` / `slog.*` / `panic` 输出日志。
+2. 每条日志必须带模块名（`logx.ModuleXXX` 常量），新增模块时在 `logx.go` 中登记常量。
+3. error 必须通过 `logx.Err(err)` 作为属性传入，不要拼进 msg 字符串。
+4. HTTP 请求访问日志统一由 `middleware.AccessLog()` 输出（5xx→ERROR，4xx→WARN，其余 INFO，跳过 404）。
+5. panic 恢复使用 `middleware.Recovery()`（JSON 记录堆栈），不要用 `gin.Recovery()`。
+6. GORM 日志已通过 `model.gormLogger` 接入 logx（慢 SQL/错误），不要在别处重复打印。
+7. gin 必须保持 `gin.ReleaseMode`（禁止 debug 模式路由表输出）。
+8. `cloud-functions/api.go` 入口必须在最前面调用 `logx.Setup(os.Getenv("LOG_LEVEL"))`，保证 config 错误也能落盘。
 
 ### 关键文件
 - `cloud-functions/api.go`：Gin 启动，注册路由。

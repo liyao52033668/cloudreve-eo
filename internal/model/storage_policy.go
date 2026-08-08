@@ -16,7 +16,8 @@ type StoragePolicy struct {
 	Region    string `gorm:"size:64" json:"region"`
 	Bucket    string `gorm:"size:255;not null" json:"bucket"`
 	AccessKey string `gorm:"size:255;not null" json:"access_key"`
-	SecretKey string `gorm:"size:255;not null" json:"secret_key"`
+	// SecretKey 用 text 存储：Dropbox 等 OAuth access token 可能超过 255 字符。
+	SecretKey string `gorm:"type:text;not null" json:"secret_key"`
 	// ForcePathStyle 强制 path-style 访问（MinIO / 部分私有 S3 需要）；false 时用 virtual-hosted。
 	ForcePathStyle bool `gorm:"not null;default:true" json:"force_path_style"`
 	// CustomHost 自定义下载/预览域名（如 COS / 七牛的 CDN 加速域名）；空表示使用 Endpoint 域名。

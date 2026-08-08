@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
 	"github.com/glebarez/sqlite"
@@ -33,6 +34,8 @@ func InitDB(cfg *config.Config) error {
 		NamingStrategy: schema.NamingStrategy{
 			TablePrefix: tablePrefix,
 		},
+		// SQL 日志走 logx 单行 JSON（EdgeOne 控制台按关键字检索）
+		Logger: gormLogger{},
 	})
 	if err != nil {
 		return fmt.Errorf("连接数据库失败: %w", err)
@@ -55,9 +58,38 @@ func InitDB(cfg *config.Config) error {
 				return fmt.Errorf("添加 oauth_token 字段失败: %w", err)
 			}
 		}
+		// secret_key 早期为 varchar(255)，Dropbox 等 OAuth token 超长，需升级为 text。
+		// AutoMigrate 不会变更已存在列的类型，这里显式迁移。
+		if err := migrateSecretKeyType(db); err != nil {
+			return fmt.Errorf("迁移 secret_key 字段类型失败: %w", err)
+		}
 	}
 
 	DB = db
+	return nil
+}
+
+// migrateSecretKeyType 将 secret_key 列升级为 text（早期版本为 varchar(255)，
+// Dropbox 等 OAuth access token 超长会写入失败）。仅 Postgres 需要显式变更；
+// SQLite 不强制 varchar 长度可跳过。已是 text 时为幂等空操作。
+func migrateSecretKeyType(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	cols, err := db.Migrator().ColumnTypes(&StoragePolicy{})
+	if err != nil {
+		return err
+	}
+	for _, c := range cols {
+		if c.Name() != "secret_key" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(c.DatabaseTypeName()), "text") {
+			return nil // 已是 text，无需变更
+		}
+		table := tablePrefix + "storage_policies"
+		return db.Exec(fmt.Sprintf("ALTER TABLE %s ALTER COLUMN secret_key TYPE text", table)).Error
+	}
 	return nil
 }
 

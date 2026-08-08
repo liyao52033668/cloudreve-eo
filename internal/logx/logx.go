@@ -32,6 +32,7 @@ const (
 	ModuleConfig    = "config"    // internal/config
 	ModulePersist   = "persist"   // internal/persist
 	ModuleStorage   = "storage"   // internal/storage
+	ModuleDB        = "db"        // GORM 数据库日志
 	ModuleAccessLog = "accesslog" // HTTP 请求访问日志
 )
 
