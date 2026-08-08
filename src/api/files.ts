@@ -74,6 +74,9 @@ export const uploadServer = (
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    // 服务端中转上传（GitHub / Dropbox）耗时可能超过全局 30s，
+    // 取消前端超时，等后端转传完成，避免"假超时"后误以为失败。
+    timeout: 0,
   })
 }
 
