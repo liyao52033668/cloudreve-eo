@@ -2,7 +2,8 @@ import axios from 'axios'
 
 const client = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  // 不设全局超时：大文件上传/zip 打包下载耗时可能远超 30s，
+  // 超时会导致传输中断前功尽弃；网络异常由浏览器/axios 自身错误处理
 })
 
 client.interceptors.request.use((config) => {
