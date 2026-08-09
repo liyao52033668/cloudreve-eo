@@ -239,23 +239,33 @@ func TestBaiduGenerateUploadURLRejected(t *testing.T) {
 	}
 }
 
-func TestBaiduDownloadViaProxy(t *testing.T) {
+func TestBaiduDownloadDirectDlink(t *testing.T) {
 	d := newBaiduTestDriver(t, validTokenJSON())
-	d.proxyURL = func(storageKey, attachment string) (string, error) {
-		return "/api/files/proxy?key=" + storageKey, nil
-	}
+	// mock list 拿 fs_id + filemetas 返回 dlink
+	srv := mockBaiduServer(t, func(method string, w http.ResponseWriter, r *http.Request) {
+		switch method {
+		case "list":
+			_ = json.NewEncoder(w).Encode(map[string]any{"list": []map[string]any{
+				{"server_filename": "a.jpg", "path": "/apps/cloudreve-eo/123/a.jpg", "fs_id": 88},
+			}})
+		case "filemetas":
+			_ = json.NewEncoder(w).Encode(map[string]any{"list": []map[string]any{
+				{"size": 100, "dlink": "https://d.pcs.baidu.com/rest/2.0/pcs/file?method=download"},
+			}})
+		}
+	})
+	defer srv.Close()
+	d.panURL = srv.URL
+
 	u, err := d.GenerateDownloadURL("123/a.jpg", "a.jpg", time.Minute)
 	if err != nil {
 		t.Fatalf("GenerateDownloadURL: %v", err)
 	}
-	if !strings.Contains(u, "key=123/a.jpg") {
-		t.Errorf("代理 URL = %q", u)
+	if !strings.Contains(u, "access_token=") {
+		t.Errorf("直链 URL 缺少 access_token: %q", u)
 	}
-
-	// 未注入 proxyURL 时应报错
-	d2 := newBaiduTestDriver(t, validTokenJSON())
-	if _, err := d2.GenerateDownloadURL("k", "", time.Minute); err == nil {
-		t.Fatal("proxyURL 未配置时应报错")
+	if !strings.Contains(u, "d.pcs.baidu.com") {
+		t.Errorf("直链 URL 应指向百度 CDN: %q", u)
 	}
 }
 

@@ -795,17 +795,32 @@ func (d *BaiduDriver) GenerateUploadURL(key string, contentType string, expire t
 	return "", fmt.Errorf("百度网盘存储不支持客户端直传，请使用服务端上传")
 }
 
-// GenerateDownloadURL 返回带签名的服务端代理下载 URL。
-// 百度 dlink 是临时短链（约 8 小时过期且与服务器 IP/UA 绑定），
-// 不能直接交给浏览器，必须经服务端 GET 拉取后中转。
+// GenerateDownloadURL 直接返回百度 dlink（拼 access_token），浏览器直连百度 CDN。
+// EdgeOne 云函数响应体有 6MB 上限且整体缓冲，服务端中转大文件必然失败，
+// 因此把 dlink 交给浏览器原生下载（同 TeraBox）。dlink 有效期约 8 小时，
+// 由 fileMeta 缓存（1 小时）控制；过期后浏览器下载失败，用户重新点下载即可。
 func (d *BaiduDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
 	if !d.IsAuthorized() {
 		return "", errBaiduUnauthorized
 	}
-	if d.proxyURL == nil {
-		return "", fmt.Errorf("百度网盘代理下载未配置")
+	ctx, cancel := baiduContext(30 * time.Second)
+	defer cancel()
+	_, dlink, err := d.fileMeta(ctx, key)
+	if err != nil {
+		return "", err
 	}
-	return d.proxyURL(key, fileName)
+	if dlink == "" {
+		return "", fmt.Errorf("百度网盘未返回下载链接")
+	}
+	token, err := d.currentToken()
+	if err != nil {
+		return "", err
+	}
+	sep := "?"
+	if strings.Contains(dlink, "?") {
+		sep = "&"
+	}
+	return dlink + sep + "access_token=" + url.QueryEscape(token), nil
 }
 
 // baiduDlinkCacheTTL 下载链接缓存时长（dlink 约 8 小时有效，留足余量）。
