@@ -3,10 +3,12 @@ import { Modal, Input, DatePicker, Button, message, Space } from 'antd'
 import { ThunderboltOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { createShare } from '../api/shares'
+import { copyText } from '../utils/clipboard'
 
 interface Props {
   open: boolean
-  fileId: number | null
+  /** 要分享的文件 ID 列表（≥1，多个时访问者看到文件列表） */
+  fileIds: number[]
   onClose: () => void
 }
 
@@ -19,7 +21,7 @@ function generateRandomPassword(length = 8): string {
   return result
 }
 
-export default function ShareModal({ open, fileId, onClose }: Props) {
+export default function ShareModal({ open, fileIds, onClose }: Props) {
   const [password, setPassword] = useState('')
   const [expireAt, setExpireAt] = useState<string | undefined>()
   const [shareLink, setShareLink] = useState('')
@@ -33,9 +35,9 @@ export default function ShareModal({ open, fileId, onClose }: Props) {
   ]
 
   const handleCreate = async () => {
-    if (!fileId) return
+    if (fileIds.length === 0) return
     try {
-      const res = await createShare(fileId, password || undefined, expireAt)
+      const res = await createShare(fileIds, password || undefined, expireAt)
       const code = res.data.share.code
       const link = `${window.location.origin}/share/${code}`
       setShareLink(link)
@@ -45,13 +47,19 @@ export default function ShareModal({ open, fileId, onClose }: Props) {
     }
   }
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(shareLink)
-    message.success('已复制到剪贴板')
+  const handleCopy = async () => {
+    try {
+      await copyText(shareLink)
+      message.success('已复制到剪贴板')
+    } catch {
+      message.error('复制失败，请手动复制')
+    }
   }
 
+  const title = fileIds.length > 1 ? `分享 ${fileIds.length} 个文件` : '创建分享'
+
   return (
-    <Modal title="创建分享" open={open} onCancel={() => { onClose(); setShareLink(''); setPassword(''); setExpireAt(undefined) }} footer={null}>
+    <Modal title={title} open={open} onCancel={() => { onClose(); setShareLink(''); setPassword(''); setExpireAt(undefined) }} footer={null}>
       <Space direction="vertical" style={{ width: '100%' }}>
         <Space.Compact style={{ width: '100%' }}>
           <Input placeholder="提取码（可选）" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" style={{ flex: 1 }} />

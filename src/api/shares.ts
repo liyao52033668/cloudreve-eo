@@ -9,11 +9,13 @@ export interface ShareInfo {
   created_at: string
 }
 
-export const createShare = (fileId: number, password?: string, expireAt?: string) =>
-  client.post('/shares', { file_id: fileId, password, expire_at: expireAt })
+/** 创建分享：支持单个或多个文件（多文件分享访问者看到文件列表） */
+export const createShare = (fileIds: number[], password?: string, expireAt?: string) =>
+  client.post('/shares', { file_ids: fileIds, password, expire_at: expireAt })
 
+/** 获取分享信息：返回根文件列表（单文件分享长度为 1，多文件分享为多个） */
 export const getShare = (code: string, password?: string) =>
-  client.get(`/shares/${code}`, { params: { password } })
+  client.get<{ share: ShareInfo; files: FileItem[] }>(`/shares/${code}`, { params: { password } })
 
 export const getShareDownload = (code: string, password?: string) =>
   client.get<{ download_url: string }>(`/shares/${code}/download`, { params: { password } })
@@ -29,9 +31,17 @@ export const getShareChildDownload = (code: string, fileId: number, password?: s
     params: { password },
   })
 
-/** 文件夹打包 zip 下载；大目录耗时较长，放宽超时 */
+/** 分享全部文件打包 zip 下载；大目录耗时较长，放宽超时 */
 export const getShareZip = (code: string, password?: string) =>
   client.get<Blob>(`/shares/${code}/zip`, {
+    params: { password },
+    responseType: 'blob',
+    timeout: 0,
+  })
+
+/** 分享内选中文件打包 zip 下载 */
+export const getShareZipSelected = (code: string, ids: number[], password?: string) =>
+  client.post<Blob>(`/shares/${code}/zip`, { ids }, {
     params: { password },
     responseType: 'blob',
     timeout: 0,

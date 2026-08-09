@@ -913,3 +913,231 @@ func (s *FileService) Move(userID int64, fileID uint, newParentID uint) error {
 func (s *FileService) ListStoragePolicies() []storage.PolicyInfo {
 	return s.storageMgr.ListPolicies()
 }
+
+// BatchDelete 批量删除文件/文件夹（含后代），一次事务提交。
+// 每个根节点独立 BFS 收集后代；多个根有重叠时按 ID 去重。
+func (s *FileService) BatchDelete(userID int64, fileIDs []uint) error {
+	if len(fileIDs) == 0 {
+		return errors.New("未选择任何文件")
+	}
+
+	return model.DB.Transaction(func(tx *gorm.DB) error {
+		var roots []model.File
+		if err := tx.Where("id IN ? AND user_id = ?", fileIDs, userID).Find(&roots).Error; err != nil {
+			return err
+		}
+		if len(roots) == 0 {
+			return errors.New("文件不存在")
+		}
+
+		// BFS 收集全部待删除节点（按 ID 去重，防止多根重叠重复删除）
+		seen := make(map[uint]struct{}, len(roots))
+		toDelete := make([]model.File, 0, len(roots))
+		queue := make([]uint, 0, len(roots))
+		for _, r := range roots {
+			if _, ok := seen[r.ID]; ok {
+				continue
+			}
+			seen[r.ID] = struct{}{}
+			toDelete = append(toDelete, r)
+			if r.IsDir {
+				queue = append(queue, r.ID)
+			}
+		}
+		for len(queue) > 0 {
+			var children []model.File
+			if err := tx.Where("parent_id IN ? AND user_id = ?", queue, userID).Find(&children).Error; err != nil {
+				return err
+			}
+			queue = queue[:0]
+			for _, c := range children {
+				if _, ok := seen[c.ID]; ok {
+					continue
+				}
+				seen[c.ID] = struct{}{}
+				toDelete = append(toDelete, c)
+				if c.IsDir {
+					queue = append(queue, c.ID)
+				}
+			}
+		}
+
+		var freedSize int64
+		ids := make([]uint, 0, len(toDelete))
+		for _, f := range toDelete {
+			ids = append(ids, f.ID)
+			if f.IsDir {
+				continue
+			}
+			driver, err := s.storageMgr.GetDriver(f.StoragePolicy)
+			if err != nil {
+				return err
+			}
+			if err := driver.Delete(f.StorageKey); err != nil {
+				return fmt.Errorf("删除存储对象失败: %w", err)
+			}
+			freedSize += f.Size
+		}
+		if freedSize > 0 {
+			if err := tx.Model(&model.User{}).Where("id = ?", userID).
+				Update("storage_used", gorm.Expr("storage_used - ?", freedSize)).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Where("id IN ?", ids).Delete(&model.File{}).Error
+	})
+}
+
+// BatchMove 批量移动文件/文件夹到同一目标文件夹。
+// 逐个校验（不能移动到自身、文件夹不能移入自身子树、目标必须存在）。
+func (s *FileService) BatchMove(userID int64, fileIDs []uint, newParentID uint) error {
+	if len(fileIDs) == 0 {
+		return errors.New("未选择任何文件")
+	}
+	if newParentID != 0 {
+		var parent model.File
+		if err := model.DB.Where("id = ? AND user_id = ? AND is_dir = ?", newParentID, userID, true).First(&parent).Error; err != nil {
+			return errors.New("目标文件夹不存在")
+		}
+	}
+
+	var files []model.File
+	if err := model.DB.Where("id IN ? AND user_id = ?", fileIDs, userID).Find(&files).Error; err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return errors.New("文件不存在")
+	}
+
+	for _, file := range files {
+		if file.ParentID == newParentID {
+			continue // 已在目标位置，跳过
+		}
+		if file.ID == newParentID {
+			return errors.New("不能移动到自身")
+		}
+		// 文件夹不能移入自己的子树，否则形成循环
+		if file.IsDir && newParentID != 0 {
+			if isDescendantOf(userID, newParentID, file.ID) {
+				return fmt.Errorf("不能将「%s」移动到其子文件夹", file.Name)
+			}
+		}
+	}
+
+	ids := make([]uint, 0, len(files))
+	for _, f := range files {
+		if f.ParentID != newParentID {
+			ids = append(ids, f.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return model.DB.Model(&model.File{}).
+		Where("id IN ? AND user_id = ?", ids, userID).
+		Update("parent_id", newParentID).Error
+}
+
+// isDescendantOf 判断 fileID 是否为 ancestorID 的后代（向上追溯父链）。
+func isDescendantOf(userID int64, fileID, ancestorID uint) bool {
+	current := fileID
+	visited := make(map[uint]struct{})
+	for current != 0 {
+		if _, ok := visited[current]; ok {
+			return false // 数据异常，防死循环
+		}
+		visited[current] = struct{}{}
+		var parent model.File
+		if err := model.DB.Where("id = ? AND user_id = ?", current, userID).First(&parent).Error; err != nil {
+			return false
+		}
+		if parent.ID == ancestorID {
+			return true
+		}
+		current = parent.ParentID
+	}
+	return false
+}
+
+// BatchDownloadZip 将多个文件/文件夹打包为单个 zip 流式输出。
+// 选中多个同名文件时自动追加序号避免 zip 内命名冲突。
+// collectBatchZipEntries 收集多个根节点的 zip 条目，同名根节点自动追加序号避免冲突。
+func collectBatchZipEntries(userID int64, roots []model.File) ([]zipEntry, error) {
+	entries := make([]zipEntry, 0, len(roots))
+	usedNames := make(map[string]int)
+	for _, root := range roots {
+		name := root.Name
+		if n, ok := usedNames[name]; ok {
+			// 同名冲突：追加序号（file.txt → file(1).txt）
+			n++
+			usedNames[name] = n
+			ext := ""
+			base := name
+			if i := strings.LastIndex(name, "."); i > 0 {
+				ext = name[i:]
+				base = name[:i]
+			}
+			name = fmt.Sprintf("%s(%d)%s", base, n, ext)
+		} else {
+			usedNames[name] = 0
+		}
+		rootEntries, err := collectZipEntriesWithName(userID, root, name)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, rootEntries...)
+	}
+	return entries, nil
+}
+
+func (s *FileService) BatchDownloadZip(userID int64, fileIDs []uint, w io.Writer) (string, error) {
+	if len(fileIDs) == 0 {
+		return "", errors.New("未选择任何文件")
+	}
+	var roots []model.File
+	if err := model.DB.Where("id IN ? AND user_id = ?", fileIDs, userID).Find(&roots).Error; err != nil {
+		return "", err
+	}
+	if len(roots) == 0 {
+		return "", errors.New("文件不存在")
+	}
+
+	entries, err := collectBatchZipEntries(userID, roots)
+	if err != nil {
+		return "", err
+	}
+	if err := writeZipTree(w, s.storageMgr, "", entries); err != nil {
+		return "", err
+	}
+	return "批量下载.zip", nil
+}
+
+// collectZipEntriesWithName 收集目录条目，根节点使用指定名称（用于同名冲突重命名）。
+func collectZipEntriesWithName(userID int64, root model.File, rootName string) ([]zipEntry, error) {
+	entries := []zipEntry{}
+	if root.IsDir {
+		entries = append(entries, zipEntry{relPath: rootName, isDir: true, file: root})
+	} else {
+		entries = append(entries, zipEntry{relPath: rootName, isDir: false, file: root})
+		return entries, nil
+	}
+	queue := []zipEntry{{relPath: rootName, isDir: true, file: root}}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		var children []model.File
+		if err := model.DB.Where("user_id = ? AND parent_id = ?", userID, cur.file.ID).
+			Order("name ASC").Find(&children).Error; err != nil {
+			return nil, err
+		}
+		for _, child := range children {
+			e := zipEntry{relPath: cur.relPath + "/" + child.Name, file: child}
+			if child.IsDir {
+				e.isDir = true
+				queue = append(queue, e)
+			}
+			entries = append(entries, e)
+		}
+	}
+	return entries, nil
+}

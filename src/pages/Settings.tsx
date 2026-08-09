@@ -9,6 +9,7 @@ import {
 } from '../api/settings'
 import { getProfile } from '../api/user'
 import AppHeader from '../components/AppHeader'
+import { copyText } from '../utils/clipboard'
 
 const { Content } = Layout
 const { Text, Paragraph } = Typography
@@ -63,7 +64,7 @@ export default function Settings() {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(secret)
+      await copyText(secret)
       message.success('已复制到剪贴板')
     } catch {
       message.error('复制失败')

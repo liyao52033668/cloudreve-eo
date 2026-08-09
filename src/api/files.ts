@@ -276,6 +276,21 @@ export const getDownloadZip = (fileId: number) =>
 export const deleteFile = (fileId: number) =>
   client.delete(`/files/${fileId}`)
 
+/** 批量删除文件/文件夹（含后代） */
+export const batchDeleteFiles = (ids: number[]) =>
+  client.post('/files/batch/delete', { ids })
+
+/** 批量移动文件/文件夹到同一目标文件夹（0 表示根目录） */
+export const batchMoveFiles = (ids: number[], parentId: number) =>
+  client.post('/files/batch/move', { ids, parent_id: parentId })
+
+/** 批量打包下载（zip 流）；大目录耗时较长，放宽超时 */
+export const batchDownloadZip = (ids: number[]) =>
+  client.post<Blob>('/files/batch/download', { ids }, {
+    responseType: 'blob',
+    timeout: 0,
+  })
+
 export const renameFile = (fileId: number, name: string) =>
   client.put(`/files/${fileId}/rename`, { name })
 

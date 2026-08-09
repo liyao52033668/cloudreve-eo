@@ -191,6 +191,10 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		files.POST("/upload/chunked", fileHandler.ChunkedInit)
 		files.POST("/upload/chunked/chunk", fileHandler.ChunkedUploadChunk)
 		files.POST("/upload/chunked/complete", fileHandler.ChunkedComplete)
+		// 批量操作（须注册在 /:id 系列之前，否则 "batch" 会被当作 :id）
+		files.POST("/batch/delete", fileHandler.BatchDelete)
+		files.POST("/batch/move", fileHandler.BatchMove)
+		files.POST("/batch/download", fileHandler.BatchDownloadZip)
 		files.GET("/:id/download", fileHandler.Download)
 		files.GET("/:id/zip", fileHandler.DownloadDir)
 		files.DELETE("/:id", fileHandler.Delete)
@@ -262,6 +266,7 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	publicShares.GET("/:code/files/:id/download", shareHandler.DownloadChild)
 	publicShares.GET("/:code/download", shareHandler.Download)
 	publicShares.GET("/:code/zip", shareHandler.DownloadZip)
+	publicShares.POST("/:code/zip", shareHandler.DownloadSelectedZip)
 
 	return r, nil
 }

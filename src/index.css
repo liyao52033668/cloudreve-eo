@@ -332,6 +332,21 @@ body {
   opacity: 1;
 }
 
+/* 网格卡片左上角批量选择勾选框：悬停或已选中时可见 */
+.file-grid__select {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.file-grid__item:hover .file-grid__select,
+.file-grid__select:has(.ant-checkbox-checked) {
+  opacity: 1;
+}
+
 /* 分享过期时间选择器：把 presets 快捷项移到底部 footer 行左侧（原 Now 位置），与确定按钮同行
    antd v6 CSS-in-JS 选择器特异性为 (0,3,0)（:where() 不计），须用更高特异性覆盖 */
 .share-expire-picker.ant-picker-dropdown .ant-picker-panel-container .ant-picker-panel-layout {

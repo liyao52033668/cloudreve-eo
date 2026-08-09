@@ -145,7 +145,7 @@ export default function TeraBoxAuth({ policyId, open, onClose, onAuthorized }: P
       onCancel={onClose}
       footer={<Button onClick={onClose}>关闭</Button>}
       width={520}
-      destroyOnClose
+      destroyOnHidden
     >
       <Tabs
         items={[

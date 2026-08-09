@@ -760,7 +760,7 @@ export default function Files() {
               </div>
               {!viewPolicy && (
                 <>
-                  <Divider type="vertical" className="files-toolbar__action-divider" />
+                  <Divider orientation="vertical" className="files-toolbar__action-divider" />
                   <div className="files-toolbar__action-group" role="group" aria-label="上传">
                     <Dropdown
                       menu={{
@@ -782,7 +782,7 @@ export default function Files() {
                       </Upload>
                     </Dropdown>
                   </div>
-                  <Divider type="vertical" className="files-toolbar__action-divider" />
+                  <Divider orientation="vertical" className="files-toolbar__action-divider" />
                   <div className="files-toolbar__action-group" role="group" aria-label="新建">
                     <Dropdown
                       menu={{
@@ -932,7 +932,7 @@ export default function Files() {
           if (newFileSubmitting) return
           setNewFileModal(false)
         }}
-        destroyOnClose={false}
+        destroyOnHidden={false}
       >
         <Space direction="vertical" style={{ width: '100%' }}>
           <Input

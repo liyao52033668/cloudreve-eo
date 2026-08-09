@@ -1,8 +1,8 @@
-import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrumb, Spin, Empty } from 'antd'
+import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrumb, Spin, Empty, Checkbox } from 'antd'
 import { FolderOutlined, FileOutlined, FileImageOutlined, VideoCameraOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, EyeOutlined, DragOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { FileItem } from '../api/files'
-import { deleteFile, renameFile, getDownloadURL, getDownloadZip, listFiles, moveFile } from '../api/files'
+import { deleteFile, renameFile, getDownloadURL, getDownloadZip, listFiles, moveFile, batchDeleteFiles, batchMoveFiles, batchDownloadZip } from '../api/files'
 import { useEffect, useMemo, useState } from 'react'
 import { isImage, isVideo } from '../utils/fileType'
 import { formatDateTime } from '../utils/time'
@@ -68,6 +68,36 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   const [moveSubmitting, setMoveSubmitting] = useState(false)
   const [moveCurrentId, setMoveCurrentId] = useState(0)
   const [moveBreadcrumb, setMoveBreadcrumb] = useState<MoveBreadcrumbItem[]>([{ title: '根目录', id: 0 }])
+
+  // 批量操作：选中的文件 ID 集合
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [batchBusy, setBatchBusy] = useState(false)
+  // 批量移动弹窗（复用移动目录浏览逻辑，但作用于多选）
+  const [batchMoveOpen, setBatchMoveOpen] = useState(false)
+  const [batchShareOpen, setBatchShareOpen] = useState(false)
+
+  // 切换目录/刷新时清空选中（选中项属于上一目录，跨目录无意义）
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [files])
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const allSelected = files.length > 0 && files.every(f => selectedIds.has(f.id))
+  const someSelected = selectedIds.size > 0
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(files.map(f => f.id)))
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
 
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '-'
@@ -167,12 +197,13 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     }
   }
 
-  const loadMoveDirs = async (parentId: number, excludeId?: number) => {
+  const loadMoveDirs = async (parentId: number, excludeIds: Set<number> = new Set()) => {
     setMoveLoading(true)
     try {
       const res = await listFiles(parentId)
+      // 排除待排除的文件夹（单选为被移动项自身，批量为全部选中的文件夹，避免移入自身/子树）
       const dirs = (res.data.files || []).filter(
-        f => f.is_dir && f.id !== excludeId,
+        f => f.is_dir && !excludeIds.has(f.id),
       )
       setMoveDirs(dirs)
     } catch (err: any) {
@@ -183,25 +214,34 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     }
   }
 
+  // 当前移动上下文需排除的文件夹集合：单选=被移动目录自身；批量=全部选中的文件夹
+  const moveExcludeIds = (): Set<number> => {
+    if (batchMoveOpen) {
+      return new Set(files.filter(f => selectedIds.has(f.id) && f.is_dir).map(f => f.id))
+    }
+    return moveModal.file?.is_dir ? new Set([moveModal.file.id]) : new Set()
+  }
+
   const openMoveModal = (file: FileItem) => {
     setMoveModal({ visible: true, file })
     setMoveCurrentId(0)
     setMoveBreadcrumb([{ title: '根目录', id: 0 }])
-    loadMoveDirs(0, file.is_dir ? file.id : undefined)
+    // 显式传排除集合：moveModal 状态尚未提交，闭包中读到的仍是旧值
+    loadMoveDirs(0, file.is_dir ? new Set([file.id]) : new Set())
   }
 
   const closeMoveModal = () => {
     setMoveModal({ visible: false })
+    setBatchMoveOpen(false)
     setMoveDirs([])
     setMoveCurrentId(0)
     setMoveBreadcrumb([{ title: '根目录', id: 0 }])
   }
 
   const handleMoveEnter = (dir: FileItem) => {
-    if (moveModal.file?.is_dir && dir.id === moveModal.file.id) return
     setMoveCurrentId(dir.id)
     setMoveBreadcrumb(prev => [...prev, { title: dir.name, id: dir.id }])
-    loadMoveDirs(dir.id, moveModal.file?.is_dir ? moveModal.file.id : undefined)
+    loadMoveDirs(dir.id, moveExcludeIds())
   }
 
   const handleMoveBreadcrumb = (index: number) => {
@@ -209,7 +249,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     if (!target || target.id === moveCurrentId) return
     setMoveCurrentId(target.id)
     setMoveBreadcrumb(moveBreadcrumb.slice(0, index + 1))
-    loadMoveDirs(target.id, moveModal.file?.is_dir ? moveModal.file.id : undefined)
+    loadMoveDirs(target.id, moveExcludeIds())
   }
 
   const handleMoveConfirm = async () => {
@@ -232,6 +272,85 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       message.error(err?.response?.data?.error || '移动失败')
     } finally {
       setMoveSubmitting(false)
+    }
+  }
+
+  // ===== 批量操作 =====
+
+  const batchIds = useMemo(() => Array.from(selectedIds), [selectedIds])
+
+  const handleBatchDelete = () => {
+    if (!someSelected) return
+    const hasDir = files.some(f => selectedIds.has(f.id) && f.is_dir)
+    Modal.confirm({
+      title: `确认删除 ${selectedIds.size} 项`,
+      content: hasDir
+        ? '选中项包含文件夹，将连同其中所有内容一并删除，此操作不可恢复。'
+        : `确定删除选中的 ${selectedIds.size} 个文件吗？`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setBatchBusy(true)
+        try {
+          await batchDeleteFiles(batchIds)
+          message.success(`已删除 ${selectedIds.size} 项`)
+          clearSelection()
+          onRefresh()
+        } catch (err: any) {
+          message.error(err.response?.data?.error || '删除失败')
+        } finally {
+          setBatchBusy(false)
+        }
+      },
+    })
+  }
+
+  const openBatchMoveModal = () => {
+    if (!someSelected) return
+    setBatchMoveOpen(true)
+    setMoveCurrentId(0)
+    setMoveBreadcrumb([{ title: '根目录', id: 0 }])
+    // 显式传排除集合：batchMoveOpen 状态尚未提交，闭包中读到的仍是旧值
+    const excludeIds = new Set(files.filter(f => selectedIds.has(f.id) && f.is_dir).map(f => f.id))
+    loadMoveDirs(0, excludeIds)
+  }
+
+  const handleBatchMoveConfirm = async () => {
+    if (!someSelected) return
+    setMoveSubmitting(true)
+    try {
+      await batchMoveFiles(batchIds, moveCurrentId)
+      message.success(`已移动 ${selectedIds.size} 项`)
+      setBatchMoveOpen(false)
+      clearSelection()
+      onRefresh()
+    } catch (err: any) {
+      message.error(err?.response?.data?.error || '移动失败')
+    } finally {
+      setMoveSubmitting(false)
+    }
+  }
+
+  const handleBatchDownload = async () => {
+    if (!someSelected) return
+    setBatchBusy(true)
+    message.loading({ content: `正在打包 ${selectedIds.size} 项…`, key: 'batch-download', duration: 0 })
+    try {
+      const res = await batchDownloadZip(batchIds)
+      const blobUrl = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = '批量下载.zip'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(blobUrl)
+      message.success({ content: '下载已开始', key: 'batch-download' })
+      clearSelection()
+    } catch {
+      message.error({ content: '打包下载失败', key: 'batch-download' })
+    } finally {
+      setBatchBusy(false)
     }
   }
 
@@ -283,6 +402,13 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
               <div className="file-grid__name" title={f.name}>{f.name}</div>
             </div>
           </Dropdown>
+          {/* 网格卡片左上角勾选框：批量选择 */}
+          <div
+            className="file-grid__select"
+            onClick={(e) => { e.stopPropagation(); toggleSelect(f.id) }}
+          >
+            <Checkbox checked={selectedIds.has(f.id)} />
+          </div>
           <Dropdown menu={{ items: menuItemsFor(f), onClick: ({ key }) => onMenuClick(key, f) }}>
             <Button className="file-grid__more" type="text" size="small" icon={<MoreOutlined />} />
           </Dropdown>
@@ -335,26 +461,67 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     },
   ]
 
+  const rowSelection = {
+    selectedRowKeys: batchIds,
+    onChange: (keys: React.Key[]) => setSelectedIds(new Set(keys.map(Number))),
+  }
+
+  // 批量操作工具栏（选中任意项时显示）
+  const batchBar = someSelected && (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '8px 12px',
+        marginBottom: 12,
+        background: 'rgba(22,119,255,0.06)',
+        borderRadius: 8,
+      }}
+    >
+      <Checkbox checked={allSelected} indeterminate={someSelected && !allSelected} onChange={toggleSelectAll} />
+      <span>已选 {selectedIds.size} 项</span>
+      <Space>
+        <Button size="small" icon={<DownloadOutlined />} onClick={handleBatchDownload} disabled={batchBusy}>
+          下载(zip)
+        </Button>
+        <Button size="small" icon={<ShareAltOutlined />} onClick={() => setBatchShareOpen(true)} disabled={batchBusy}>
+          分享
+        </Button>
+        <Button size="small" icon={<DragOutlined />} onClick={openBatchMoveModal} disabled={batchBusy}>
+          移动
+        </Button>
+        <Button size="small" danger icon={<DeleteOutlined />} onClick={handleBatchDelete} disabled={batchBusy}>
+          删除
+        </Button>
+        <Button size="small" type="link" onClick={clearSelection} disabled={batchBusy}>
+          取消选择
+        </Button>
+      </Space>
+    </div>
+  )
+
   return (
     <>
+      {batchBar}
       {files.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无文件" style={{ margin: '48px 0' }} />
       ) : viewMode === 'grid' ? (
         gridView
       ) : (
-        <Table columns={columns} dataSource={files} rowKey="id" pagination={false} />
+        <Table columns={columns} dataSource={files} rowKey="id" pagination={false} rowSelection={rowSelection} />
       )}
       <Modal title="重命名" open={renameModal.visible} onOk={handleRename} onCancel={() => setRenameModal({ visible: false })}>
         <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
       </Modal>
       <Modal
-        title={`移动「${moveModal.file?.name || ''}」`}
-        open={moveModal.visible}
+        title={batchMoveOpen ? `批量移动 ${selectedIds.size} 项` : `移动「${moveModal.file?.name || ''}」`}
+        open={moveModal.visible || batchMoveOpen}
         onCancel={closeMoveModal}
-        onOk={handleMoveConfirm}
+        onOk={batchMoveOpen ? handleBatchMoveConfirm : handleMoveConfirm}
         okText="移动到这里"
         confirmLoading={moveSubmitting}
-        destroyOnClose
+        destroyOnHidden
       >
         <Breadcrumb
           style={{ marginBottom: 12 }}
@@ -396,16 +563,16 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
         </Spin>
       </Modal>
       <ShareModal
-        open={!!shareFile}
-        fileId={shareFile?.id ?? null}
-        onClose={() => setShareFile(null)}
+        open={batchShareOpen || !!shareFile}
+        fileIds={batchShareOpen ? batchIds : shareFile ? [shareFile.id] : []}
+        onClose={() => { setShareFile(null); setBatchShareOpen(false) }}
       />
       <Image
         style={{ display: 'none' }}
         preview={{
-          visible: preview.open,
+          open: preview.open,
           src: preview.url,
-          onVisibleChange: (v) => { if (!v) setPreview({ open: false, url: '' }) },
+          onOpenChange: (v) => { if (!v) setPreview({ open: false, url: '' }) },
         }}
       />
       <Modal
@@ -414,7 +581,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
         onCancel={() => setVideoPreview({ open: false, url: '' })}
         footer={null}
         width={800}
-        destroyOnClose
+        destroyOnHidden
       >
         <video
           src={videoPreview.url}

@@ -606,3 +606,55 @@ func (h *FileHandler) Move(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "移动成功"})
 }
+
+type batchRequest struct {
+	IDs      []uint `json:"ids" binding:"required,min=1"`
+	ParentID uint   `json:"parent_id"` // 批量移动目标文件夹；0 表示根目录
+}
+
+// BatchDelete POST /api/files/batch/delete —— 批量删除文件/文件夹（含后代）。
+func (h *FileHandler) BatchDelete(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	var req batchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要删除的文件"})
+		return
+	}
+	if err := h.fileService.BatchDelete(userID, req.IDs); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
+}
+
+// BatchMove POST /api/files/batch/move —— 批量移动文件/文件夹到同一目标文件夹。
+func (h *FileHandler) BatchMove(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	var req batchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要移动的文件"})
+		return
+	}
+	if err := h.fileService.BatchMove(userID, req.IDs, req.ParentID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "移动成功"})
+}
+
+// BatchDownloadZip POST /api/files/batch/download —— 批量打包下载（zip 流式输出）。
+func (h *FileHandler) BatchDownloadZip(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	var req batchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要下载的文件"})
+		return
+	}
+	// zip 流式输出前必须先设置响应头（首次写入即 flush 头部，事后设置无效）
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape("批量下载.zip")))
+	if _, err := h.fileService.BatchDownloadZip(userID, req.IDs, c.Writer); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+}

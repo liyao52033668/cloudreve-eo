@@ -65,6 +65,13 @@ func InitDB(cfg *config.Config) error {
 		}
 	}
 
+	// Share 表新增 file_ids（多文件分享）：旧库补列，新分享写入该字段
+	if db.Migrator().HasTable(&Share{}) && !db.Migrator().HasColumn(&Share{}, "file_ids") {
+		if err := db.Migrator().AddColumn(&Share{}, "file_ids"); err != nil {
+			return fmt.Errorf("添加 shares.file_ids 字段失败: %w", err)
+		}
+	}
+
 	DB = db
 	return nil
 }

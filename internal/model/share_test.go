@@ -19,7 +19,8 @@ func TestShare_FieldsAndTags(t *testing.T) {
 	}{
 		{"ID", reflect.Uint, `primaryKey`, "id", nil},
 		{"UserID", reflect.Int64, `index;not null`, "user_id", nil},
-		{"FileID", reflect.Uint, `index;not null`, "file_id", nil},
+		{"FileIDs", reflect.String, `size:255;index`, "file_ids", nil},
+		{"FileID", reflect.Uint, `index`, "file_id", nil},
 		{"Code", reflect.String, `uniqueIndex;size:16;not null`, "code", nil},
 		{"Password", reflect.String, `size:16`, "-", nil},
 		{"ExpireAt", reflect.Ptr, "", "expire_at", expirePtrType},

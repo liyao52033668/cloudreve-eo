@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -88,8 +89,8 @@ func TestShareHandler_Create_Returns201(t *testing.T) {
 	if !ok {
 		t.Fatalf("share missing: %v", resp)
 	}
-	if share["file_id"] != float64(file.ID) {
-		t.Errorf("file_id = %v, want %d", share["file_id"], file.ID)
+	if share["file_ids"] != strconv.FormatUint(uint64(file.ID), 10) {
+		t.Errorf("file_ids = %v, want %d", share["file_ids"], file.ID)
 	}
 	code, _ := share["code"].(string)
 	if len(code) != 8 {
@@ -169,10 +170,14 @@ func TestShareHandler_Get_Returns200(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("json: %v", err)
 	}
-	if resp["share"] == nil || resp["file"] == nil {
-		t.Fatalf("missing share/file: %v", resp)
+	if resp["share"] == nil || resp["files"] == nil {
+		t.Fatalf("missing share/files: %v", resp)
 	}
-	fileObj := resp["file"].(map[string]any)
+	files := resp["files"].([]any)
+	if len(files) != 1 {
+		t.Fatalf("files length = %d, want 1", len(files))
+	}
+	fileObj := files[0].(map[string]any)
 	if fileObj["name"] != "c.txt" {
 		t.Errorf("file.name = %v", fileObj["name"])
 	}

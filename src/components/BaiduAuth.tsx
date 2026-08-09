@@ -103,7 +103,7 @@ export default function BaiduAuth({ policyId, open, onClose, onAuthorized }: Pro
       onCancel={onClose}
       footer={<Button onClick={onClose}>关闭</Button>}
       width={560}
-      destroyOnClose
+      destroyOnHidden
     >
       <Paragraph type="secondary">
         {mode === 'redirect'
