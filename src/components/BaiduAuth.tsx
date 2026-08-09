@@ -23,7 +23,6 @@ export default function BaiduAuth({ policyId, open, onClose, onAuthorized }: Pro
   const [submitting, setSubmitting] = useState(false)
   const [loadingUrl, setLoadingUrl] = useState(false)
   const [autoPending, setAutoPending] = useState(false)
-  const popupRef = useRef<Window | null>(null)
   const doneRef = useRef(false)
 
   const loadAuthUrl = useCallback(async () => {
@@ -73,7 +72,9 @@ export default function BaiduAuth({ policyId, open, onClose, onAuthorized }: Pro
 
   const openAuthPage = () => {
     if (!authUrl) return
-    popupRef.current = window.open(authUrl, '_blank', 'width=640,height=720')
+    // 不带窗口特性参数：按浏览器默认行为开新标签页（而非独立新窗口）；
+    // 保留 window.opener，授权完成后回调落地页可 postMessage 自动通知本弹窗。
+    window.open(authUrl, '_blank')
     if (mode === 'redirect') setAutoPending(true)
   }
 
@@ -107,7 +108,7 @@ export default function BaiduAuth({ policyId, open, onClose, onAuthorized }: Pro
       <Paragraph type="secondary">
         {mode === 'redirect'
           ? '点击下方按钮打开百度授权页，用百度账号登录或扫码完成授权。授权成功后将自动跳回本站并完成授权，无需手动操作；若自动跳转未生效，也可在下方手动粘贴授权码。'
-          : '在新窗口打开百度授权页，使用百度账号登录或扫码完成授权；授权成功后页面会直接展示授权码（code），将其复制粘贴到下方提交。'}
+          : '在新标签页打开百度授权页，使用百度账号登录或扫码完成授权；授权成功后页面会直接展示授权码（code），将其复制粘贴到下方提交。'}
       </Paragraph>
       <Paragraph type="secondary">
         当前为 {mode === 'redirect' ? '回调地址模式（自动）' : 'oob 模式（手动回填授权码）'}，由策略的「回调地址」是否填写决定。
@@ -115,13 +116,8 @@ export default function BaiduAuth({ policyId, open, onClose, onAuthorized }: Pro
 
       {authUrl ? (
         <Space direction="vertical" style={{ width: '100%' }}>
-          <iframe
-            src={authUrl}
-            title="百度网盘授权页"
-            style={{ width: '100%', height: 320, border: '1px solid #f0f0f0', borderRadius: 8 }}
-          />
           <Button type="primary" onClick={openAuthPage}>
-            新窗口打开授权页
+            新标签页打开授权页
           </Button>
           {autoPending && (
             <Alert type="info" showIcon message="等待授权完成…授权后会自动跳回本站，请勿关闭本弹窗" />
