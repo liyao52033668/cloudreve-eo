@@ -68,28 +68,18 @@ func TestNewBaiduDriverValidation(t *testing.T) {
 	}
 }
 
-func TestNormalizeBaiduRootDir(t *testing.T) {
-	cases := map[string]string{
-		"":        "/apps/cloudreve-eo",
-		"mydir":   "/mydir",
-		"/mydir/": "/mydir",
-		"a/b/":    "/a/b",
-	}
-	for in, want := range cases {
-		if got := normalizeBaiduRootDir(in); got != want {
-			t.Errorf("normalizeBaiduRootDir(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestBaiduRootPath(t *testing.T) {
 	d := newBaiduTestDriver(t, validTokenJSON())
-	d.rootDir = "/apps/cloudreve-eo"
-	if got := d.rootPath("123/abc.jpg"); got != "/apps/cloudreve-eo/123/abc.jpg" {
+	// key 已由 buildStorageKey 拼上 base_path（如 cloudreve/1/xxx），
+	// rootPath 只补前导斜杠，不得重复拼前缀。
+	if got := d.rootPath("cloudreve/123/abc.jpg"); got != "/cloudreve/123/abc.jpg" {
 		t.Errorf("rootPath = %q", got)
 	}
-	if got := d.rootPath("/123/abc.jpg"); got != "/apps/cloudreve-eo/123/abc.jpg" {
+	if got := d.rootPath("/cloudreve/123/abc.jpg"); got != "/cloudreve/123/abc.jpg" {
 		t.Errorf("rootPath 带前导斜杠 = %q", got)
+	}
+	if got := d.rootPath("123/abc.jpg"); got != "/123/abc.jpg" {
+		t.Errorf("rootPath 无 base_path = %q", got)
 	}
 }
 

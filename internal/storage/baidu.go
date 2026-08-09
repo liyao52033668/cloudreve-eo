@@ -38,8 +38,6 @@ const (
 	baiduUploadHostCacheTTL = 1 * time.Hour
 	// token 剩余有效期低于该值时自动刷新（旧 token 刷新后 10 秒内仍可用，安全重叠）。
 	baiduRefreshAhead = 30 * time.Minute
-	// 默认存储根目录（网盘根目录下），避免污染用户网盘。
-	baiduDefaultRootDir = "/apps/cloudreve-eo"
 
 	// 开放平台限流：令牌桶 30 req/s（突发 60），429 时指数退避重试。
 	baiduRatePerSecond = 30.0
@@ -60,8 +58,7 @@ type BaiduToken struct {
 type BaiduDriver struct {
 	clientID     string
 	clientSecret string
-	redirectURI  string // 应用回调地址，须与开放平台配置一致
-	rootDir      string // 网盘内存储根目录，如 /apps/cloudreve-eo
+	redirectURI string // 应用回调地址，须与开放平台配置一致
 
 	// 服务地址（单测可替换为 httptest 服务器）。
 	authURL string
@@ -97,7 +94,8 @@ type BaiduDriver struct {
 
 // NewBaiduDriver 创建百度网盘驱动。
 // endpoint 复用为 OAuth 回调地址（redirect_uri，可空走默认 oob）；
-// basePath 复用为网盘内存储根目录；tokenJSON 为已授权凭据（可空，待授权）。
+// basePath 不在此使用——key 已由 FileService.buildStorageKey 拼上 base_path，
+// 驱动不得再拼，否则前缀重复（与 GitHub 驱动约定一致）；tokenJSON 为已授权凭据（可空，待授权）。
 func NewBaiduDriver(clientID, clientSecret, endpoint, basePath, tokenJSON string) (*BaiduDriver, error) {
 	if clientID == "" {
 		return nil, fmt.Errorf("百度网盘 AppKey 不能为空")
@@ -107,15 +105,14 @@ func NewBaiduDriver(clientID, clientSecret, endpoint, basePath, tokenJSON string
 	}
 
 	d := &BaiduDriver{
-		clientID:     clientID,
+		clientID:    clientID,
 		clientSecret: clientSecret,
-		redirectURI:  strings.TrimSpace(endpoint),
-		rootDir:      normalizeBaiduRootDir(basePath),
-		authURL:      baiduAuthURL,
-		panURL:       baiduPanURL,
-		pcsURL:       baiduPCSURL,
-		limiter:      newBaiduLimiter(baiduRatePerSecond, baiduRateBurst),
-		dlinkCache:   make(map[string]baiduDlinkEntry),
+		redirectURI: strings.TrimSpace(endpoint),
+		authURL:     baiduAuthURL,
+		panURL:      baiduPanURL,
+		pcsURL:      baiduPCSURL,
+		limiter:     newBaiduLimiter(baiduRatePerSecond, baiduRateBurst),
+		dlinkCache:  make(map[string]baiduDlinkEntry),
 		// 分片上传单片 4MB、单文件可能数 GB，整体超时放宽到 30 分钟
 		client: &http.Client{Timeout: 30 * time.Minute},
 	}
@@ -132,16 +129,6 @@ func NewBaiduDriver(clientID, clientSecret, endpoint, basePath, tokenJSON string
 	d.token = token
 	d.loaded = true
 	return d, nil
-}
-
-// normalizeBaiduRootDir 规范化网盘存储根目录：补全首部斜杠、去掉尾部斜杠。
-func normalizeBaiduRootDir(p string) string {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return baiduDefaultRootDir
-	}
-	p = strings.Trim(p, "/")
-	return "/" + p
 }
 
 // IsAuthorized 驱动是否已持有可用授权。
@@ -493,9 +480,15 @@ func firstNonEmpty(ss ...string) string {
 	return ""
 }
 
-// rootPath 将相对 key 拼到存储根目录下（/apps/cloudreve-eo/xxx）。
+// rootPath 将对象键转为网盘绝对路径（补前导斜杠）。
+// 注意：key 已由 FileService.buildStorageKey 拼上策略 base_path，此处不得再拼，
+// 否则前缀重复（如 cloudreve/cloudreve/xxx）——与 GitHub 驱动的约定一致。
 func (d *BaiduDriver) rootPath(key string) string {
-	return d.rootDir + "/" + strings.TrimPrefix(strings.TrimSpace(key), "/")
+	k := strings.TrimSpace(key)
+	if strings.HasPrefix(k, "/") {
+		return k
+	}
+	return "/" + k
 }
 
 // ensureParentDirs 逐级 mkdir 保证文件父目录存在（method=create 不会自动建目录）。
@@ -580,12 +573,18 @@ func (d *BaiduDriver) locateUploadHost(ctx context.Context, fullPath, uploadID s
 	if err := json.Unmarshal(raw, &res); err != nil || res.Host == "" {
 		return "", fmt.Errorf("locateupload 未返回上传域名")
 	}
+	// 百度返回裸域名（如 c.pcs.baidu.com），需补 https:// 协议头，
+	// 否则拼接出的 URL 无 scheme 导致 "unsupported protocol scheme"。
+	host := res.Host
+	if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+		host = "https://" + host
+	}
 
 	d.hostMu.Lock()
-	d.uploadHost = res.Host
+	d.uploadHost = host
 	d.hostAt = time.Now()
 	d.hostMu.Unlock()
-	return res.Host, nil
+	return host, nil
 }
 
 // UploadFile 分片上传：precreate → 逐片 superfile2 → create 合并。
