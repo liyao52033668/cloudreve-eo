@@ -31,7 +31,7 @@ export interface StoragePolicyAdmin {
   is_default: boolean
   default_quota: number
   created_at?: string
-  /** 仅 TeraBox：是否已完成 OAuth 授权 */
+  /** 仅 TeraBox / 百度网盘：是否已完成 OAuth 授权 */
   authorized?: boolean
 }
 
@@ -39,7 +39,7 @@ export interface StoragePolicyAdmin {
 export interface StoragePolicyDetail {
   id: number
   name: string
-  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu'
   endpoint: string
   region: string
   bucket: string
@@ -56,7 +56,7 @@ export interface StoragePolicyDetail {
 
 export interface PolicyForm {
   name: string
-  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu'
   endpoint: string
   region: string
   bucket: string
@@ -122,3 +122,14 @@ export const getTeraBoxAuthStatus = (id: number) =>
   client.post<{ status: 'pending' | 'authorized' | 'expired' | 'error' | 'no_session'; error?: string; message?: string }>(
     `/admin/storage/policies/${id}/terabox/auth-status`,
   )
+
+// ============ 百度网盘 OAuth 授权 ============
+
+/** 获取网页授权地址（qrcode=1 扫码模式）。
+ * mode=oob：code 展示在页面手动回填；mode=redirect：授权后跳回本站回调自动完成。 */
+export const getBaiduAuthURL = (id: number) =>
+  client.get<{ auth_url: string; mode: 'oob' | 'redirect' }>(`/admin/storage/policies/${id}/baidu/auth-url`)
+
+/** 用授权码（code）换取 token */
+export const baiduAuthByCode = (id: number, code: string) =>
+  client.post(`/admin/storage/policies/${id}/baidu/auth-code`, { code })

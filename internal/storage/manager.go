@@ -21,7 +21,7 @@ import (
 type PolicyInfo struct {
 	ID             uint   `json:"id,omitempty"`
 	Name           string `json:"name"`
-	Type           string `json:"type"` // s3 / github / terabox
+	Type           string `json:"type"` // s3 / github / terabox / filen / dropbox / baidu
 	Bucket         string `json:"bucket,omitempty"`
 	Endpoint       string `json:"endpoint,omitempty"`
 	Region         string `json:"region,omitempty"`
@@ -34,7 +34,7 @@ type PolicyInfo struct {
 	ChunkSize    int64 `json:"chunk_size"`
 	IsDefault    bool  `json:"is_default"`
 	DefaultQuota int64 `json:"default_quota"`
-	// Authorized 仅 TeraBox 类型：是否已完成 OAuth 授权。
+	// Authorized 仅 TeraBox / 百度网盘类型：是否已完成 OAuth 授权。
 	Authorized bool `json:"authorized"`
 }
 
@@ -119,6 +119,29 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 				authorized = tb.IsAuthorized()
 			}
 			driver = tb
+		case "baidu":
+			var bd *BaiduDriver
+			bd, err = NewBaiduDriver(p.AccessKey, p.SecretKey, p.Endpoint, p.BasePath, p.OAuthToken)
+			if err == nil {
+				policyID := p.ID
+				// token 刷新后持久化回数据库，保证进程重启后仍可用
+				bd.onTokenRefreshed = func(token BaiduToken) {
+					raw, marshalErr := json.Marshal(token)
+					if marshalErr != nil {
+						return
+					}
+					if saveErr := model.SetStoragePolicyOAuthToken(policyID, string(raw)); saveErr != nil {
+						logx.Warn(logx.ModuleStorage, "保存百度网盘 token 失败", "policy", p.Name, "err", saveErr.Error())
+					}
+				}
+				// 百度 dlink 为临时短链：下载/预览 URL 指向带签名的服务端代理
+				mgr := m
+				bd.proxyURL = func(storageKey, attachment string) (string, error) {
+					return mgr.SignProxyURL(p.Name, storageKey, attachment, 30*time.Minute)
+				}
+				authorized = bd.IsAuthorized()
+			}
+			driver = bd
 		default: // s3
 			driver, err = NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle, p.CustomHost)
 		}

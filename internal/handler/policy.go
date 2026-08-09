@@ -15,10 +15,12 @@ import (
 // PolicyHandler 存储策略管理（管理员）与用户列表。
 type PolicyHandler struct {
 	mgr *storage.StoragePolicyManager
+	// secret 提供签名密钥（百度 OAuth state 防伪造用），JWT 轮转后自动跟随。
+	secret func() string
 }
 
-func NewPolicyHandler(mgr *storage.StoragePolicyManager) *PolicyHandler {
-	return &PolicyHandler{mgr: mgr}
+func NewPolicyHandler(mgr *storage.StoragePolicyManager, secret func() string) *PolicyHandler {
+	return &PolicyHandler{mgr: mgr, secret: secret}
 }
 
 // ListPublic GET /api/storage/policies —— 用户上传时选择，不含密钥。
@@ -49,7 +51,7 @@ type adminPolicyView struct {
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
 	CreatedAt      string `json:"created_at,omitempty"`
-	// Authorized 仅 TeraBox：是否已完成 OAuth 授权。
+	// Authorized 仅 TeraBox / 百度网盘：是否已完成 OAuth 授权。
 	Authorized bool `json:"authorized"`
 }
 
@@ -81,7 +83,7 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		IsDefault:      p.IsDefault,
 		DefaultQuota:   p.DefaultQuota,
 		CreatedAt:      p.CreatedAt.Format("2006-01-02 15:04:05"),
-		Authorized:     p.Type == "terabox" && p.OAuthToken != "",
+		Authorized:     (p.Type == "terabox" || p.Type == "baidu") && p.OAuthToken != "",
 	}
 }
 
@@ -120,7 +122,7 @@ func (h *PolicyHandler) GetAdmin(c *gin.Context) {
 
 type policyBody struct {
 	Name           string `json:"name" binding:"required,min=1,max=64"`
-	Type           string `json:"type"` // s3 / github / terabox
+	Type           string `json:"type"` // s3 / github / terabox / filen / dropbox / baidu
 	Endpoint       string `json:"endpoint"`
 	Region         string `json:"region"`
 	Bucket         string `json:"bucket"`
@@ -189,6 +191,15 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 	case "dropbox":
 		if req.SecretKey == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Dropbox Access Token 不能为空"})
+			return
+		}
+	case "baidu":
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "百度网盘 AppKey 不能为空"})
+			return
+		}
+		if req.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "百度网盘 SecretKey 不能为空"})
 			return
 		}
 	default: // s3
@@ -304,6 +315,12 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		// SecretKey（密码）在编辑时可以为空（表示不修改）
 	case "dropbox":
 		// SecretKey（Access Token）在编辑时可以为空（表示不修改）
+	case "baidu":
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "百度网盘 AppKey 不能为空"})
+			return
+		}
+		// SecretKey 在编辑时可以为空（表示不修改）
 	default: // s3
 		policyType = "s3"
 		if req.Endpoint == "" {

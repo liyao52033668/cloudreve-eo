@@ -45,6 +45,7 @@ import {
 import { getProfile } from '../api/user'
 import AppHeader from '../components/AppHeader'
 import TeraBoxAuth from '../components/TeraBoxAuth'
+import BaiduAuth from '../components/BaiduAuth'
 
 const { Content } = Layout
 const { Paragraph } = Typography
@@ -83,6 +84,7 @@ function formatBytes(n: number): string {
 /** 非 S3/GitHub 存储类型的服务商官网，在存储类型选择下方显示。 */
 const officialSites: Record<string, { label: string; url: string }> = {
   terabox: { label: 'TeraBox 开放平台', url: 'https://www.terabox.com' },
+  baidu: { label: '百度网盘开放平台', url: 'https://pan.baidu.com/union/console/app' },
   filen: { label: 'Filen', url: 'https://filen.io/r/2b8a482d566c14ebef8f7c634d9a42ea' },
   dropbox: { label: 'Dropbox Developers', url: 'https://www.dropbox.com/referrals/AAAPux-KYGhTqYV8Jfes9AZXxj53M4oeAcA?src=global9' },
 }
@@ -95,26 +97,28 @@ export default function StoragePolicies() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null; chunk_size_mib?: number | null }>()
-  const [policyType, setPolicyType] = useState<'s3' | 'github' | 'terabox' | 'filen' | 'dropbox'>('s3')
+  const [policyType, setPolicyType] = useState<'s3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu'>('s3')
   const [filterType, setFilterType] = useState<string | undefined>(undefined)
   const [searchKeyword, setSearchKeyword] = useState('')
-  const [authPolicyId, setAuthPolicyId] = useState<number | null>(null)
+  const [authTarget, setAuthTarget] = useState<{ id: number; type: string } | null>(null)
 
   const typeLabel = (t: string) =>
     t === 'github'
       ? 'GitHub'
       : t === 'terabox'
         ? 'TeraBox'
-        : t === 'filen'
-          ? 'Filen'
-          : t === 'dropbox'
-            ? 'Dropbox'
-            : 'S3 兼容'
+        : t === 'baidu'
+          ? '百度网盘'
+          : t === 'filen'
+            ? 'Filen'
+            : t === 'dropbox'
+              ? 'Dropbox'
+              : 'S3 兼容'
 
   // 分类选项只包含已添加的存储类型
   const categoryOptions = useMemo(() => {
     const present = Array.from(new Set(policies.map((p) => p.type || 's3')))
-    const order = (t: string) => (t === 'github' ? 1 : t === 'terabox' ? 2 : t === 'filen' ? 3 : t === 'dropbox' ? 4 : 0)
+    const order = (t: string) => (t === 'github' ? 1 : t === 'terabox' ? 2 : t === 'baidu' ? 3 : t === 'filen' ? 4 : t === 'dropbox' ? 5 : 0)
     return present.sort((a, b) => order(a) - order(b)).map((t) => ({ label: typeLabel(t), value: t }))
   }, [policies])
 
@@ -197,8 +201,8 @@ export default function StoragePolicies() {
         name: p.name,
         type: p.type || 's3',
         endpoint: p.endpoint,
-        // terabox 的 region 复用为 Private Secret，filen/dropbox 不使用 region；编辑时留空表示不修改
-        region: p.type === 'terabox' || p.type === 'filen' || p.type === 'dropbox' ? '' : p.region || 'us-east-1',
+        // terabox 的 region 复用为 Private Secret，filen/dropbox/baidu 不使用 region；编辑时留空表示不修改
+        region: p.type === 'terabox' || p.type === 'filen' || p.type === 'dropbox' || p.type === 'baidu' ? '' : p.region || 'us-east-1',
         bucket: p.bucket,
         access_key: p.access_key,
         secret_key: '', // 留空表示不修改
@@ -230,7 +234,7 @@ export default function StoragePolicies() {
         message.error('分片大小不能为负数')
         return
       }
-      if (values.type !== 'terabox' && values.type !== 'filen' && values.type !== 'dropbox' && chunkMib !== 0 && chunkMib < 5) {
+      if (values.type !== 'terabox' && values.type !== 'filen' && values.type !== 'dropbox' && values.type !== 'baidu' && chunkMib !== 0 && chunkMib < 5) {
         message.error('分片大小非 0 时至少为 5 MiB（S3 协议要求）')
         return
       }
@@ -252,7 +256,13 @@ export default function StoragePolicies() {
       }
       if (editingId == null) {
         if (!payload.secret_key) {
-          message.error(payload.type === 'terabox' ? '新建时 Client Secret 不能为空' : '新建时 Secret Key 不能为空')
+          message.error(
+            payload.type === 'terabox'
+              ? '新建时 Client Secret 不能为空'
+              : payload.type === 'baidu'
+                ? '新建时 SecretKey 不能为空'
+                : '新建时 Secret Key 不能为空',
+          )
           return
         }
         await createPolicy(payload)
@@ -322,7 +332,7 @@ export default function StoragePolicies() {
         <Space size={4}>
           <Tag>{typeLabel(t || 's3')}</Tag>
           {p.cors_enabled && <Tag color="green">CORS</Tag>}
-          {t === 'terabox' &&
+          {(t === 'terabox' || t === 'baidu') &&
             (p.authorized ? <Tag color="green">已授权</Tag> : <Tag color="orange">未授权</Tag>)}
         </Space>
       ),
@@ -349,7 +359,9 @@ export default function StoragePolicies() {
               ? '（Filen 根）'
               : p.type === 'dropbox'
                 ? '（Dropbox 根）'
-                : '（bucket 根）',
+                : p.type === 'baidu'
+                  ? '（网盘根目录）'
+                  : '（bucket 根）',
     },
     {
       title: '每用户配额',
@@ -381,12 +393,12 @@ export default function StoragePolicies() {
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(p.id)}>
             编辑
           </Button>
-          {p.type === 'terabox' && (
+          {(p.type === 'terabox' || p.type === 'baidu') && (
             <Button
               type="link"
               size="small"
               icon={<SafetyCertificateOutlined />}
-              onClick={() => setAuthPolicyId(p.id)}
+              onClick={() => setAuthTarget({ id: p.id, type: p.type })}
             >
               {p.authorized ? '重新授权' : '授权'}
             </Button>
@@ -448,8 +460,9 @@ export default function StoragePolicies() {
 
         <Paragraph type="secondary" style={{ marginBottom: 16 }}>
           在此添加多套互相独立的存储（S3 兼容：腾讯云 COS、阿里云 OSS、MinIO、Cloudflare R2；GitHub；TeraBox
-          开放平台；Filen 端到端加密网盘；Dropbox）。每套使用各自凭证与用户默认配额；上传时可任选其一。配置保存在数据库，修改后立即生效，无需环境变量与重启。
-          TeraBox 类型创建后需在列表中点击「授权」完成 OAuth 扫码/网页授权方可使用；Filen 填写账号邮箱与密码即可；Dropbox 填写
+          开放平台；百度网盘开放平台；Filen 端到端加密网盘；Dropbox）。每套使用各自凭证与用户默认配额；上传时可任选其一。配置保存在数据库，修改后立即生效，无需环境变量与重启。
+          TeraBox 类型创建后需在列表中点击「授权」完成 OAuth 扫码/网页授权方可使用；百度网盘填写开放平台 AppKey 与
+          SecretKey，创建后需在列表中点击「授权」完成 OAuth 授权方可使用；Filen 填写账号邮箱与密码即可；Dropbox 填写
           App Console 生成的 Access Token 即可。
         </Paragraph>
 
@@ -531,6 +544,7 @@ export default function StoragePolicies() {
               <Select.Option value="s3">S3 兼容存储</Select.Option>
               <Select.Option value="github">GitHub</Select.Option>
               <Select.Option value="terabox">TeraBox</Select.Option>
+              <Select.Option value="baidu">百度网盘</Select.Option>
               <Select.Option value="filen">Filen</Select.Option>
               <Select.Option value="dropbox">Dropbox</Select.Option>
             </Select>
@@ -561,6 +575,33 @@ export default function StoragePolicies() {
                 extra='TeraBox 分配的应用文件空间，形如 /From: Other Applications/应用名-应用ID/'
               >
                 <Input placeholder="/From: Other Applications/MyApp-123/" />
+              </Form.Item>
+            </>
+          )}
+
+          {policyType === 'baidu' && (
+            <>
+              <Form.Item
+                name="access_key"
+                label="AppKey"
+                rules={[{ required: true, message: '请输入 AppKey' }]}
+                extra="百度网盘开放平台应用的 AppKey"
+              >
+                <Input placeholder="AppKey" autoComplete="off" />
+              </Form.Item>
+              <Form.Item
+                name="endpoint"
+                label="回调地址"
+                extra={`OAuth 回调地址（redirect_uri），须与开放平台应用配置一致；本站可填 ${window.location.origin}/api/oauth/baidu/callback（授权后自动完成）。留空使用 oob 模式（授权后手动粘贴授权码）`}
+              >
+                <Input placeholder="https://example.com/callback 或留空" />
+              </Form.Item>
+              <Form.Item
+                name="base_path"
+                label="存储路径前缀"
+                extra="文件存储在网盘的该目录下，留空默认 /apps/cloudreve-eo"
+              >
+                <Input placeholder="apps/cloudreve-eo" allowClear />
               </Form.Item>
             </>
           )}
@@ -685,21 +726,23 @@ export default function StoragePolicies() {
                 ? 'GitHub Token'
                 : policyType === 'terabox'
                   ? 'Client Secret'
-                  : policyType === 'filen'
-                    ? 'Filen 密码'
-                    : policyType === 'dropbox'
-                      ? 'Access Token'
-                      : 'Secret Key'
+                  : policyType === 'baidu'
+                    ? 'SecretKey'
+                    : policyType === 'filen'
+                      ? 'Filen 密码'
+                      : policyType === 'dropbox'
+                        ? 'Access Token'
+                        : 'Secret Key'
             }
             rules={
               editingId == null
-                ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox Access Token' : '请输入 Secret Key' }]
+                ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'baidu' ? '请输入 SecretKey' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox Access Token' : '请输入 Secret Key' }]
                 : []
             }
             extra={editingId != null ? '留空表示不修改原密钥' : undefined}
           >
             <Input.Password
-              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox Access Token（App Console 生成）' : 'Secret Access Key')}
+              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'baidu' ? 'secret_key' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox Access Token（App Console 生成）' : 'Secret Access Key')}
               autoComplete="new-password"
             />
           </Form.Item>
@@ -746,13 +789,24 @@ export default function StoragePolicies() {
         </Form>
       </Modal>
 
-      {authPolicyId != null && (
+      {authTarget != null && authTarget.type === 'terabox' && (
         <TeraBoxAuth
-          policyId={authPolicyId}
-          open={authPolicyId != null}
-          onClose={() => setAuthPolicyId(null)}
+          policyId={authTarget.id}
+          open={authTarget != null}
+          onClose={() => setAuthTarget(null)}
           onAuthorized={() => {
-            setAuthPolicyId(null)
+            setAuthTarget(null)
+            load()
+          }}
+        />
+      )}
+      {authTarget != null && authTarget.type === 'baidu' && (
+        <BaiduAuth
+          policyId={authTarget.id}
+          open={authTarget != null}
+          onClose={() => setAuthTarget(null)}
+          onAuthorized={() => {
+            setAuthTarget(null)
             load()
           }}
         />

@@ -127,7 +127,7 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	shareHandler := handler.NewShareHandler(shareService)
 	userHandler := handler.NewUserHandler(storageMgr)
 	settingHandler := handler.NewSettingHandler(jwtSecrets)
-	policyHandler := handler.NewPolicyHandler(storageMgr)
+	policyHandler := handler.NewPolicyHandler(storageMgr, jwtSecrets.Get)
 	groupHandler := handler.NewGroupHandler()
 	adminUserHandler := handler.NewAdminUserHandler(storageMgr)
 
@@ -168,6 +168,9 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 
 	// 无外链直链存储（如 Filen）的代理下载：无登录态，URL 携带 HMAC 签名校验
 	r.GET("/files/proxy", fileHandler.ProxyDownload)
+
+	// 百度网盘 OAuth 回调（redirect_uri 固定路径，state 携带签名的策略 ID）
+	r.GET("/oauth/baidu/callback", policyHandler.BaiduOAuthCallback)
 
 	protected := r.Group("")
 	protected.Use(middleware.JWTAuth(jwtSecrets))
@@ -221,6 +224,9 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 				adminPolicies.POST("/:id/terabox/auth-code", policyHandler.TeraBoxAuthByCode)
 				adminPolicies.POST("/:id/terabox/devicecode", policyHandler.TeraBoxDeviceCode)
 				adminPolicies.POST("/:id/terabox/auth-status", policyHandler.TeraBoxAuthStatus)
+				// 百度网盘 OAuth 授权
+				adminPolicies.GET("/:id/baidu/auth-url", policyHandler.BaiduAuthURL)
+				adminPolicies.POST("/:id/baidu/auth-code", policyHandler.BaiduAuthByCode)
 			}
 
 			adminGroups := admin.Group("/admin/groups")

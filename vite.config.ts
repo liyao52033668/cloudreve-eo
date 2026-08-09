@@ -19,5 +19,19 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        // 拆分第三方依赖，避免单个 chunk 超过 500 kB 警告，并利用浏览器缓存；
+        // antd 体积过大，由 maxSize 进一步切成多个子 chunk
+        codeSplitting: {
+          groups: [
+            { name: 'icons', test: /[\\/]@ant-design[\\/]icons[\\/]/, priority: 30 },
+            { name: 'antd', test: /[\\/](antd|@ant-design)[\\/]/, priority: 20, maxSize: 400 * 1024 },
+            { name: 'react', test: /[\\/](react|react-dom|scheduler)[\\/]/, priority: 20 },
+            { name: 'vendor', test: /node_modules/, priority: 10 },
+          ],
+        },
+      },
+    },
   },
 })
