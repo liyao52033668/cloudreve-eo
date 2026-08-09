@@ -336,6 +336,44 @@ func (d *GitHubDriver) SetBucketCORS() error {
 	return fmt.Errorf("GitHub 存储不支持 CORS 配置")
 }
 
+// InitChunkedUpload GitHub Contents API 需整文件 base64 单次 PUT，无远端分片状态，
+// 各块缓冲到本地临时文件，complete 时整体提交。
+func (d *GitHubDriver) InitChunkedUpload(key string, size int64, blockMD5s []string) (string, bool, error) {
+	sweepStaleChunkBuffers()
+	uploadID, err := newChunkUploadID()
+	if err != nil {
+		return "", false, err
+	}
+	if err := createChunkBuffer(uploadID); err != nil {
+		return "", false, err
+	}
+	return uploadID, false, nil
+}
+
+// UploadChunk 按序追加一块到缓冲文件。
+func (d *GitHubDriver) UploadChunk(key string, uploadID string, partSeq int, offset int64, data []byte) (string, error) {
+	if err := appendChunkBuffer(uploadID, data); err != nil {
+		return "", err
+	}
+	return uploadID, nil
+}
+
+// CompleteChunkedUpload 读取缓冲文件整体提交到 GitHub。
+// Contents API 要求整文件 base64 单次 PUT，complete 时需整文件在内存（GitHub 单文件上限 100MB，有界）。
+func (d *GitHubDriver) CompleteChunkedUpload(key string, uploadID string, size int64, blockMD5s []string) error {
+	defer removeChunkBuffer(uploadID)
+	f, err := openChunkBuffer(uploadID)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	content, err := io.ReadAll(f)
+	if err != nil {
+		return fmt.Errorf("读取上传缓冲失败: %w", err)
+	}
+	return d.UploadFile(key, content)
+}
+
 // UploadFile 直接上传文件到 GitHub（服务端代理）。
 func (d *GitHubDriver) UploadFile(key string, content []byte) error {
 	path := d.buildPath(key)

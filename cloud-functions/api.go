@@ -186,6 +186,11 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		files.POST("/upload/multipart/resume", fileHandler.MultipartResume)
 		files.POST("/upload/multipart/complete", fileHandler.MultipartComplete)
 		files.POST("/upload/multipart/abort", fileHandler.MultipartAbort)
+		// 服务端中转分块上传（百度/TeraBox）：网关限单请求 body ≤6MB，
+		// 客户端切 5MB 块逐块提交，服务端逐块转发存储端 superfile2。
+		files.POST("/upload/chunked", fileHandler.ChunkedInit)
+		files.POST("/upload/chunked/chunk", fileHandler.ChunkedUploadChunk)
+		files.POST("/upload/chunked/complete", fileHandler.ChunkedComplete)
 		files.GET("/:id/download", fileHandler.Download)
 		files.GET("/:id/zip", fileHandler.DownloadDir)
 		files.DELETE("/:id", fileHandler.Delete)

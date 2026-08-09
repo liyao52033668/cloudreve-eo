@@ -108,11 +108,20 @@ func (h *FileHandler) Upload(c *gin.Context) {
 	if err != nil {
 		// 如果驱动不支持预签名 URL（如 GitHub），返回标志让前端用服务端上传
 		if strings.Contains(err.Error(), "不支持客户端直传") || strings.Contains(err.Error(), "服务端上传") {
-			c.JSON(http.StatusOK, gin.H{
+			resp := gin.H{
 				"server_upload":  true,
 				"storage_key":    key,
 				"storage_policy": policy,
-			})
+			}
+			// 驱动支持分块中转时（百度/TeraBox），告知前端大文件走分块通道，
+			// 避免整文件超过网关单次请求 body 上限（EdgeOne 为 6MB）。
+			if driver, derr := h.fileService.GetDriver(policy); derr == nil {
+				if _, ok := driver.(storage.ServerChunkedUploader); ok {
+					resp["chunked"] = true
+					resp["chunk_size"] = service.ServerChunkSize
+				}
+			}
+			c.JSON(http.StatusOK, resp)
 			return
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -197,6 +206,109 @@ func (h *FileHandler) UploadCallback(c *gin.Context) {
 	}
 
 	file, err := h.fileService.UploadCallback(userID, req.ParentID, req.FileName, req.StorageKey, req.Size, req.MimeType, req.StoragePolicy)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"file": file})
+}
+
+type chunkedInitRequest struct {
+	FileName      string   `json:"file_name" binding:"required"`
+	ContentType   string   `json:"content_type" binding:"required"`
+	StorageKey    string   `json:"storage_key" binding:"required"`
+	StoragePolicy string   `json:"storage_policy"`
+	Size          int64    `json:"size" binding:"required"`
+	ParentID      uint     `json:"parent_id"`
+	BlockMD5s     []string `json:"block_md5s" binding:"required"`
+}
+
+// ChunkedInit POST /api/files/upload/chunked —— 初始化服务端中转分块上传（百度/TeraBox）。
+func (h *FileHandler) ChunkedInit(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	var req chunkedInitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	contentType := req.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	session, err := h.fileService.InitChunkedUpload(userID, req.FileName, contentType, req.StorageKey, req.StoragePolicy, req.Size, req.ParentID, req.BlockMD5s)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"session": session})
+}
+
+// ChunkedUploadChunk POST /api/files/upload/chunked/chunk —— 上传单个块（multipart，单块 ≤5MB）。
+func (h *FileHandler) ChunkedUploadChunk(c *gin.Context) {
+	storageKey := c.PostForm("storage_key")
+	storagePolicy := c.PostForm("storage_policy")
+	uploadID := c.PostForm("upload_id") // Dropbox 首块时可为空（创建会话后经响应返回）
+	partSeqStr := c.PostForm("part_seq")
+	partSeq, err := strconv.Atoi(partSeqStr)
+	if err != nil || partSeq < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少或无效的 part_seq"})
+		return
+	}
+	if storageKey == "" || storagePolicy == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 storage_key/storage_policy"})
+		return
+	}
+	file, err := c.FormFile("chunk")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到块数据"})
+		return
+	}
+	src, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法打开块数据"})
+		return
+	}
+	defer src.Close()
+	data := make([]byte, file.Size)
+	if _, err := src.Read(data); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取块数据失败"})
+		return
+	}
+	nextUploadID, err := h.fileService.UploadServerChunk(storageKey, storagePolicy, uploadID, partSeq, data)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "upload_id": nextUploadID})
+}
+
+type chunkedCompleteRequest struct {
+	StorageKey    string   `json:"storage_key" binding:"required"`
+	StoragePolicy string   `json:"storage_policy" binding:"required"`
+	UploadID      string   `json:"upload_id" binding:"required"`
+	FileName      string   `json:"file_name" binding:"required"`
+	ContentType   string   `json:"content_type"`
+	Size          int64    `json:"size" binding:"required"`
+	ParentID      uint     `json:"parent_id"`
+	BlockMD5s     []string `json:"block_md5s" binding:"required"`
+}
+
+// ChunkedComplete POST /api/files/upload/chunked/complete —— 合并分块并创建文件记录。
+func (h *FileHandler) ChunkedComplete(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	var req chunkedCompleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	contentType := req.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	file, err := h.fileService.CompleteServerChunkedUpload(
+		userID, req.StorageKey, req.StoragePolicy, req.UploadID,
+		req.FileName, contentType, req.Size, req.ParentID, req.BlockMD5s,
+	)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

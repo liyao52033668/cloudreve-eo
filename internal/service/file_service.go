@@ -23,6 +23,11 @@ func NewFileService(mgr *storage.StoragePolicyManager) *FileService {
 	return &FileService{storageMgr: mgr}
 }
 
+// GetDriver 按策略名取驱动（handler 层探测驱动能力用）。
+func (s *FileService) GetDriver(policy string) (storage.StorageDriver, error) {
+	return s.storageMgr.GetDriver(policy)
+}
+
 // buildStorageKey 生成对象键：{basePath/}userID/uuid{.ext}，保留原文件扩展名便于在存储桶中识别与预览。
 func (s *FileService) buildStorageKey(userID int64, policy string, fileName string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(fileName))
@@ -278,6 +283,153 @@ func (s *FileService) UploadServer(userID int64, parentID uint, fileName, storag
 		return nil, err
 	}
 	return file, nil
+}
+
+// ServerChunkSize 服务端中转分块上传的块大小。
+// EdgeOne 网关限制单次请求 body ≤ 6MB，取 5MB 留出 multipart 头开销余量。
+const ServerChunkSize = 5 << 20
+
+// ServerChunkedSession 服务端中转分块上传会话（百度/TeraBox 等）。
+// 无状态设计：upload_id 由客户端持有并在每块/complete 请求中携带，
+// 不写 DB 会话（避免污染"未完成上传"列表，且该协议不支持按块查询恢复）。
+type ServerChunkedSession struct {
+	UploadID   string `json:"upload_id"`
+	StorageKey string `json:"storage_key"`
+	ChunkSize  int64  `json:"chunk_size"`
+	FastUpload bool   `json:"fast_upload"` // 秒传命中，无需传块
+}
+
+// InitChunkedUpload 初始化服务端中转分块上传。
+// storageKey/policy 沿用上传入口（getUploadURL）已解析的结果，保证策略与 key 一致；
+// blockMD5s 为客户端按 chunk_size 切块计算的各块 MD5。
+func (s *FileService) InitChunkedUpload(userID int64, fileName, contentType, storageKey, policy string, size int64, parentID uint, blockMD5s []string) (*ServerChunkedSession, error) {
+	if size < 0 {
+		return nil, errors.New("文件大小无效")
+	}
+	if storageKey == "" {
+		return nil, errors.New("缺少 storage_key")
+	}
+	partCount := int((size + ServerChunkSize - 1) / ServerChunkSize)
+	if partCount == 0 {
+		partCount = 1
+	}
+	if len(blockMD5s) != partCount {
+		return nil, fmt.Errorf("块 MD5 数量不匹配：期望 %d 个，收到 %d 个", partCount, len(blockMD5s))
+	}
+	resolved, err := s.resolveCallbackPolicy(userID, policy)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkQuota(userID, resolved, size); err != nil {
+		return nil, err
+	}
+	driver, err := s.storageMgr.GetDriver(resolved)
+	if err != nil {
+		return nil, err
+	}
+	uploader, ok := driver.(storage.ServerChunkedUploader)
+	if !ok {
+		return nil, errors.New("该存储不支持分块上传")
+	}
+
+	uploadID, fast, err := uploader.InitChunkedUpload(storageKey, size, blockMD5s)
+	if err != nil {
+		return nil, fmt.Errorf("预创建上传失败: %w", err)
+	}
+	if fast {
+		// 秒传命中：直接创建文件记录，无需传块
+		if _, err := s.createFileRecord(userID, parentID, fileName, storageKey, size, contentType, resolved, driver); err != nil {
+			return nil, err
+		}
+	}
+	return &ServerChunkedSession{
+		UploadID:   uploadID,
+		StorageKey: storageKey,
+		ChunkSize:  ServerChunkSize,
+		FastUpload: fast,
+	}, nil
+}
+
+// createFileRecord 创建文件记录并增加用户已用存储（上传成功后落库共用）。
+func (s *FileService) createFileRecord(userID int64, parentID uint, fileName, storageKey string, size int64, mimeType, policy string, driver storage.StorageDriver) (*model.File, error) {
+	file := &model.File{
+		UserID:        userID,
+		ParentID:      parentID,
+		Name:          fileName,
+		IsDir:         false,
+		Size:          size,
+		MimeType:      mimeType,
+		StorageKey:    storageKey,
+		StoragePolicy: policy,
+	}
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(file).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.User{}).Where("id = ?", userID).
+			Update("storage_used", gorm.Expr("storage_used + ?", size)).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		// 落库失败，尝试删除存储端文件避免孤儿对象
+		_ = driver.Delete(storageKey)
+		return nil, err
+	}
+	return file, nil
+}
+
+// UploadServerChunk 上传单个块（服务端转发给存储端）。
+// 无状态：upload_id 由客户端携带；返回后续块应继续使用的 upload_id
+//（Dropbox 首块创建会话后经此返回真实会话 ID）。
+// 单块 ≤5MB，满足网关单次请求 body ≤6MB 的限制。
+func (s *FileService) UploadServerChunk(storageKey, policy, uploadID string, partSeq int, data []byte) (string, error) {
+	if len(data) > ServerChunkSize {
+		return "", fmt.Errorf("块大小 %d 超过上限 %d", len(data), ServerChunkSize)
+	}
+	// uploadID 允许为空：Dropbox 首块时创建会话；其余驱动 Init 已返回会话 ID。
+	driver, err := s.storageMgr.GetDriver(policy)
+	if err != nil {
+		return "", err
+	}
+	uploader, ok := driver.(storage.ServerChunkedUploader)
+	if !ok {
+		return "", errors.New("该存储不支持分块上传")
+	}
+	offset := int64(partSeq) * ServerChunkSize
+	return uploader.UploadChunk(storageKey, uploadID, partSeq, offset, data)
+}
+
+// CompleteServerChunkedUpload 合并分块并创建文件记录。
+// 无状态：upload_id 与文件元数据由客户端携带。
+func (s *FileService) CompleteServerChunkedUpload(
+	userID int64, storageKey, policy, uploadID string,
+	fileName, contentType string, size int64, parentID uint,
+	blockMD5s []string,
+) (*model.File, error) {
+	if uploadID == "" {
+		return nil, errors.New("缺少 upload_id")
+	}
+	partCount := int((size + ServerChunkSize - 1) / ServerChunkSize)
+	if partCount == 0 {
+		partCount = 1
+	}
+	if len(blockMD5s) != partCount {
+		return nil, fmt.Errorf("块 MD5 数量不匹配：期望 %d 个，收到 %d 个", partCount, len(blockMD5s))
+	}
+	driver, err := s.storageMgr.GetDriver(policy)
+	if err != nil {
+		return nil, err
+	}
+	uploader, ok := driver.(storage.ServerChunkedUploader)
+	if !ok {
+		return nil, errors.New("该存储不支持分块上传")
+	}
+	if err := uploader.CompleteChunkedUpload(storageKey, uploadID, size, blockMD5s); err != nil {
+		return nil, fmt.Errorf("合并上传失败: %w", err)
+	}
+	return s.createFileRecord(userID, parentID, fileName, storageKey, size, contentType, policy, driver)
 }
 
 // checkQuota 校验用户新增 size 字节后是否超出配额。

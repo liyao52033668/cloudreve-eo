@@ -51,7 +51,15 @@ export const getUploadURL = (
   contentType: string,
   parentId: number = 0,
 ) =>
-  client.post<{ upload_url?: string; storage_key: string; storage_policy: string; server_upload?: boolean }>('/files/upload', {
+  client.post<{
+    upload_url?: string
+    storage_key: string
+    storage_policy: string
+    server_upload?: boolean
+    /** 驱动支持分块中转时为 true：大文件需切块走 /upload/chunked 通道 */
+    chunked?: boolean
+    chunk_size?: number
+  }>('/files/upload', {
     file_name: fileName,
     content_type: contentType,
     parent_id: parentId,
@@ -95,6 +103,81 @@ export const uploadCallback = (
     mime_type: mimeType,
     parent_id: parentId,
     storage_policy: storagePolicy,
+  })
+
+/** 服务端中转分块上传会话（百度/TeraBox，网关单请求 body ≤6MB） */
+export interface ChunkedSession {
+  upload_id: string
+  storage_key: string
+  chunk_size: number
+  /** 秒传命中：上传已完成，无需再传块 */
+  fast_upload: boolean
+}
+
+export const chunkedInit = (
+  fileName: string,
+  contentType: string,
+  storageKey: string,
+  storagePolicy: string,
+  size: number,
+  parentId: number,
+  blockMd5s: string[],
+) =>
+  client.post<{ session: ChunkedSession }>('/files/upload/chunked', {
+    file_name: fileName,
+    content_type: contentType,
+    storage_key: storageKey,
+    storage_policy: storagePolicy,
+    size,
+    parent_id: parentId,
+    block_md5s: blockMd5s,
+  })
+
+/** 提交单个块（multipart，单块 ≤5MB 满足网关 body 上限）。
+ * 无状态：upload_id/policy 由客户端携带。
+ * 返回 upload_id：Dropbox 首块创建会话后经此返回真实会话 ID，后续块须沿用。 */
+export const chunkedUploadChunk = (
+  storageKey: string,
+  storagePolicy: string,
+  uploadId: string,
+  partSeq: number,
+  chunk: Blob,
+  onProgress?: (loaded: number) => void,
+) => {
+  const formData = new FormData()
+  formData.append('chunk', chunk)
+  formData.append('storage_key', storageKey)
+  formData.append('storage_policy', storagePolicy)
+  formData.append('upload_id', uploadId)
+  formData.append('part_seq', partSeq.toString())
+  return client.post<{ ok: boolean; upload_id: string }>('/files/upload/chunked/chunk', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 0,
+    onUploadProgress: (e) => {
+      if (onProgress && e.loaded !== undefined) onProgress(e.loaded)
+    },
+  })
+}
+
+export const chunkedComplete = (
+  storageKey: string,
+  storagePolicy: string,
+  uploadId: string,
+  fileName: string,
+  contentType: string,
+  size: number,
+  parentId: number,
+  blockMd5s: string[],
+) =>
+  client.post('/files/upload/chunked/complete', {
+    storage_key: storageKey,
+    storage_policy: storagePolicy,
+    upload_id: uploadId,
+    file_name: fileName,
+    content_type: contentType,
+    size,
+    parent_id: parentId,
+    block_md5s: blockMd5s,
   })
 
 export interface MultipartSession {

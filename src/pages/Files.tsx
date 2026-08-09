@@ -12,6 +12,9 @@ import {
   getUploadURL,
   uploadCallback,
   uploadServer,
+  chunkedInit,
+  chunkedUploadChunk,
+  chunkedComplete,
   listStoragePolicies,
   initMultipartUpload,
   completeMultipartUpload,
@@ -24,6 +27,7 @@ import {
   type MultipartSession,
   type UploadSessionInfo,
 } from '../api/files'
+import SparkMD5 from 'spark-md5'
 import { getProfile } from '../api/user'
 import { isImage, isVideo } from '../utils/fileType'
 import { useNavigate } from 'react-router-dom'
@@ -256,6 +260,60 @@ export default function Files() {
       xhr.send(body)
     })
 
+  /** 按块计算文件各块 MD5（百度/TeraBox precreate 要求先给全部块 MD5） */
+  const computeChunkMD5s = async (file: File, chunkSize: number): Promise<string[]> => {
+    const count = Math.max(1, Math.ceil(file.size / chunkSize))
+    const md5s: string[] = []
+    for (let i = 0; i < count; i++) {
+      const start = i * chunkSize
+      const end = Math.min(start + chunkSize, file.size)
+      const buf = await file.slice(start, end).arrayBuffer()
+      md5s.push(SparkMD5.ArrayBuffer.hash(buf))
+    }
+    return md5s
+  }
+
+  /** 服务端中转分块上传：客户端切块逐块提交（每块 ≤5MB 满足网关 6MB 上限），
+   * 服务端逐块转发存储端 superfile2。百度/TeraBox 等不支持预签名直传且受网关 body 限制的存储用。 */
+  const uploadChunked = async (
+    file: File,
+    storageKey: string,
+    storagePolicy: string,
+    contentType: string,
+    parentId: number,
+    chunkSize: number,
+    onProgress: (percent: number) => void,
+  ) => {
+    const blockMd5s = await computeChunkMD5s(file, chunkSize)
+    const { data } = await chunkedInit(
+      file.name, contentType, storageKey, storagePolicy, file.size, parentId, blockMd5s,
+    )
+    const session = data.session
+    if (session.fast_upload) {
+      onProgress(100)
+      return
+    }
+    // 逐块提交（顺序提交，避免并发触发存储端限流；块数多时进度平滑）。
+    // uploadId 沿用块响应返回值：Dropbox 首块创建会话后经此返回真实会话 ID。
+    let uploadId = session.upload_id
+    let uploadedBytes = 0
+    for (let i = 0; i < blockMd5s.length; i++) {
+      const start = i * chunkSize
+      const end = Math.min(start + chunkSize, file.size)
+      const chunk = file.slice(start, end)
+      const res = await chunkedUploadChunk(storageKey, storagePolicy, uploadId, i, chunk, (loaded) => {
+        onProgress(file.size === 0 ? 100 : Math.round(((uploadedBytes + loaded) / file.size) * 100))
+      })
+      if (res.data.upload_id) uploadId = res.data.upload_id
+      uploadedBytes += end - start
+    }
+    await chunkedComplete(
+      storageKey, storagePolicy, uploadId,
+      file.name, contentType, file.size, parentId, blockMd5s,
+    )
+    onProgress(100)
+  }
+
   const uploadSimple = async (
     file: File,
     onProgress: (percent: number) => void,
@@ -266,8 +324,13 @@ export default function Files() {
 
     // 检查是否需要服务端上传（如 GitHub 存储）
     if (data.server_upload) {
-      await uploadServer(file, data.storage_key, contentType, parentId, data.storage_policy)
-      onProgress(100)
+      if (data.chunked) {
+        // 百度/TeraBox：网关限单请求 body ≤6MB，切块逐块提交
+        await uploadChunked(file, data.storage_key, data.storage_policy, contentType, parentId, data.chunk_size!, onProgress)
+      } else {
+        await uploadServer(file, data.storage_key, contentType, parentId, data.storage_policy)
+        onProgress(100)
+      }
       return
     }
 
@@ -379,8 +442,13 @@ export default function Files() {
       if (errMsg.includes('不支持客户端')) {
         const { data } = await getUploadURL(file.name, contentType, parentId)
         if (data.server_upload) {
-          await uploadServer(file, data.storage_key, contentType, parentId, data.storage_policy)
-          onProgress(100)
+          if (data.chunked) {
+            // 百度/TeraBox：网关限单请求 body ≤6MB，切块逐块提交
+            await uploadChunked(file, data.storage_key, data.storage_policy, contentType, parentId, data.chunk_size!, onProgress)
+          } else {
+            await uploadServer(file, data.storage_key, contentType, parentId, data.storage_policy)
+            onProgress(100)
+          }
           return
         }
       }

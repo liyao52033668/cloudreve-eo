@@ -48,5 +48,23 @@ type RangeReader interface {
 	ReadRange(key string, start, end int64) (io.ReadCloser, error)
 }
 
+// ServerChunkedUploader 驱动可选实现：服务端中转的分块上传。
+// 用于网关限制单次请求 body 的场景（如 EdgeOne 上限 6MB）：
+// 客户端把文件切成 ≤5MB 的块逐块提交，服务端逐块转发给存储，
+// 任何时刻函数内存中只持有一块，完整文件不整体经过网关。
+type ServerChunkedUploader interface {
+	// InitChunkedUpload 预创建上传。blockMD5s 为客户端计算的各块 MD5。
+	// fastUpload=true 表示上传已完成（秒传/空文件等），无需再传任何块。
+	// 部分存储（Dropbox）会话需首块数据才能创建，此时返回空 uploadID，
+	// 由首块请求创建会话并经返回值传回真实会话 ID。
+	InitChunkedUpload(key string, size int64, blockMD5s []string) (uploadID string, fastUpload bool, err error)
+	// UploadChunk 上传单个块；返回后续块应继续使用的 uploadID
+	//（Dropbox 首块返回真实 session ID；其余驱动原样返回）。
+	// offset 为本块在完整文件中的字节偏移（Dropbox 会话上传需要）。
+	UploadChunk(key string, uploadID string, partSeq int, offset int64, data []byte) (string, error)
+	// CompleteChunkedUpload 合并完成上传。
+	CompleteChunkedUpload(key string, uploadID string, size int64, blockMD5s []string) error
+}
+
 // ErrRangeNotSatisfiable Range 起始位置超出文件大小（handler 应返回 416）。
 var ErrRangeNotSatisfiable = errors.New("Range 超出文件大小")

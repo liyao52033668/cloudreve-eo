@@ -554,39 +554,10 @@ func (d *TeraBoxDriver) UploadFile(key string, content []byte) error {
 		sum := md5.Sum(content[start:end])
 		blockMD5s = append(blockMD5s, hex.EncodeToString(sum[:]))
 	}
-	blockListJSON, _ := json.Marshal(blockMD5s)
 
-	// 1. precreate
-	form := url.Values{}
-	form.Set("path", fullPath)
-	form.Set("autoinit", "1")
-	form.Set("block_list", string(blockListJSON))
-	raw, err := d.teraboxCall(ctx, http.MethodPost, "", "/openapi/api/precreate", nil, form)
-	if err != nil {
-		return fmt.Errorf("precreate 失败: %w", err)
-	}
-	var pre struct {
-		ReturnType int    `json:"return_type"`
-		UploadID   string `json:"uploadid"`
-		BlockList  []int  `json:"block_list"`
-		Path       string `json:"path"`
-		Info       struct {
-			Path string `json:"path"`
-		} `json:"info"`
-	}
-	if err := json.Unmarshal(raw, &pre); err != nil {
-		return fmt.Errorf("解析 precreate 响应失败: %w", err)
-	}
-	if pre.ReturnType == 2 {
-		// 云端秒传命中，上传已完成
-		logx.Info(logx.ModuleStorage, "TeraBox 秒传命中", "key", key)
-		return nil
-	}
-	if pre.UploadID == "" {
-		return fmt.Errorf("precreate 未返回 uploadid")
-	}
-	if len(pre.BlockList) == 0 {
-		pre.BlockList = []int{0}
+	uploadID, fast, err := d.InitChunkedUpload(key, int64(len(content)), blockMD5s)
+	if err != nil || fast {
+		return err
 	}
 
 	// 2. 逐片上传
@@ -598,7 +569,7 @@ func (d *TeraBoxDriver) UploadFile(key string, content []byte) error {
 	if err != nil {
 		return err
 	}
-	for _, seq := range pre.BlockList {
+	for seq := 0; seq < partCount; seq++ {
 		start := seq * partSize
 		if start > len(content) {
 			start = len(content)
@@ -607,16 +578,80 @@ func (d *TeraBoxDriver) UploadFile(key string, content []byte) error {
 		if end > len(content) {
 			end = len(content)
 		}
-		if err := d.uploadPart(ctx, uploadDomain, token, fullPath, pre.UploadID, seq, content[start:end]); err != nil {
+		if err := d.uploadPart(ctx, uploadDomain, token, fullPath, uploadID, seq, content[start:end]); err != nil {
 			return fmt.Errorf("上传分片 %d 失败: %w", seq, err)
 		}
 	}
 
 	// 3. create 合并
+	return d.CompleteChunkedUpload(key, uploadID, int64(len(content)), blockMD5s)
+}
+
+// InitChunkedUpload 预创建上传（precreate）。blockMD5s 为客户端计算的各块 MD5。
+// fastUpload=true 表示云端秒传命中，无需再传任何块。
+func (d *TeraBoxDriver) InitChunkedUpload(key string, size int64, blockMD5s []string) (string, bool, error) {
+	ctx, cancel := contextWithTimeout(60 * time.Second)
+	defer cancel()
+	fullPath := d.rootPath(key)
+
+	blockListJSON, _ := json.Marshal(blockMD5s)
+	form := url.Values{}
+	form.Set("path", fullPath)
+	form.Set("autoinit", "1")
+	form.Set("block_list", string(blockListJSON))
+	raw, err := d.teraboxCall(ctx, http.MethodPost, "", "/openapi/api/precreate", nil, form)
+	if err != nil {
+		return "", false, fmt.Errorf("precreate 失败: %w", err)
+	}
+	var pre struct {
+		ReturnType int    `json:"return_type"`
+		UploadID   string `json:"uploadid"`
+	}
+	if err := json.Unmarshal(raw, &pre); err != nil {
+		return "", false, fmt.Errorf("解析 precreate 响应失败: %w", err)
+	}
+	if pre.ReturnType == 2 {
+		// 云端秒传命中，上传已完成
+		logx.Info(logx.ModuleStorage, "TeraBox 秒传命中", "key", key)
+		return "", true, nil
+	}
+	if pre.UploadID == "" {
+		return "", false, fmt.Errorf("precreate 未返回 uploadid")
+	}
+	return pre.UploadID, false, nil
+}
+
+// UploadChunk 上传单个块（superfile2）。
+// offset 参数不使用（块序号已隐含偏移）；原样返回 uploadID。
+func (d *TeraBoxDriver) UploadChunk(key string, uploadID string, partSeq int, offset int64, data []byte) (string, error) {
+	ctx, cancel := contextWithTimeout(2 * time.Minute)
+	defer cancel()
+	fullPath := d.rootPath(key)
+	_, uploadDomain, err := d.domains()
+	if err != nil {
+		return "", err
+	}
+	token, err := d.currentToken()
+	if err != nil {
+		return "", err
+	}
+	if err := d.uploadPart(ctx, uploadDomain, token, fullPath, uploadID, partSeq, data); err != nil {
+		return "", err
+	}
+	return uploadID, nil
+}
+
+// CompleteChunkedUpload 合并完成上传（create）。
+func (d *TeraBoxDriver) CompleteChunkedUpload(key string, uploadID string, size int64, blockMD5s []string) error {
+	ctx, cancel := contextWithTimeout(60 * time.Second)
+	defer cancel()
+	fullPath := d.rootPath(key)
+	blockListJSON, _ := json.Marshal(blockMD5s)
+
 	createForm := url.Values{}
 	createForm.Set("path", fullPath)
-	createForm.Set("size", strconv.Itoa(len(content)))
-	createForm.Set("uploadid", pre.UploadID)
+	createForm.Set("size", strconv.FormatInt(size, 10))
+	createForm.Set("uploadid", uploadID)
 	createForm.Set("block_list", string(blockListJSON))
 	createForm.Set("rtype", "0")
 	if _, err := d.teraboxCall(ctx, http.MethodPost, "", "/openapi/api/create", nil, createForm); err != nil {

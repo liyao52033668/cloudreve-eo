@@ -135,6 +135,66 @@ func (d *DropboxDriver) uploadSession(fullPath string, content []byte) error {
 	return nil
 }
 
+// InitChunkedUpload Dropbox upload session 状态在 Dropbox 服务端，无需本地缓冲。
+// 会话需首块数据才能创建，故此处返回空 uploadID，由首块请求创建会话并经响应返回。
+// 空文件直接在 Init 时提交完成（fastUpload=true）。
+func (d *DropboxDriver) InitChunkedUpload(key string, size int64, blockMD5s []string) (string, bool, error) {
+	fullPath := d.dropboxPathOf(key)
+	if dir := path.Dir(fullPath); dir != "/" && dir != "." {
+		_, _ = d.client.CreateFolderV2(&files.CreateFolderArg{Path: dir})
+	}
+	if size == 0 {
+		// 空文件直接提交完成
+		if err := d.uploadSingle(fullPath, nil); err != nil {
+			return "", false, fmt.Errorf("Dropbox 上传失败: %w", err)
+		}
+		return "", true, nil
+	}
+	return "", false, nil
+}
+
+// UploadChunk Dropbox upload session 分块上传。
+// 首块（uploadID 为空）创建会话并返回真实 session ID；后续块按 offset 追加
+//（offset 正确性由 Dropbox 服务端校验，错误会返回 offset_mismatch）。
+func (d *DropboxDriver) UploadChunk(key string, uploadID string, partSeq int, offset int64, data []byte) (string, error) {
+	// Dropbox append/finish 只需 cursor（session ID + offset），无需 path。
+	if uploadID == "" {
+		// 首块：创建会话
+		startRes, err := d.client.UploadSessionStart(&files.UploadSessionStartArg{Close: false}, bytes.NewReader(data))
+		if err != nil {
+			return "", fmt.Errorf("创建上传会话失败: %w", err)
+		}
+		return startRes.SessionId, nil
+	}
+	// 后续块：追加（末块也用 append，finish 以空内容提交）
+	err := d.client.UploadSessionAppendV2(&files.UploadSessionAppendArg{
+		Cursor: &files.UploadSessionCursor{SessionId: uploadID, Offset: uint64(offset)},
+		Close:  false,
+	}, bytes.NewReader(data))
+	if err != nil {
+		return "", fmt.Errorf("追加上传块失败: %w", err)
+	}
+	return uploadID, nil
+}
+
+// CompleteChunkedUpload 以 offset=size 提交完成 Dropbox upload session。
+func (d *DropboxDriver) CompleteChunkedUpload(key string, uploadID string, size int64, blockMD5s []string) error {
+	fullPath := d.dropboxPathOf(key)
+	commit := &files.CommitInfo{
+		Path:       fullPath,
+		Mode:       &files.WriteMode{Tagged: dbx.Tagged{Tag: files.WriteModeOverwrite}},
+		Autorename: false,
+	}
+	if _, err := d.client.UploadSessionFinish(&files.UploadSessionFinishArg{
+		Cursor: &files.UploadSessionCursor{SessionId: uploadID, Offset: uint64(size)},
+		Commit: commit,
+	}, bytes.NewReader(nil)); err != nil {
+		return fmt.Errorf("完成上传会话失败: %w", err)
+	}
+	logx.Info(logx.ModuleStorage, "Dropbox 分块上传完成", "key", key, "size", size)
+	return nil
+}
+
 // GenerateUploadURL Dropbox 无预签名直传，走服务端上传。
 func (d *DropboxDriver) GenerateUploadURL(key string, contentType string, expire time.Duration) (string, error) {
 	return "", fmt.Errorf("Dropbox 存储不支持客户端直传，请使用服务端上传")

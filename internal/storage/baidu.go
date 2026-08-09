@@ -591,14 +591,6 @@ func (d *BaiduDriver) locateUploadHost(ctx context.Context, fullPath, uploadID s
 // UploadFile 分片上传：precreate → 逐片 superfile2 → create 合并。
 // 开放平台要求大文件必须分片上传，直接整体传会失败。
 func (d *BaiduDriver) UploadFile(key string, content []byte) error {
-	ctx, cancel := baiduContext(30 * time.Minute)
-	defer cancel()
-	fullPath := d.rootPath(key)
-
-	if err := d.ensureParentDirs(ctx, fullPath); err != nil {
-		return err
-	}
-
 	partSize := baiduPartSize
 	if count := (len(content) + partSize - 1) / partSize; count > baiduMaxParts {
 		// 超出分片数上限时加大分片（如 8GB → 8MB/片）
@@ -618,71 +610,106 @@ func (d *BaiduDriver) UploadFile(key string, content []byte) error {
 		sum := md5.Sum(content[start:end])
 		blockMD5s = append(blockMD5s, hex.EncodeToString(sum[:]))
 	}
-	blockListJSON, _ := json.Marshal(blockMD5s)
 
-	// 1. precreate
+	uploadID, fast, err := d.InitChunkedUpload(key, int64(len(content)), blockMD5s)
+	if err != nil || fast {
+		return err
+	}
+
+	ctx, cancel := baiduContext(30 * time.Minute)
+	defer cancel()
+	host, err := d.locateUploadHost(ctx, d.rootPath(key), uploadID)
+	if err != nil {
+		return err
+	}
+	for seq := 0; seq < partCount; seq++ {
+		start := seq * partSize
+		end := start + partSize
+		if end > len(content) {
+			end = len(content)
+		}
+		if err := d.uploadPart(ctx, host, d.rootPath(key), uploadID, seq, content[start:end]); err != nil {
+			return fmt.Errorf("上传分片 %d 失败: %w", seq, err)
+		}
+	}
+
+	return d.CompleteChunkedUpload(key, uploadID, int64(len(content)), blockMD5s)
+}
+
+// InitChunkedUpload 预创建上传（precreate）。blockMD5s 为客户端计算的各块 MD5。
+// fastUpload=true 表示云端秒传命中，无需再传任何块。
+func (d *BaiduDriver) InitChunkedUpload(key string, size int64, blockMD5s []string) (string, bool, error) {
+	ctx, cancel := baiduContext(60 * time.Second)
+	defer cancel()
+	fullPath := d.rootPath(key)
+
+	if err := d.ensureParentDirs(ctx, fullPath); err != nil {
+		return "", false, err
+	}
+
+	blockListJSON, _ := json.Marshal(blockMD5s)
 	form := url.Values{}
 	form.Set("path", fullPath)
-	form.Set("size", strconv.Itoa(len(content)))
+	form.Set("size", strconv.FormatInt(size, 10))
 	form.Set("isdir", "0")
 	form.Set("autoinit", "1")
 	form.Set("rtype", "3") // 同名覆盖（重试上传幂等）
 	form.Set("block_list", string(blockListJSON))
 	raw, err := d.baiduCall(ctx, http.MethodPost, d.panURL, baiduFileRoute, "precreate", nil, form)
 	if err != nil {
-		return fmt.Errorf("precreate 失败: %w", err)
+		return "", false, fmt.Errorf("precreate 失败: %w", err)
 	}
 	var pre struct {
 		ReturnType int    `json:"return_type"`
 		UploadID   string `json:"uploadid"`
-		BlockList  []int  `json:"block_list"`
 	}
 	if err := json.Unmarshal(raw, &pre); err != nil {
-		return fmt.Errorf("解析 precreate 响应失败: %w", err)
+		return "", false, fmt.Errorf("解析 precreate 响应失败: %w", err)
 	}
 	if pre.ReturnType == 2 {
-		// 云端秒传命中，上传已完成
 		logx.Info(logx.ModuleStorage, "百度网盘秒传命中", "key", key)
-		return nil
+		return "", true, nil
 	}
 	if pre.UploadID == "" {
-		return fmt.Errorf("precreate 未返回 uploadid")
+		return "", false, fmt.Errorf("precreate 未返回 uploadid")
 	}
-	if len(pre.BlockList) == 0 {
-		pre.BlockList = []int{0}
-	}
+	return pre.UploadID, false, nil
+}
 
-	// 2. 逐片上传 superfile2
-	host, err := d.locateUploadHost(ctx, fullPath, pre.UploadID)
+// UploadChunk 上传单个块（superfile2），带限流与重试。
+// offset 参数不使用（块序号已隐含偏移）；原样返回 uploadID。
+func (d *BaiduDriver) UploadChunk(key string, uploadID string, partSeq int, offset int64, data []byte) (string, error) {
+	ctx, cancel := baiduContext(2 * time.Minute)
+	defer cancel()
+	fullPath := d.rootPath(key)
+	host, err := d.locateUploadHost(ctx, fullPath, uploadID)
 	if err != nil {
-		return err
+		return "", err
 	}
-	for _, seq := range pre.BlockList {
-		start := seq * partSize
-		if start >= len(content) {
-			start = len(content)
-		}
-		end := start + partSize
-		if end > len(content) {
-			end = len(content)
-		}
-		if err := d.uploadPart(ctx, host, fullPath, pre.UploadID, seq, content[start:end]); err != nil {
-			return fmt.Errorf("上传分片 %d 失败: %w", seq, err)
-		}
+	if err := d.uploadPart(ctx, host, fullPath, uploadID, partSeq, data); err != nil {
+		return "", err
 	}
+	return uploadID, nil
+}
 
-	// 3. create 合并
+// CompleteChunkedUpload 合并完成上传（create）。
+func (d *BaiduDriver) CompleteChunkedUpload(key string, uploadID string, size int64, blockMD5s []string) error {
+	ctx, cancel := baiduContext(60 * time.Second)
+	defer cancel()
+	fullPath := d.rootPath(key)
+	blockListJSON, _ := json.Marshal(blockMD5s)
+
 	createForm := url.Values{}
 	createForm.Set("path", fullPath)
-	createForm.Set("size", strconv.Itoa(len(content)))
+	createForm.Set("size", strconv.FormatInt(size, 10))
 	createForm.Set("isdir", "0")
-	createForm.Set("uploadid", pre.UploadID)
+	createForm.Set("uploadid", uploadID)
 	createForm.Set("block_list", string(blockListJSON))
 	createForm.Set("rtype", "3")
 	if _, err := d.baiduCall(ctx, http.MethodPost, d.panURL, baiduFileRoute, "create", nil, createForm); err != nil {
 		return fmt.Errorf("create 合并失败: %w", err)
 	}
-	logx.Info(logx.ModuleStorage, "百度网盘上传完成", "key", key, "size", len(content), "parts", len(pre.BlockList))
+	logx.Info(logx.ModuleStorage, "百度网盘分块上传完成", "key", key, "size", size, "parts", len(blockMD5s))
 	return nil
 }
 

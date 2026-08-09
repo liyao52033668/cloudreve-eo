@@ -93,6 +93,11 @@ func (d *FilenDriver) filenPathOf(key string) string {
 
 // UploadFile 通过 SDK 分片加密上传。
 func (d *FilenDriver) UploadFile(key string, content []byte) error {
+	return d.uploadFromReader(key, bytes.NewReader(content))
+}
+
+// uploadFromReader 从流式读取并分块加密上传（内存峰值由 SDK 控制在单块）。
+func (d *FilenDriver) uploadFromReader(key string, reader io.Reader) error {
 	ctx, cancel := filenCtx(20 * time.Minute)
 	defer cancel()
 	client, err := d.ensureClient(ctx)
@@ -122,12 +127,45 @@ func (d *FilenDriver) UploadFile(key string, content []byte) error {
 		return fmt.Errorf("初始化上传任务失败: %w", err)
 	}
 
-	if _, err := client.UploadFromReader(ctx, incomplete, bytes.NewReader(content)); err != nil {
+	if _, err := client.UploadFromReader(ctx, incomplete, reader); err != nil {
 		logx.Error(logx.ModuleStorage, "Filen 上传失败", logx.Err(err), "key", key)
 		return err
 	}
 	logx.Info(logx.ModuleStorage, "Filen 文件已上传", "key", key)
 	return nil
+}
+
+// InitChunkedUpload Filen SDK 从流读取并自行切块加密，无远端分片状态，
+// 各块缓冲到本地临时文件，complete 时流式提交。
+func (d *FilenDriver) InitChunkedUpload(key string, size int64, blockMD5s []string) (string, bool, error) {
+	sweepStaleChunkBuffers()
+	uploadID, err := newChunkUploadID()
+	if err != nil {
+		return "", false, err
+	}
+	if err := createChunkBuffer(uploadID); err != nil {
+		return "", false, err
+	}
+	return uploadID, false, nil
+}
+
+// UploadChunk 按序追加一块到缓冲文件。
+func (d *FilenDriver) UploadChunk(key string, uploadID string, partSeq int, offset int64, data []byte) (string, error) {
+	if err := appendChunkBuffer(uploadID, data); err != nil {
+		return "", err
+	}
+	return uploadID, nil
+}
+
+// CompleteChunkedUpload 打开缓冲文件流式提交（内存峰值为 SDK 单块）。
+func (d *FilenDriver) CompleteChunkedUpload(key string, uploadID string, size int64, blockMD5s []string) error {
+	defer removeChunkBuffer(uploadID)
+	f, err := openChunkBuffer(uploadID)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return d.uploadFromReader(key, f)
 }
 
 // GenerateUploadURL Filen 无预签名直传，走服务端上传。
