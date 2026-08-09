@@ -544,9 +544,9 @@ export default function StoragePolicies() {
               <Select.Option value="s3">S3 兼容存储</Select.Option>
               <Select.Option value="github">GitHub</Select.Option>
               <Select.Option value="terabox">TeraBox</Select.Option>
-              <Select.Option value="baidu">百度网盘</Select.Option>
               <Select.Option value="filen">Filen</Select.Option>
               <Select.Option value="dropbox">Dropbox</Select.Option>
+              <Select.Option value="baidu">百度网盘</Select.Option>
             </Select>
           </Form.Item>
 

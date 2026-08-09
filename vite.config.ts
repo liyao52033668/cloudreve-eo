@@ -21,12 +21,14 @@ export default defineConfig({
     emptyOutDir: true,
     rolldownOptions: {
       output: {
-        // 拆分第三方依赖，避免单个 chunk 超过 500 kB 警告，并利用浏览器缓存；
-        // antd 体积过大，由 maxSize 进一步切成多个子 chunk
+        // 拆分第三方依赖，利用浏览器缓存。
+        // 注意：antd 不要用 maxSize 强拆成多个子 chunk——antd 内部模块相互引用，
+        // 强拆会产生 chunk 间循环依赖，导致生产环境 "r is not a function"
+        // 初始化顺序错误（dev 不打包所以无法发现）。antd 保持单 chunk。
         codeSplitting: {
           groups: [
             { name: 'icons', test: /[\\/]@ant-design[\\/]icons[\\/]/, priority: 30 },
-            { name: 'antd', test: /[\\/](antd|@ant-design)[\\/]/, priority: 20, maxSize: 400 * 1024 },
+            { name: 'antd', test: /[\\/](antd|@ant-design)[\\/]/, priority: 20 },
             { name: 'react', test: /[\\/](react|react-dom|scheduler)[\\/]/, priority: 20 },
             { name: 'vendor', test: /node_modules/, priority: 10 },
           ],
