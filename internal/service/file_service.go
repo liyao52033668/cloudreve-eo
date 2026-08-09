@@ -562,19 +562,47 @@ func (s *FileService) GetDownloadURL(userID int64, fileID uint, preview bool) (s
 	return driver.GenerateDownloadURL(file.StorageKey, attachmentName, 30*time.Minute)
 }
 
-// ProxyRead 校验代理下载 URL 签名后，返回文件内容流与 MIME 类型。
-// 供无外链直链的存储（如 Filen）经服务端中转下载/预览，调用方负责关闭返回的流。
-func (s *FileService) ProxyRead(policy, storageKey, attachment, exp, sig string) (io.ReadCloser, string, error) {
+// ProxyRead 校验代理下载 URL 签名后，返回文件内容流、MIME 类型与文件总大小。
+// 供无外链直链的存储（如 Filen / 百度网盘）经服务端中转下载/预览，调用方负责关闭返回的流。
+// start/end 为闭区间字节范围（0,-1 表示整文件）：驱动支持 RangeReader 时按段读取，
+// 返回 ranged=true；不支持时忽略范围整文件读取（HTTP 语义上以 200 响应即可）。
+// 大小为 -1 表示查询失败/未知。
+func (s *FileService) ProxyRead(policy, storageKey, attachment, exp, sig string, start, end int64) (io.ReadCloser, string, int64, bool, error) {
 	if err := s.storageMgr.VerifyProxyURL(policy, storageKey, attachment, exp, sig); err != nil {
-		return nil, "", err
+		return nil, "", -1, false, err
 	}
 	driver, err := s.storageMgr.GetDriver(policy)
 	if err != nil {
-		return nil, "", err
+		return nil, "", -1, false, err
 	}
-	rc, err := driver.Read(storageKey)
+
+	// 后缀范围（bytes=-N，start 为负的 suffix）需先查大小换算
+	if start < 0 {
+		if size, serr := driver.GetSize(storageKey); serr == nil && size > 0 {
+			start = size + start
+			if start < 0 {
+				start = 0
+			}
+			end = size - 1
+		} else {
+			start, end = 0, -1 // 大小未知，回退整文件
+		}
+	}
+
+	wantRange := start > 0 || end >= 0
+	var rc io.ReadCloser
+	ranged := false
+	if wantRange {
+		if rr, ok := driver.(storage.RangeReader); ok {
+			rc, err = rr.ReadRange(storageKey, start, end)
+			ranged = err == nil
+		}
+	}
+	if !ranged {
+		rc, err = driver.Read(storageKey)
+	}
 	if err != nil {
-		return nil, "", err
+		return nil, "", -1, false, err
 	}
 
 	// 尽力查 MIME 类型（预览时浏览器按此渲染），查不到则按流处理
@@ -584,7 +612,12 @@ func (s *FileService) ProxyRead(policy, storageKey, attachment, exp, sig string)
 		First(&file).Error; err == nil && file.MimeType != "" {
 		mime = file.MimeType
 	}
-	return rc, mime, nil
+
+	size, err := driver.GetSize(storageKey)
+	if err != nil {
+		size = -1
+	}
+	return rc, mime, size, ranged, nil
 }
 
 // DownloadDir 将用户文件夹打包为 zip 并写入 w，返回建议的文件名。

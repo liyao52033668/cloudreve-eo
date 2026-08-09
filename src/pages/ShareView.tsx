@@ -75,20 +75,17 @@ export default function ShareView() {
   const handleDownload = async () => {
     if (!code || downloading) return
     setDownloading(true)
-    message.loading({ content: '正在准备下载...', key: 'download', duration: 0 })
+    message.loading({ content: '正在获取下载链接...', key: 'download', duration: 0 })
     try {
       const res = await getShareDownload(code, password || undefined)
-      const response = await fetch(res.data.download_url)
-      const blob = await response.blob()
-      const blobUrl = URL.createObjectURL(blob)
+      // 直接交给浏览器下载管理器：流式落盘、原生支持 Range 断点续传
       const a = document.createElement('a')
-      a.href = blobUrl
+      a.href = res.data.download_url
       a.download = file?.name || ''
       document.body.appendChild(a)
       a.click()
       a.remove()
-      URL.revokeObjectURL(blobUrl)
-      message.success({ content: '下载成功', key: 'download' })
+      message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
     } catch {
       message.error({ content: '下载失败', key: 'download' })
     } finally {
@@ -132,20 +129,17 @@ export default function ShareView() {
   const handleChildDownload = async (f: FileItem) => {
     if (!code || downloading) return
     setDownloading(true)
-    message.loading({ content: `正在下载 ${f.name}...`, key: 'download', duration: 0 })
+    message.loading({ content: `正在获取下载链接 ${f.name}...`, key: 'download', duration: 0 })
     try {
       const res = await getShareChildDownload(code, f.id, password || undefined)
-      const response = await fetch(res.data.download_url)
-      const blob = await response.blob()
-      const blobUrl = URL.createObjectURL(blob)
+      // 直接交给浏览器下载管理器：流式落盘、原生支持 Range 断点续传
       const a = document.createElement('a')
-      a.href = blobUrl
+      a.href = res.data.download_url
       a.download = f.name
       document.body.appendChild(a)
       a.click()
       a.remove()
-      URL.revokeObjectURL(blobUrl)
-      message.success({ content: '下载成功', key: 'download' })
+      message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
     } catch (err: any) {
       message.error({ content: err.response?.data?.error || '下载失败', key: 'download' })
     } finally {

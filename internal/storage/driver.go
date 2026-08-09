@@ -40,3 +40,13 @@ type StorageDriver interface {
 	// UploadFile 服务端直接上传文件内容。不支持的驱动返回 ErrServerUploadNotSupported。
 	UploadFile(key string, content []byte) error
 }
+
+// RangeReader 驱动可选实现：按字节区间读取对象内容（start/end 为闭区间）。
+// 大文件代理下载据此支持 HTTP Range 分段（206）与断点续传，
+// 把一次超长执行拆成多次短执行；未实现的驱动由调用方回退整文件读取。
+type RangeReader interface {
+	ReadRange(key string, start, end int64) (io.ReadCloser, error)
+}
+
+// ErrRangeNotSatisfiable Range 起始位置超出文件大小（handler 应返回 416）。
+var ErrRangeNotSatisfiable = errors.New("Range 超出文件大小")

@@ -2,6 +2,8 @@ package storage
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -68,10 +70,10 @@ func TestNewBaiduDriverValidation(t *testing.T) {
 
 func TestNormalizeBaiduRootDir(t *testing.T) {
 	cases := map[string]string{
-		"":                  "/apps/cloudreve-eo",
-		"mydir":             "/mydir",
-		"/mydir/":           "/mydir",
-		"a/b/":              "/a/b",
+		"":        "/apps/cloudreve-eo",
+		"mydir":   "/mydir",
+		"/mydir/": "/mydir",
+		"a/b/":    "/a/b",
 	}
 	for in, want := range cases {
 		if got := normalizeBaiduRootDir(in); got != want {
@@ -277,5 +279,87 @@ func TestBaiduUnauthorizedOperations(t *testing.T) {
 	}
 	if _, err := d.Read("k"); err != errBaiduUnauthorized {
 		t.Errorf("Read 未授权错误 = %v", err)
+	}
+}
+
+func TestBaiduReadRange(t *testing.T) {
+	content := []byte("0123456789abcdef")
+	d := newBaiduTestDriver(t, validTokenJSON())
+
+	downloadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 模拟百度 dlink：校验 UA 与 token，按 Range 返回
+		if r.Header.Get("User-Agent") != "pan.baidu.com" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.URL.Query().Get("access_token") != "at-1" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if rng := r.Header.Get("Range"); rng != "" {
+			var s, e int64
+			fmt.Sscanf(rng, "bytes=%d-%d", &s, &e)
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", s, e, len(content)))
+			w.WriteHeader(http.StatusPartialContent)
+			w.Write(content[s : e+1])
+			return
+		}
+		w.Write(content)
+	}))
+	defer downloadSrv.Close()
+
+	var listCalls atomic.Int32
+	srv := mockBaiduServer(t, func(method string, w http.ResponseWriter, r *http.Request) {
+		switch method {
+		case "list":
+			listCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"list": []map[string]any{
+				{"server_filename": "f.bin", "path": "/apps/cloudreve-eo/123/f.bin", "fs_id": 77},
+			}})
+		case "filemetas":
+			_ = json.NewEncoder(w).Encode(map[string]any{"list": []map[string]any{
+				{"size": len(content), "dlink": downloadSrv.URL + "/dlink"},
+			}})
+		}
+	})
+	defer srv.Close()
+	d.panURL = srv.URL
+
+	// 整文件读取
+	rc, err := d.Read("123/f.bin")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	body, _ := io.ReadAll(rc)
+	rc.Close()
+	if string(body) != string(content) {
+		t.Errorf("Read = %q", body)
+	}
+
+	// Range 分段读取
+	rc, err = d.ReadRange("123/f.bin", 5, 9)
+	if err != nil {
+		t.Fatalf("ReadRange: %v", err)
+	}
+	body, _ = io.ReadAll(rc)
+	rc.Close()
+	if string(body) != "56789" {
+		t.Errorf("ReadRange(5,9) = %q, want 56789", body)
+	}
+
+	// 第二次请求应命中 dlink 缓存，list/filemetas 调用不增加
+	calls := listCalls.Load()
+	rc, err = d.ReadRange("123/f.bin", 0, 3)
+	if err != nil {
+		t.Fatalf("ReadRange 二次: %v", err)
+	}
+	rc.Close()
+	if listCalls.Load() != calls {
+		t.Errorf("dlink 缓存未命中，list 调用从 %d 增到 %d", calls, listCalls.Load())
+	}
+
+	// 越界 start 返回哨兵错误
+	if _, err := d.ReadRange("123/f.bin", int64(len(content)+10), -1); err != ErrRangeNotSatisfiable {
+		t.Errorf("越界错误 = %v, want ErrRangeNotSatisfiable", err)
 	}
 }

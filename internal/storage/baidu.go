@@ -82,6 +82,10 @@ type BaiduDriver struct {
 	dirCache sync.Map
 	// fsidCache 路径 → fs_id（预览/下载重复取 dlink 时免去 list，节省 QPS）。
 	fsidCache sync.Map
+	// dlinkCache 下载链接短期缓存（TTL 1 小时）：Range 分段下载的多个请求共享，
+	// 避免每段都调 filemetas 触发开放平台限流。
+	dlinkMu    sync.Mutex
+	dlinkCache map[string]baiduDlinkEntry
 
 	limiter *baiduLimiter
 	client  *http.Client
@@ -111,6 +115,7 @@ func NewBaiduDriver(clientID, clientSecret, endpoint, basePath, tokenJSON string
 		panURL:       baiduPanURL,
 		pcsURL:       baiduPCSURL,
 		limiter:      newBaiduLimiter(baiduRatePerSecond, baiduRateBurst),
+		dlinkCache:   make(map[string]baiduDlinkEntry),
 		// 分片上传单片 4MB、单文件可能数 GB，整体超时放宽到 30 分钟
 		client: &http.Client{Timeout: 30 * time.Minute},
 	}
@@ -777,10 +782,55 @@ func (d *BaiduDriver) GenerateDownloadURL(key string, fileName string, expire ti
 	return d.proxyURL(key, fileName)
 }
 
-// fileMeta 通过 filemetas 查询文件元信息（需先经 list 拿到 fs_id）。
-// fsid 缓存失效（文件被删后重建）时自动清缓存重查一次。
+// baiduDlinkCacheTTL 下载链接缓存时长（dlink 约 8 小时有效，留足余量）。
+const baiduDlinkCacheTTL = 1 * time.Hour
+
+// baiduDlinkEntry 缓存的下载链接与文件大小。
+type baiduDlinkEntry struct {
+	dlink string
+	size  int64
+	at    time.Time
+}
+
+// fileMeta 返回文件元信息（大小 + 下载链接），dlink 走短期缓存（Range 分段共享）。
 func (d *BaiduDriver) fileMeta(ctx context.Context, key string) (size int64, dlink string, err error) {
 	fullPath := d.rootPath(key)
+
+	d.dlinkMu.Lock()
+	entry, ok := d.dlinkCache[fullPath]
+	d.dlinkMu.Unlock()
+	if ok && time.Since(entry.at) < baiduDlinkCacheTTL {
+		return entry.size, entry.dlink, nil
+	}
+
+	size, dl, err := d.fetchFileMeta(ctx, fullPath)
+	if err != nil {
+		return 0, "", err
+	}
+	d.dlinkMu.Lock()
+	// 顺手清理过期条目，防止长期运行后条目堆积
+	if len(d.dlinkCache) > 64 {
+		for k, v := range d.dlinkCache {
+			if time.Since(v.at) >= baiduDlinkCacheTTL {
+				delete(d.dlinkCache, k)
+			}
+		}
+	}
+	d.dlinkCache[fullPath] = baiduDlinkEntry{dlink: dl, size: size, at: time.Now()}
+	d.dlinkMu.Unlock()
+	return size, dl, nil
+}
+
+// forgetDlink 清除文件的下载链接缓存（链接失效/文件删除时调用）。
+func (d *BaiduDriver) forgetDlink(key string) {
+	d.dlinkMu.Lock()
+	delete(d.dlinkCache, d.rootPath(key))
+	d.dlinkMu.Unlock()
+}
+
+// fetchFileMeta 通过 filemetas 查询文件元信息（需先经 list 拿到 fs_id）。
+// fsid 缓存失效（文件被删后重建）时自动清缓存重查一次。
+func (d *BaiduDriver) fetchFileMeta(ctx context.Context, fullPath string) (size int64, dlink string, err error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		fsID, err := d.lookupFsID(ctx, fullPath)
 		if err != nil {
@@ -876,17 +926,53 @@ func (d *BaiduDriver) GetSize(key string) (int64, error) {
 
 // Read 打开文件内容流：filemetas 拿临时 dlink，服务端 GET 拉取（文件夹打包下载用）。
 func (d *BaiduDriver) Read(key string) (io.ReadCloser, error) {
+	return d.ReadRange(key, 0, -1)
+}
+
+// ReadRange 按字节区间读取文件内容（start/end 闭区间；end=-1 表示读到文件末尾）。
+// 大文件 Range 分段下载时，浏览器/下载工具按段请求，每段一次独立的短函数执行；
+// dlink 走缓存，分段请求共享同一链接，不重复消耗开放平台 QPS。
+// 百度要求下载时 UA 与获取 dlink 时一致，固定为 pan.baidu.com。
+func (d *BaiduDriver) ReadRange(key string, start, end int64) (io.ReadCloser, error) {
 	if !d.IsAuthorized() {
 		return nil, errBaiduUnauthorized
 	}
+	if start < 0 {
+		return nil, fmt.Errorf("无效的 Range：start 不能为负")
+	}
+	if end >= 0 && end < start {
+		return nil, fmt.Errorf("无效的 Range：end 小于 start")
+	}
+
+	// dlink 可能过期（约 8 小时）：首次失败且疑似链接失效时清缓存重试一次
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		rc, err := d.openDlinkRange(key, start, end)
+		if err == nil {
+			return rc, nil
+		}
+		lastErr = err
+		if !isBaiduDlinkExpired(err) {
+			return nil, err
+		}
+		d.forgetDlink(key)
+	}
+	return nil, lastErr
+}
+
+// openDlinkRange 取 dlink 并发起（可选带 Range 头的）下载请求。
+func (d *BaiduDriver) openDlinkRange(key string, start, end int64) (io.ReadCloser, error) {
 	ctx, cancel := baiduContext(30 * time.Second)
 	defer cancel()
-	_, dlink, err := d.fileMeta(ctx, key)
+	size, dlink, err := d.fileMeta(ctx, key)
 	if err != nil {
 		return nil, err
 	}
 	if dlink == "" {
 		return nil, fmt.Errorf("百度网盘未返回下载链接")
+	}
+	if start >= size {
+		return nil, ErrRangeNotSatisfiable
 	}
 
 	token, err := d.currentToken()
@@ -904,18 +990,52 @@ func (d *BaiduDriver) Read(key string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 百度要求下载时 UA 与获取 dlink 时一致
 	req.Header.Set("User-Agent", "pan.baidu.com")
+	if start > 0 || end >= 0 {
+		rangeEnd := end
+		if rangeEnd < 0 || rangeEnd >= size {
+			rangeEnd = size - 1
+		}
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, rangeEnd))
+	}
+
 	resp, err := d.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
-		return nil, fmt.Errorf("下载文件失败: HTTP %d %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, &baiduDlinkError{
+			status: resp.StatusCode,
+			body:   string(body),
+		}
 	}
 	return resp.Body, nil
+}
+
+// baiduDlinkError dlink 下载失败；记录状态码用于判断链接是否失效。
+type baiduDlinkError struct {
+	status int
+	body   string
+}
+
+func (e *baiduDlinkError) Error() string {
+	return fmt.Sprintf("下载文件失败: HTTP %d %s", e.status, truncate(e.body, 200))
+}
+
+// isBaiduDlinkExpired 判断错误是否为 dlink 失效（需清缓存重取）。
+// 百度 dlink 过期/鉴权失败常见返回 403（errno -20）、404、410。
+func isBaiduDlinkExpired(err error) bool {
+	var de *baiduDlinkError
+	if errors.As(err, &de) {
+		return de.status == http.StatusForbidden ||
+			de.status == http.StatusNotFound ||
+			de.status == http.StatusGone ||
+			strings.Contains(de.body, "errno=-20") ||
+			strings.Contains(de.body, "errno%3D-20")
+	}
+	return false
 }
 
 // Delete 通过 filemanager 删除文件（带限流与重试）。
@@ -940,6 +1060,7 @@ func (d *BaiduDriver) Delete(key string) error {
 		// errno -9：文件不存在，视为删除成功
 		if errors.As(err, &apiErr) && apiErr.Errno == -9 {
 			d.fsidCache.Delete(fullPath)
+			d.forgetDlink(key)
 			return nil
 		}
 		logx.Error(logx.ModuleStorage, "百度网盘删除文件失败", logx.Err(err), "key", key)
@@ -955,6 +1076,7 @@ func (d *BaiduDriver) Delete(key string) error {
 		for _, item := range result.List {
 			if item.Errno == -9 {
 				d.fsidCache.Delete(fullPath)
+				d.forgetDlink(key)
 				return nil
 			}
 			if item.Errno != 0 {
@@ -963,6 +1085,7 @@ func (d *BaiduDriver) Delete(key string) error {
 		}
 	}
 	d.fsidCache.Delete(fullPath)
+	d.forgetDlink(key)
 	logx.Info(logx.ModuleStorage, "百度网盘文件已删除", "key", key)
 	return nil
 }

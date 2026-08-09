@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -346,8 +347,15 @@ func (h *FileHandler) ProxyDownload(c *gin.Context) {
 		return
 	}
 
-	rc, mime, err := h.fileService.ProxyRead(policy, storageKey, attachment, exp, sig)
+	// 解析 Range 请求头（大文件分段下载/断点续传）
+	start, end, hasRange := parseProxyRange(c.GetHeader("Range"))
+
+	rc, mime, size, ranged, err := h.fileService.ProxyRead(policy, storageKey, attachment, exp, sig, start, end)
 	if err != nil {
+		if errors.Is(err, storage.ErrRangeNotSatisfiable) {
+			c.JSON(http.StatusRequestedRangeNotSatisfiable, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
@@ -360,10 +368,66 @@ func (h *FileHandler) ProxyDownload(c *gin.Context) {
 	}
 	c.Header("Content-Type", mime)
 	c.Header("Cache-Control", "no-store")
+	c.Header("Accept-Ranges", "bytes")
+
+	status := http.StatusOK
+	if hasRange && ranged && size >= 0 {
+		// 驱动按段读取成功：206 + Content-Range。
+		// end 超出文件大小时按 RFC 7233 截断到末尾。
+		rangeEnd := end
+		if rangeEnd < 0 || rangeEnd >= size {
+			rangeEnd = size - 1
+		}
+		c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, rangeEnd, size))
+		c.Header("Content-Length", fmt.Sprintf("%d", rangeEnd-start+1))
+		status = http.StatusPartialContent
+	} else if size >= 0 {
+		c.Header("Content-Length", fmt.Sprintf("%d", size))
+	}
+	c.Status(status)
 	if _, err := io.Copy(c.Writer, rc); err != nil {
 		// 已开始写响应体，无法再返回 JSON，仅记录
 		return
 	}
+}
+
+// parseProxyRange 解析 HTTP Range 头，仅支持单个范围（分段下载场景）。
+// 支持 bytes=start-end / bytes=start- / bytes=-suffix 三种形式；
+// 非法或无该头时 hasRange=false（回退整文件下载）。
+func parseProxyRange(header string) (start, end int64, hasRange bool) {
+	if header == "" {
+		return 0, -1, false
+	}
+	spec := strings.TrimPrefix(strings.TrimSpace(header), "bytes=")
+	spec = strings.TrimSpace(spec)
+	if spec == "" || strings.Contains(spec, ",") {
+		return 0, -1, false // 多范围不支持，回退整文件
+	}
+	parts := strings.SplitN(spec, "-", 2)
+	if len(parts) != 2 {
+		return 0, -1, false
+	}
+	startStr, endStr := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	if startStr == "" {
+		// 后缀范围 bytes=-N：最后 N 字节。调用方需 size 才能换算，这里标记 start=-suffix
+		suffix, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || suffix <= 0 {
+			return 0, -1, false
+		}
+		return -suffix, -1, true
+	}
+	s, err := strconv.ParseInt(startStr, 10, 64)
+	if err != nil || s < 0 {
+		return 0, -1, false
+	}
+	if endStr == "" {
+		return s, -1, true
+	}
+	e, err := strconv.ParseInt(endStr, 10, 64)
+	if err != nil || e < s {
+		return 0, -1, false
+	}
+	return s, e, true
 }
 
 // DownloadDir GET /api/files/:id/zip —— 文件夹打包下载。
