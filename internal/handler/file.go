@@ -481,6 +481,9 @@ func (h *FileHandler) ProxyDownload(c *gin.Context) {
 	c.Header("Content-Type", mime)
 	c.Header("Cache-Control", "no-store")
 	c.Header("Accept-Ranges", "bytes")
+	// 禁止边缘网关缓冲响应：否则整个文件缓冲完才发给浏览器，
+	// 下载框延迟与文件大小成正比（平台文档：流式响应必须带此头）
+	c.Header("X-Accel-Buffering", "no")
 
 	status := http.StatusOK
 	if hasRange && ranged && size >= 0 {
@@ -497,6 +500,11 @@ func (h *FileHandler) ProxyDownload(c *gin.Context) {
 		c.Header("Content-Length", fmt.Sprintf("%d", size))
 	}
 	c.Status(status)
+	// 立即冲刷状态与响应头：浏览器先收到 attachment 头、下载框即时弹出，
+	// 不必等上游（百度等）返回第一个字节
+	if flusher, ok := c.Writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
 	if _, err := io.Copy(c.Writer, rc); err != nil {
 		// 已开始写响应体，无法再返回 JSON，仅记录
 		return
@@ -552,6 +560,10 @@ func (h *FileHandler) DownloadDir(c *gin.Context) {
 	_, err := h.fileService.DownloadDir(userID, uint(fileID), c.Writer, func(fileName string) {
 		c.Header("Content-Type", "application/zip")
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)))
+		c.Header("X-Accel-Buffering", "no") // 禁止边缘网关缓冲，下载框即时弹出
+		if flusher, ok := c.Writer.(http.Flusher); ok {
+			flusher.Flush() // 立即推送响应头，浏览器下载框先弹出
+		}
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -659,6 +671,10 @@ func (h *FileHandler) BatchDownloadZip(c *gin.Context) {
 	_, err = h.fileService.BatchDownloadZip(userID, ids, c.Writer, func(fileName string) {
 		c.Header("Content-Type", "application/zip")
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)))
+		c.Header("X-Accel-Buffering", "no") // 禁止边缘网关缓冲，下载框即时弹出
+		if flusher, ok := c.Writer.(http.Flusher); ok {
+			flusher.Flush() // 立即推送响应头，浏览器下载框先弹出
+		}
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

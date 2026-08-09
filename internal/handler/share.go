@@ -123,6 +123,10 @@ func (h *ShareHandler) DownloadZip(c *gin.Context) {
 	beforeWrite := func(fileName string) {
 		c.Header("Content-Type", "application/zip")
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)))
+		c.Header("X-Accel-Buffering", "no") // 禁止边缘网关缓冲，下载框即时弹出
+		if flusher, ok := c.Writer.(http.Flusher); ok {
+			flusher.Flush() // 立即推送响应头，浏览器下载框先弹出
+		}
 	}
 
 	var err error
