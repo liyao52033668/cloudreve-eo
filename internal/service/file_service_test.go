@@ -552,7 +552,7 @@ func TestFileService_DownloadDir_Zip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	fileName, err := svc.DownloadDir(user.ID, dir.ID, &buf)
+	fileName, err := svc.DownloadDir(user.ID, dir.ID, &buf, nil)
 	if err != nil {
 		t.Fatalf("DownloadDir: %v", err)
 	}
@@ -596,12 +596,12 @@ func TestFileService_DownloadDir_NotDirOrNotOwned(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	_, err := svc.DownloadDir(user.ID, file.ID, &buf)
+	_, err := svc.DownloadDir(user.ID, file.ID, &buf, nil)
 	if err == nil || err.Error() != "只能打包下载文件夹" {
 		t.Fatalf("expected 只能打包下载文件夹, got %v", err)
 	}
 
-	_, err = svc.DownloadDir(user.ID, 99999, &buf)
+	_, err = svc.DownloadDir(user.ID, 99999, &buf, nil)
 	if err == nil || err.Error() != "文件不存在" {
 		t.Fatalf("expected 文件不存在, got %v", err)
 	}

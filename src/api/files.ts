@@ -266,12 +266,14 @@ export const getDownloadURL = (fileId: number, preview = false) =>
     params: preview ? { preview: 1 } : undefined,
   })
 
-/** 文件夹打包 zip 下载；大目录耗时较长，放宽超时 */
-export const getDownloadZip = (fileId: number) =>
-  client.get<Blob>(`/files/${fileId}/zip`, {
-    responseType: 'blob',
-    timeout: 0,
-  })
+/** 文件夹打包 zip 下载的浏览器直连 URL（?token= 鉴权）。
+ * 浏览器原生下载管理器接管流式下载，chrome://downloads 可见进度。 */
+export const getDownloadZipURL = (fileId: number) =>
+  `/api/files/${fileId}/zip?token=${encodeURIComponent(localStorage.getItem('token') || '')}`
+
+/** 批量打包 zip 下载的浏览器直连 URL */
+export const getBatchDownloadZipURL = (ids: number[]) =>
+  `/api/files/batch/download?ids=${ids.join(',')}&token=${encodeURIComponent(localStorage.getItem('token') || '')}`
 
 export const deleteFile = (fileId: number) =>
   client.delete(`/files/${fileId}`)
@@ -283,13 +285,6 @@ export const batchDeleteFiles = (ids: number[]) =>
 /** 批量移动文件/文件夹到同一目标文件夹（0 表示根目录） */
 export const batchMoveFiles = (ids: number[], parentId: number) =>
   client.post('/files/batch/move', { ids, parent_id: parentId })
-
-/** 批量打包下载（zip 流）；大目录耗时较长，放宽超时 */
-export const batchDownloadZip = (ids: number[]) =>
-  client.post<Blob>('/files/batch/download', { ids }, {
-    responseType: 'blob',
-    timeout: 0,
-  })
 
 export const renameFile = (fileId: number, name: string) =>
   client.put(`/files/${fileId}/rename`, { name })

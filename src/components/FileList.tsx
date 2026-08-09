@@ -2,7 +2,7 @@ import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrum
 import { FolderOutlined, FileOutlined, FileImageOutlined, VideoCameraOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, EyeOutlined, DragOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { FileItem } from '../api/files'
-import { deleteFile, renameFile, getDownloadURL, getDownloadZip, listFiles, moveFile, batchDeleteFiles, batchMoveFiles, batchDownloadZip } from '../api/files'
+import { deleteFile, renameFile, getDownloadURL, getDownloadZipURL, listFiles, moveFile, batchDeleteFiles, batchMoveFiles, getBatchDownloadZipURL } from '../api/files'
 import { useEffect, useMemo, useState } from 'react'
 import { isImage, isVideo } from '../utils/fileType'
 import { formatDateTime } from '../utils/time'
@@ -130,26 +130,11 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     }
   }
 
-  const handleDownloadDir = async (file: FileItem) => {
-    if (downloading) return
-    setDownloading(true)
-    message.loading({ content: `正在打包下载 ${file.name}...`, key: 'download', duration: 0 })
-    try {
-      const res = await getDownloadZip(file.id)
-      const url = URL.createObjectURL(res.data)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${file.name}.zip`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      message.success({ content: '下载成功', key: 'download' })
-    } catch {
-      message.error({ content: '打包下载失败', key: 'download' })
-    } finally {
-      setDownloading(false)
-    }
+  const handleDownloadDir = (file: FileItem) => {
+    // 浏览器直接导航到 zip 流式 URL（?token= 鉴权），
+    // 附件响应不触发页面跳转，原生下载管理器接管，chrome://downloads 可见进度
+    window.location.href = getDownloadZipURL(file.id)
+    message.success({ content: '打包下载已开始，进度见浏览器下载列表', key: 'download' })
   }
 
   const handlePreview = async (file: FileItem) => {
@@ -331,27 +316,11 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     }
   }
 
-  const handleBatchDownload = async () => {
+  const handleBatchDownload = () => {
     if (!someSelected) return
-    setBatchBusy(true)
-    message.loading({ content: `正在打包 ${selectedIds.size} 项…`, key: 'batch-download', duration: 0 })
-    try {
-      const res = await batchDownloadZip(batchIds)
-      const blobUrl = URL.createObjectURL(res.data)
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = '批量下载.zip'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(blobUrl)
-      message.success({ content: '下载已开始', key: 'batch-download' })
-      clearSelection()
-    } catch {
-      message.error({ content: '打包下载失败', key: 'batch-download' })
-    } finally {
-      setBatchBusy(false)
-    }
+    // 浏览器直接导航到 zip 流式 URL，原生下载管理器接管
+    window.location.href = getBatchDownloadZipURL(batchIds)
+    message.success({ content: '打包下载已开始，进度见浏览器下载列表', key: 'batch-download' })
   }
 
   const policyFilters = useMemo(() => {

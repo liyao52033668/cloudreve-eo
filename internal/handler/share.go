@@ -100,28 +100,6 @@ func (h *ShareHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"files": files})
 }
 
-// DownloadSelectedZip POST /api/shares/:code/zip —— 分享内选中文件打包下载。
-func (h *ShareHandler) DownloadSelectedZip(c *gin.Context) {
-	code := c.Param("code")
-	password := c.Query("password")
-	var req struct {
-		IDs []uint `json:"ids" binding:"required,min=1"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要下载的文件"})
-		return
-	}
-
-	// zip 流式输出：响应头必须在首次写入前设置（首次写入即 flush 头部，事后设置无效）
-	if err := h.shareService.DownloadSelected(code, password, req.IDs, c.Writer, func(fileName string) {
-		c.Header("Content-Type", "application/zip")
-		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)))
-	}); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-}
-
 // DownloadChild GET /api/shares/:code/files/:id/download —— 分享内单个文件下载。
 func (h *ShareHandler) DownloadChild(c *gin.Context) {
 	code := c.Param("code")
@@ -136,16 +114,28 @@ func (h *ShareHandler) DownloadChild(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"download_url": url})
 }
 
-// DownloadZip GET /api/shares/:code/zip —— 分享全部文件打包下载。
+// DownloadZip GET /api/shares/:code/zip —— 分享文件打包下载。
+// ids 为空下载全部根文件，非空下载选中项；公开路由，浏览器可直接导航原生下载。
 func (h *ShareHandler) DownloadZip(c *gin.Context) {
 	code := c.Param("code")
 	password := c.Query("password")
 
-	// zip 流式输出：响应头必须在首次写入前设置（首次写入即 flush 头部，事后设置无效）
-	_, err := h.shareService.DownloadDir(code, password, c.Writer, func(fileName string) {
+	beforeWrite := func(fileName string) {
 		c.Header("Content-Type", "application/zip")
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)))
-	})
+	}
+
+	var err error
+	if idQuery := c.Query("ids"); idQuery != "" {
+		ids, perr := parseIDList(idQuery)
+		if perr != nil || len(ids) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要下载的文件"})
+			return
+		}
+		err = h.shareService.DownloadSelected(code, password, ids, c.Writer, beforeWrite)
+	} else {
+		_, err = h.shareService.DownloadDir(code, password, c.Writer, beforeWrite)
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

@@ -31,18 +31,19 @@ export const getShareChildDownload = (code: string, fileId: number, password?: s
     params: { password },
   })
 
-/** 分享全部文件打包 zip 下载；大目录耗时较长，放宽超时 */
-export const getShareZip = (code: string, password?: string) =>
-  client.get<Blob>(`/shares/${code}/zip`, {
-    params: { password },
-    responseType: 'blob',
-    timeout: 0,
-  })
+/** 分享全部文件打包 zip 的浏览器直连 URL（公开路由）。
+ * 浏览器原生下载管理器接管流式下载，chrome://downloads 可见进度。 */
+export const getShareZipURL = (code: string, password?: string) => {
+  const params = new URLSearchParams()
+  if (password) params.set('password', password)
+  const qs = params.toString()
+  return `/api/shares/${code}/zip${qs ? `?${qs}` : ''}`
+}
 
-/** 分享内选中文件打包 zip 下载 */
-export const getShareZipSelected = (code: string, ids: number[], password?: string) =>
-  client.post<Blob>(`/shares/${code}/zip`, { ids }, {
-    params: { password },
-    responseType: 'blob',
-    timeout: 0,
-  })
+/** 分享内选中文件打包 zip 的浏览器直连 URL */
+export const getShareZipSelectedURL = (code: string, ids: number[], password?: string) => {
+  const params = new URLSearchParams()
+  params.set('ids', ids.join(','))
+  if (password) params.set('password', password)
+  return `/api/shares/${code}/zip?${params.toString()}`
+}

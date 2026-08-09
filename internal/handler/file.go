@@ -543,17 +543,20 @@ func parseProxyRange(header string) (start, end int64, hasRange bool) {
 }
 
 // DownloadDir GET /api/files/:id/zip —— 文件夹打包下载。
+// 浏览器可直接导航到本 URL（?token= 鉴权），原生下载管理器接管流式下载。
 func (h *FileHandler) DownloadDir(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 	fileID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
-	fileName, err := h.fileService.DownloadDir(userID, uint(fileID), c.Writer)
+	// zip 流式输出：响应头必须在首次写入前设置（首次写入即 flush 头部，事后设置无效）
+	_, err := h.fileService.DownloadDir(userID, uint(fileID), c.Writer, func(fileName string) {
+		c.Header("Content-Type", "application/zip")
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)))
+	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.Header("Content-Type", "application/zip")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)))
 }
 
 func (h *FileHandler) Delete(c *gin.Context) {
@@ -643,18 +646,38 @@ func (h *FileHandler) BatchMove(c *gin.Context) {
 }
 
 // BatchDownloadZip POST /api/files/batch/download —— 批量打包下载（zip 流式输出）。
+// BatchDownloadZip GET /api/files/batch/download?ids=1,2,3 —— 批量打包下载。
+// GET + ?token= 鉴权，浏览器可直接导航到本 URL，原生下载管理器接管流式下载。
 func (h *FileHandler) BatchDownloadZip(c *gin.Context) {
 	userID := c.GetInt64("user_id")
-	var req batchRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	ids, err := parseIDList(c.Query("ids"))
+	if err != nil || len(ids) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要下载的文件"})
 		return
 	}
-	// zip 流式输出前必须先设置响应头（首次写入即 flush 头部，事后设置无效）
-	c.Header("Content-Type", "application/zip")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape("批量下载.zip")))
-	if _, err := h.fileService.BatchDownloadZip(userID, req.IDs, c.Writer); err != nil {
+	// zip 流式输出：响应头必须在首次写入前设置（首次写入即 flush 头部，事后设置无效）
+	_, err = h.fileService.BatchDownloadZip(userID, ids, c.Writer, func(fileName string) {
+		c.Header("Content-Type", "application/zip")
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename*=UTF-8''%s`, url.PathEscape(fileName)))
+	})
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+}
+
+// parseIDList 解析逗号分隔的文件 ID 列表（如 "1,2,3"）。
+func parseIDList(s string) ([]uint, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	var ids []uint
+	for _, part := range strings.Split(s, ",") {
+		id, err := strconv.ParseUint(strings.TrimSpace(part), 10, 32)
+		if err != nil || id == 0 {
+			return nil, fmt.Errorf("无效的文件 ID: %s", part)
+		}
+		ids = append(ids, uint(id))
+	}
+	return ids, nil
 }

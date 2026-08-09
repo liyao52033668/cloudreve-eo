@@ -194,7 +194,8 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		// 批量操作（须注册在 /:id 系列之前，否则 "batch" 会被当作 :id）
 		files.POST("/batch/delete", fileHandler.BatchDelete)
 		files.POST("/batch/move", fileHandler.BatchMove)
-		files.POST("/batch/download", fileHandler.BatchDownloadZip)
+		// GET + ?token= 鉴权：浏览器可直接导航，原生下载管理器接管 zip 流
+		files.GET("/batch/download", fileHandler.BatchDownloadZip)
 		files.GET("/:id/download", fileHandler.Download)
 		files.GET("/:id/zip", fileHandler.DownloadDir)
 		files.DELETE("/:id", fileHandler.Delete)
@@ -266,7 +267,6 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	publicShares.GET("/:code/files/:id/download", shareHandler.DownloadChild)
 	publicShares.GET("/:code/download", shareHandler.Download)
 	publicShares.GET("/:code/zip", shareHandler.DownloadZip)
-	publicShares.POST("/:code/zip", shareHandler.DownloadSelectedZip)
 
 	return r, nil
 }

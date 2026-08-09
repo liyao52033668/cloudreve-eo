@@ -773,7 +773,9 @@ func (s *FileService) ProxyRead(policy, storageKey, attachment, exp, sig string,
 }
 
 // DownloadDir 将用户文件夹打包为 zip 并写入 w，返回建议的文件名。
-func (s *FileService) DownloadDir(userID int64, fileID uint, w io.Writer) (string, error) {
+// DownloadDir 将用户文件夹打包为 zip 写入 w，返回建议的文件名。
+// beforeWrite 在开始写流前被调用（此时设置响应头才有效：首次写入即 flush 头部）。
+func (s *FileService) DownloadDir(userID int64, fileID uint, w io.Writer, beforeWrite func(fileName string)) (string, error) {
 	var root model.File
 	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&root).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -789,10 +791,14 @@ func (s *FileService) DownloadDir(userID int64, fileID uint, w io.Writer) (strin
 	if err != nil {
 		return "", err
 	}
+	fileName := root.Name + ".zip"
+	if beforeWrite != nil {
+		beforeWrite(fileName)
+	}
 	if err := writeZipTree(w, s.storageMgr, root.Name, entries); err != nil {
 		return "", err
 	}
-	return root.Name + ".zip", nil
+	return fileName, nil
 }
 
 func (s *FileService) Delete(userID int64, fileID uint) error {
@@ -1090,7 +1096,7 @@ func collectBatchZipEntries(userID int64, roots []model.File) ([]zipEntry, error
 	return entries, nil
 }
 
-func (s *FileService) BatchDownloadZip(userID int64, fileIDs []uint, w io.Writer) (string, error) {
+func (s *FileService) BatchDownloadZip(userID int64, fileIDs []uint, w io.Writer, beforeWrite func(fileName string)) (string, error) {
 	if len(fileIDs) == 0 {
 		return "", errors.New("未选择任何文件")
 	}
@@ -1106,10 +1112,14 @@ func (s *FileService) BatchDownloadZip(userID int64, fileIDs []uint, w io.Writer
 	if err != nil {
 		return "", err
 	}
+	fileName := "批量下载.zip"
+	if beforeWrite != nil {
+		beforeWrite(fileName)
+	}
 	if err := writeZipTree(w, s.storageMgr, "", entries); err != nil {
 		return "", err
 	}
-	return "批量下载.zip", nil
+	return fileName, nil
 }
 
 // collectZipEntriesWithName 收集目录条目，根节点使用指定名称（用于同名冲突重命名）。

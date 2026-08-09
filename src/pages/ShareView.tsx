@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { Card, Input, Button, message, Space, Typography, Table, Breadcrumb, Spin } from 'antd'
 import { DownloadOutlined, FolderOutlined, FileOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { getShare, getShareDownload, getShareFiles, getShareZip, getShareZipSelected, getShareChildDownload, type ShareInfo } from '../api/shares'
+import { getShare, getShareDownload, getShareFiles, getShareZipURL, getShareZipSelectedURL, getShareChildDownload, type ShareInfo } from '../api/shares'
 import type { FileItem } from '../api/files'
 import { formatDateTime } from '../utils/time'
 
@@ -126,51 +126,24 @@ export default function ShareView() {
     }
   }
 
-  const triggerBlobDownload = (blob: Blob, fileName: string) => {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-  }
-
-  const handleDownloadZip = async () => {
-    if (!code || downloading) return
-    setDownloading(true)
-    message.loading({ content: '正在打包下载...', key: 'download', duration: 0 })
-    try {
-      const res = await getShareZip(code, password || undefined)
-      triggerBlobDownload(res.data, roots.length === 1 ? `${roots[0].name}.zip` : '批量下载.zip')
-      message.success({ content: '下载成功', key: 'download' })
-    } catch (err: any) {
-      message.error({ content: err.response?.data?.error || '打包下载失败', key: 'download' })
-    } finally {
-      setDownloading(false)
-    }
+  // zip 下载：浏览器直接导航到流式 URL，原生下载管理器接管
+  //（附件响应不会触发页面跳转，进度可见于 chrome://downloads）
+  const handleDownloadZip = () => {
+    if (!code) return
+    window.location.href = getShareZipURL(code, password || undefined)
+    message.success({ content: '打包下载已开始，进度见浏览器下载列表', key: 'download' })
   }
 
   // 下载勾选的文件（打包 zip；单选普通文件走直链更快）
-  const handleDownloadSelected = async () => {
-    if (!code || downloading || selectedIds.length === 0) return
+  const handleDownloadSelected = () => {
+    if (!code || selectedIds.length === 0) return
     const selected = children.filter(f => selectedIds.includes(f.id))
     if (selected.length === 1 && !selected[0].is_dir) {
       handleChildDownload(selected[0])
       return
     }
-    setDownloading(true)
-    message.loading({ content: `正在打包 ${selectedIds.length} 项...`, key: 'download', duration: 0 })
-    try {
-      const res = await getShareZipSelected(code, selectedIds, password || undefined)
-      triggerBlobDownload(res.data, selectedIds.length === 1 ? `${selected[0].name}.zip` : '批量下载.zip')
-      message.success({ content: '下载成功', key: 'download' })
-    } catch (err: any) {
-      message.error({ content: err.response?.data?.error || '打包下载失败', key: 'download' })
-    } finally {
-      setDownloading(false)
-    }
+    window.location.href = getShareZipSelectedURL(code, selectedIds, password || undefined)
+    message.success({ content: '打包下载已开始，进度见浏览器下载列表', key: 'download' })
   }
 
   const handleChildDownload = async (f: FileItem) => {

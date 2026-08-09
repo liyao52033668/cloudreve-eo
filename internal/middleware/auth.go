@@ -33,25 +33,29 @@ func GenerateToken(userID int64, secret string) (string, error) {
 }
 
 // JWTAuth 使用 SecretProvider 校验 Bearer Token，支持密钥热更新。
+// 浏览器原生下载（zip 打包等）无法携带 Authorization 头，允许 ?token= 查询参数作为备选。
 func JWTAuth(secrets SecretProvider) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		tokenStr := ""
+		if authHeader := c.GetHeader("Authorization"); authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "认证格式错误"})
+				c.Abort()
+				return
+			}
+			tokenStr = parts[1]
+		} else if q := c.Query("token"); q != "" {
+			tokenStr = q
+		} else {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "未提供认证信息"})
-			c.Abort()
-			return
-		}
-
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "认证格式错误"})
 			c.Abort()
 			return
 		}
 
 		secret := secrets.Get()
 		claims := &Claims{}
-		token, err := jwt.ParseWithClaims(parts[1], claims, func(t *jwt.Token) (interface{}, error) {
+		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
 			return []byte(secret), nil
 		})
 		if err != nil || !token.Valid {
