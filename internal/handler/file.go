@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/service"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -509,10 +510,11 @@ func (h *FileHandler) ProxyDownload(c *gin.Context) {
 		}
 		segLen := rangeEnd - start + 1
 		c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, rangeEnd, size))
-		c.Header("Content-Length", fmt.Sprintf("%d", segLen))
 		status = http.StatusPartialContent
-		// 上游存储可能忽略 Range 返回 200 整文件：把流截断到声明段长，
-		// 避免超写 Content-Length 触发 Go 强制关闭连接（浏览器表现为"网络错误"）。
+		// 不预先声明 Content-Length：上游（百度 dlink）的段流可能提前 EOF
+		//（实际字节 < 段长），声明固定值会在字节不足时触发 unexpected EOF，
+		// 浏览器表现为"网络错误"。改用 chunked，由边缘函数按实际字节数校验段完整性；
+		// 仍用 LimitReader 截断到段长，防止上游忽略 Range 返回整文件时超量。
 		rc = &limitedReadCloser{Reader: io.LimitReader(rc, segLen), Closer: rc}
 	} else if size >= 0 {
 		c.Header("Content-Length", fmt.Sprintf("%d", size))
@@ -523,8 +525,10 @@ func (h *FileHandler) ProxyDownload(c *gin.Context) {
 	if flusher, ok := c.Writer.(http.Flusher); ok {
 		flusher.Flush()
 	}
-	if _, err := io.Copy(c.Writer, rc); err != nil {
-		// 已开始写响应体，无法再返回 JSON，仅记录
+	written, err := io.Copy(c.Writer, rc)
+	if err != nil {
+		logx.Warn(logx.ModuleHandler, "代理下载写入中断",
+			logx.Err(err), "policy", policy, "key", storageKey, "written", written)
 		return
 	}
 }

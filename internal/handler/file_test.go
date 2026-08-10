@@ -427,8 +427,10 @@ func TestProxyDownload_IgnoresRange_TruncatesToSegment(t *testing.T) {
 	if w.Code != http.StatusPartialContent {
 		t.Fatalf("status = %d, want 206; body=%s", w.Code, w.Body.String())
 	}
-	if got := w.Header().Get("Content-Length"); got != "1048576" {
-		t.Errorf("Content-Length = %q, want 1048576", got)
+	// 206 分段不再声明固定 Content-Length（上游段流可能提前 EOF），改 chunked；
+	// 关键保证是 body 被 LimitReader 截断到段长，绝不超过声明的 Content-Range 范围。
+	if got := w.Header().Get("Content-Length"); got != "" {
+		t.Errorf("Content-Length = %q, want 空（206 走 chunked）", got)
 	}
 	if got := w.Body.Len(); got != 1048576 {
 		t.Errorf("body bytes = %d, want 1048576（LimitReader 应截断整文件，防止超写断连）", got)

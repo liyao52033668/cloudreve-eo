@@ -96,7 +96,9 @@ export async function onRequest(context) {
           n = await pipeBody(resp.body, controller);
           totalRead += n;
           if (n < expect) {
-            console.error(`stream: seg#${seg} 字节不足 实际=${n} 预期=${expect}`);
+            // upstream-cr 显示上游（百度）实际返回的 Content-Range，
+            // 用于判断是上游段限制还是下载中断。
+            console.error(`stream: seg#${seg} 字节不足 实际=${n} 预期=${expect} upstream-cr=${resp.headers.get('Content-Range')}`);
             controller.error(new Error(`分段 ${seg} 数据不完整`));
             return;
           }

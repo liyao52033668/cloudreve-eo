@@ -34,6 +34,7 @@ const (
 	ModuleStorage   = "storage"   // internal/storage
 	ModuleDB        = "db"        // GORM 数据库日志
 	ModuleAccessLog = "accesslog" // HTTP 请求访问日志
+	ModuleHandler   = "handler"   // internal/handler
 )
 
 // With 派生带模块名的 logger。
