@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { Card, Input, Button, message, Space, Typography, Table, Breadcrumb, Spin } from 'antd'
+import { Card, Input, Button, message, Space, Typography, Table, Breadcrumb, Spin, Modal, Progress } from 'antd'
 import { DownloadOutlined, FolderOutlined, FileOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { getShare, getShareDownload, getShareFiles, getShareZipURL, getShareZipSelectedURL, getShareChildDownload, type ShareInfo } from '../api/shares'
+import { getShare, getShareDownload, getShareFiles, getShareChildDownload, type ShareInfo } from '../api/shares'
 import type { FileItem } from '../api/files'
 import { formatDateTime } from '../utils/time'
+import { proxySegmentDownload, saveBlob } from '../utils/proxyDownload'
+import { collectEntries, downloadEntriesAsZip } from '../utils/zipDownload'
 
 const { Title, Text } = Typography
 
@@ -31,6 +33,14 @@ export default function ShareView() {
   const [children, setChildren] = useState<FileItem[]>([])
   const [loading, setLoading] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  // 前端分段下载进度（代理存储：Filen/百度等）
+  const [downloadTask, setDownloadTask] = useState<{
+    name: string
+    percent: number
+    received: number
+    total: number
+  } | null>(null)
+  const downloadAbortRef = useRef<AbortController | null>(null)
 
   // 勾选下载：选中的文件 ID
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -89,20 +99,55 @@ export default function ShareView() {
   // 当前是否浏览单个普通文件（非文件夹）分享
   const singleFile = roots.length === 1 && !roots[0].is_dir ? roots[0] : null
 
+  /** 代理存储分段下载：浏览器 JS 按 Range 分段拉取并拼接 Blob（绕开云函数/边缘函数限制）。 */
+  const handleProxyDownload = async (fileName: string, streamUrl: string) => {
+    const controller = new AbortController()
+    downloadAbortRef.current = controller
+    setDownloadTask({ name: fileName, percent: 0, received: 0, total: 0 })
+    try {
+      const blob = await proxySegmentDownload(
+        streamUrl,
+        (received, total) => setDownloadTask({
+          name: fileName,
+          percent: total > 0 ? Math.round((received / total) * 100) : 0,
+          received,
+          total,
+        }),
+        controller.signal,
+      )
+      saveBlob(blob, fileName)
+      message.success({ content: `${fileName} 下载完成`, key: 'download' })
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        message.info({ content: '下载已取消', key: 'download' })
+      } else {
+        message.error({ content: err?.message || '下载失败', key: 'download' })
+      }
+    } finally {
+      setDownloadTask(null)
+      downloadAbortRef.current = null
+    }
+  }
+
   const handleDownload = async () => {
     if (!code || !singleFile || downloading) return
     setDownloading(true)
     message.loading({ content: '正在获取下载链接...', key: 'download', duration: 0 })
     try {
       const res = await getShareDownload(code, password || undefined)
-      // 直接交给浏览器下载管理器：流式落盘、原生支持 Range 断点续传
-      const a = document.createElement('a')
-      a.href = res.data.download_url
-      a.download = singleFile.name
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
+      const url = res.data.download_url
+      if (url.startsWith('/api/files/stream') || url.startsWith('/api/files/proxy')) {
+        await handleProxyDownload(singleFile.name, url)
+      } else {
+        // S3 等有外链直链：交给浏览器下载管理器
+        const a = document.createElement('a')
+        a.href = url
+        a.download = singleFile.name
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
+      }
     } catch {
       message.error({ content: '下载失败', key: 'download' })
     } finally {
@@ -126,24 +171,69 @@ export default function ShareView() {
     }
   }
 
-  // zip 下载：浏览器直接导航到流式 URL，原生下载管理器接管
-  //（附件响应不会触发页面跳转，进度可见于 chrome://downloads）
-  const handleDownloadZip = () => {
+  /** 分享场景 zip 打包的通用收尾：收集、逐个下载、JSZip 打包（绕开云函数 6MB 响应缓冲）。 */
+  const zipDownload = async (items: FileItem[], zipName: string) => {
     if (!code) return
-    window.location.href = getShareZipURL(code, password || undefined)
-    message.success({ content: '打包下载已开始，进度见浏览器下载列表', key: 'download' })
+    const controller = new AbortController()
+    downloadAbortRef.current = controller
+    setDownloadTask({ name: zipName, percent: 0, received: 0, total: 0 })
+    try {
+      message.loading({ content: '正在收集文件列表...', key: 'download', duration: 0 })
+      const entries = await collectEntries(
+        items,
+        (pid) => getShareFiles(code, pid, password).then(r => r.data.files),
+      )
+      message.destroy('download')
+      if (entries.length === 0) throw new Error('没有可下载的文件')
+      await downloadEntriesAsZip(
+        entries,
+        zipName,
+        (id) => getShareChildDownload(code, id, password).then(r => r.data.download_url),
+        (received, total) => setDownloadTask({
+          name: zipName,
+          percent: total > 0 ? Math.round((received / total) * 100) : 0,
+          received,
+          total,
+        }),
+        controller.signal,
+      )
+      message.success({ content: '打包下载完成', key: 'download' })
+    } catch (err: any) {
+      if (err?.name === 'AbortError') message.info({ content: '打包下载已取消', key: 'download' })
+      else message.error({ content: err?.message || '打包下载失败', key: 'download' })
+    } finally {
+      message.destroy('download')
+      setDownloadTask(null)
+      downloadAbortRef.current = null
+    }
   }
 
-  // 下载勾选的文件（打包 zip；单选普通文件走直链更快）
-  const handleDownloadSelected = () => {
-    if (!code || selectedIds.length === 0) return
+  // 下载全部：前端收集分享内所有文件并打包 zip
+  const handleDownloadZip = async () => {
+    if (!code || downloading) return
+    setDownloading(true)
+    try {
+      const zipName = roots.length === 1 && roots[0].is_dir ? `${roots[0].name}.zip` : '分享文件.zip'
+      await zipDownload(roots, zipName)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  // 下载勾选的文件（打包 zip；单选普通文件走单文件分段下载更快）
+  const handleDownloadSelected = async () => {
+    if (!code || selectedIds.length === 0 || downloading) return
     const selected = children.filter(f => selectedIds.includes(f.id))
     if (selected.length === 1 && !selected[0].is_dir) {
       handleChildDownload(selected[0])
       return
     }
-    window.location.href = getShareZipSelectedURL(code, selectedIds, password || undefined)
-    message.success({ content: '打包下载已开始，进度见浏览器下载列表', key: 'download' })
+    setDownloading(true)
+    try {
+      await zipDownload(selected, '批量下载.zip')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const handleChildDownload = async (f: FileItem) => {
@@ -152,14 +242,18 @@ export default function ShareView() {
     message.loading({ content: `正在获取下载链接 ${f.name}...`, key: 'download', duration: 0 })
     try {
       const res = await getShareChildDownload(code, f.id, password || undefined)
-      // 直接交给浏览器下载管理器：流式落盘、原生支持 Range 断点续传
-      const a = document.createElement('a')
-      a.href = res.data.download_url
-      a.download = f.name
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
+      const url = res.data.download_url
+      if (url.startsWith('/api/files/stream') || url.startsWith('/api/files/proxy')) {
+        await handleProxyDownload(f.name, url)
+      } else {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = f.name
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
+      }
     } catch (err: any) {
       message.error({ content: err.response?.data?.error || '下载失败', key: 'download' })
     } finally {
@@ -212,6 +306,19 @@ export default function ShareView() {
     ? `过期时间：${formatDateTime(share.expire_at)}`
     : '永久有效'
 
+  // 分段下载进度弹窗
+  const downloadProgressModal = downloadTask ? (
+    <Modal title={`正在下载 ${downloadTask.name}`} open footer={null} closable={false} maskClosable={false}>
+      <Progress percent={downloadTask.percent} status="active" />
+      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ color: 'rgba(0,0,0,0.45)' }}>
+          {formatSize(downloadTask.received)} / {formatSize(downloadTask.total)}
+        </span>
+        <Button size="small" onClick={() => downloadAbortRef.current?.abort()}>取消</Button>
+      </div>
+    </Modal>
+  ) : null
+
   // 单个普通文件分享：简洁卡片 + 下载按钮
   if (singleFile) {
     return (
@@ -226,6 +333,7 @@ export default function ShareView() {
             <Button type="primary" icon={<DownloadOutlined />} block onClick={handleDownload} loading={downloading}>下载文件</Button>
           </div>
         </Card>
+        {downloadProgressModal}
       </div>
     )
   }
@@ -275,6 +383,7 @@ export default function ShareView() {
           </Spin>
         </Space>
       </Card>
+      {downloadProgressModal}
     </div>
   )
 }

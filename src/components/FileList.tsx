@@ -1,12 +1,14 @@
-import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrumb, Spin, Empty, Checkbox, Alert } from 'antd'
+import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrumb, Spin, Empty, Checkbox, Alert, Progress } from 'antd'
 import { FolderOutlined, FileOutlined, FileImageOutlined, VideoCameraOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, EyeOutlined, DragOutlined, FileTextOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { FileItem } from '../api/files'
-import { deleteFile, renameFile, getDownloadURL, getDownloadZipURL, listFiles, moveFile, batchDeleteFiles, batchMoveFiles, getBatchDownloadZipURL, getFileContent } from '../api/files'
-import { useEffect, useMemo, useState } from 'react'
+import { deleteFile, renameFile, getDownloadURL, listFiles, moveFile, batchDeleteFiles, batchMoveFiles, getFileContent } from '../api/files'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { isImage, isVideo, isText, isMarkdown, isJson } from '../utils/fileType'
 import { formatDateTime } from '../utils/time'
 import ShareModal from './ShareModal'
+import { proxySegmentDownload, saveBlob, toProxyUrl } from '../utils/proxyDownload'
+import { collectDirFiles, collectSelectedEntries, downloadEntriesAsZip } from '../utils/zipDownload'
 import { marked } from 'marked'
 
 // markdown 渲染：raw HTML 一律转义为纯文本，防 XSS（文件内容可能来自他人分享）
@@ -53,7 +55,10 @@ function GridThumb({ file }: { file: FileItem }) {
     setFailed(false)
     if (!file.is_dir && isImage(file)) {
       getDownloadURL(file.id, true)
-        .then((res) => { if (!cancelled) setUrl(res.data.download_url) })
+        .then((res) => {
+          // 代理存储：缩略图直接请求 proxy（云函数单段 < 6MB），绕开边缘函数
+          if (!cancelled) setUrl(toProxyUrl(res.data.download_url))
+        })
         .catch(() => { if (!cancelled) setFailed(true) })
     }
     return () => { cancelled = true }
@@ -83,9 +88,18 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   const [renameModal, setRenameModal] = useState<{ visible: boolean; file?: FileItem }>({ visible: false })
   const [newName, setNewName] = useState('')
   const [shareFile, setShareFile] = useState<FileItem | null>(null)
-  const [preview, setPreview] = useState<{ open: boolean; url: string }>({ open: false, url: '' })
-  const [videoPreview, setVideoPreview] = useState<{ open: boolean; url: string }>({ open: false, url: '' })
+  // objectUrl=true 表示 url 是分段拼接 Blob 生成的对象 URL，关闭预览时需 revoke 释放内存
+  const [preview, setPreview] = useState<{ open: boolean; url: string; objectUrl?: boolean }>({ open: false, url: '' })
+  const [videoPreview, setVideoPreview] = useState<{ open: boolean; url: string; objectUrl?: boolean }>({ open: false, url: '' })
   const [downloading, setDownloading] = useState(false)
+  // 前端分段下载进度（仅代理存储：Filen/百度等无外链直链）
+  const [downloadTask, setDownloadTask] = useState<{
+    name: string
+    percent: number
+    received: number
+    total: number
+  } | null>(null)
+  const downloadAbortRef = useRef<AbortController | null>(null)
   const [moveModal, setMoveModal] = useState<{ visible: boolean; file?: FileItem }>({ visible: false })
   const [moveDirs, setMoveDirs] = useState<FileItem[]>([])
   const [moveLoading, setMoveLoading] = useState(false)
@@ -138,15 +152,21 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     message.loading({ content: `正在获取下载链接 ${file.name}...`, key: 'download', duration: 0 })
     try {
       const res = await getDownloadURL(file.id)
-      // 直接交给浏览器下载管理器：流式落盘、原生支持 Range 断点续传，
-      // 大文件不经过 JS 内存中转（代理下载已由服务端支持分段）。
-      const a = document.createElement('a')
-      a.href = res.data.download_url
-      a.download = file.name
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
+      const url = res.data.download_url
+      if (url.startsWith('/api/files/stream') || url.startsWith('/api/files/proxy')) {
+        // 代理存储（Filen/百度等）：云函数响应有 6MB 缓冲上限、边缘函数有时长限制，
+        // 改由前端 JS 按 Range 分段拉取并拼接 Blob，避开平台限制。
+        await handleProxyDownload(file, url)
+      } else {
+        // S3 等有外链直链：直接交给浏览器下载管理器，原生流式落盘
+        const a = document.createElement('a')
+        a.href = url
+        a.download = file.name
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
+      }
     } catch {
       message.error({ content: '下载失败', key: 'download' })
     } finally {
@@ -154,11 +174,75 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     }
   }
 
-  const handleDownloadDir = (file: FileItem) => {
-    // 浏览器直接导航到 zip 流式 URL（?token= 鉴权），
-    // 附件响应不触发页面跳转，原生下载管理器接管，chrome://downloads 可见进度
-    window.location.href = getDownloadZipURL(file.id)
-    message.success({ content: '打包下载已开始，进度见浏览器下载列表', key: 'download' })
+  /** 代理存储分段下载：浏览器 JS 按 Range 分段拉取并拼接 Blob（绕开云函数/边缘函数限制）。 */
+  const handleProxyDownload = async (file: FileItem, streamUrl: string) => {
+    const controller = new AbortController()
+    downloadAbortRef.current = controller
+    setDownloadTask({ name: file.name, percent: 0, received: 0, total: 0 })
+
+    try {
+      const blob = await proxySegmentDownload(
+        streamUrl,
+        (received, total) => setDownloadTask({
+          name: file.name,
+          percent: total > 0 ? Math.round((received / total) * 100) : 0,
+          received,
+          total,
+        }),
+        controller.signal,
+      )
+      saveBlob(blob, file.name)
+      message.success({ content: `${file.name} 下载完成`, key: 'download' })
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        message.info({ content: '下载已取消', key: 'download' })
+      } else {
+        message.error({ content: err?.message || '下载失败', key: 'download' })
+      }
+    } finally {
+      setDownloadTask(null)
+      downloadAbortRef.current = null
+    }
+  }
+
+  const cancelDownload = () => {
+    downloadAbortRef.current?.abort()
+  }
+
+  const handleDownloadDir = async (file: FileItem) => {
+    if (downloading) return
+    setDownloading(true)
+    const controller = new AbortController()
+    downloadAbortRef.current = controller
+    setDownloadTask({ name: `${file.name}.zip`, percent: 0, received: 0, total: 0 })
+    try {
+      message.loading({ content: '正在收集文件列表...', key: 'download', duration: 0 })
+      const entries = await collectDirFiles(file.id)
+      message.destroy('download')
+      if (entries.length === 0) throw new Error('文件夹为空')
+      // 前端逐个分段下载并打包 zip（绕开云函数 6MB 响应缓冲，zip 无法后端分段）
+      await downloadEntriesAsZip(
+        entries,
+        `${file.name}.zip`,
+        (id) => getDownloadURL(id).then(r => r.data.download_url),
+        (received, total) => setDownloadTask({
+          name: `${file.name}.zip`,
+          percent: total > 0 ? Math.round((received / total) * 100) : 0,
+          received,
+          total,
+        }),
+        controller.signal,
+      )
+      message.success({ content: '打包下载完成', key: 'download' })
+    } catch (err: any) {
+      if (err?.name === 'AbortError') message.info({ content: '打包下载已取消', key: 'download' })
+      else message.error({ content: err?.message || '打包下载失败', key: 'download' })
+    } finally {
+      message.destroy('download')
+      setDownloadTask(null)
+      downloadAbortRef.current = null
+      setDownloading(false)
+    }
   }
 
   const handlePreview = async (file: FileItem) => {
@@ -169,13 +253,29 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     }
     try {
       const res = await getDownloadURL(file.id, true)
+      const url = res.data.download_url
+      // 视频：直接用 proxy 直链，浏览器原生 Range 流式播放（边下边播、可 seek），
+      // 云函数每段 ≤1MB，无需前端下载完整再播
       if (isVideo(file)) {
-        setVideoPreview({ open: true, url: res.data.download_url })
-      } else {
-        setPreview({ open: true, url: res.data.download_url })
+        setVideoPreview({ open: true, url: toProxyUrl(url) })
+        return
       }
-    } catch {
-      message.error('获取预览链接失败')
+      // 图片：<img> 不带 Range，代理存储大图需分段拼接后展示
+      if (url.startsWith('/api/files/stream') || url.startsWith('/api/files/proxy')) {
+        message.loading({ content: `正在加载 ${file.name}...`, key: 'preview', duration: 0 })
+        try {
+          const blob = await proxySegmentDownload(url)
+          const objectUrl = URL.createObjectURL(blob)
+          setPreview({ open: true, url: objectUrl, objectUrl: true })
+        } finally {
+          message.destroy('preview')
+        }
+      } else {
+        setPreview({ open: true, url })
+      }
+    } catch (err: any) {
+      message.destroy('preview')
+      message.error(err?.message || '获取预览链接失败')
     }
   }
 
@@ -364,11 +464,40 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
     }
   }
 
-  const handleBatchDownload = () => {
-    if (!someSelected) return
-    // 浏览器直接导航到 zip 流式 URL，原生下载管理器接管
-    window.location.href = getBatchDownloadZipURL(batchIds)
-    message.success({ content: '打包下载已开始，进度见浏览器下载列表', key: 'batch-download' })
+  const handleBatchDownload = async () => {
+    if (!someSelected || downloading) return
+    setDownloading(true)
+    const controller = new AbortController()
+    downloadAbortRef.current = controller
+    setDownloadTask({ name: '批量下载.zip', percent: 0, received: 0, total: 0 })
+    try {
+      message.loading({ content: '正在收集文件列表...', key: 'batch-download', duration: 0 })
+      const selected = files.filter(f => selectedIds.has(f.id))
+      const entries = await collectSelectedEntries(selected)
+      message.destroy('batch-download')
+      if (entries.length === 0) throw new Error('没有可下载的文件')
+      await downloadEntriesAsZip(
+        entries,
+        '批量下载.zip',
+        (id) => getDownloadURL(id).then(r => r.data.download_url),
+        (received, total) => setDownloadTask({
+          name: '批量下载.zip',
+          percent: total > 0 ? Math.round((received / total) * 100) : 0,
+          received,
+          total,
+        }),
+        controller.signal,
+      )
+      message.success({ content: '打包下载完成', key: 'batch-download' })
+    } catch (err: any) {
+      if (err?.name === 'AbortError') message.info({ content: '打包下载已取消', key: 'batch-download' })
+      else message.error({ content: err?.message || '打包下载失败', key: 'batch-download' })
+    } finally {
+      message.destroy('batch-download')
+      setDownloadTask(null)
+      downloadAbortRef.current = null
+      setDownloading(false)
+    }
   }
 
   const policyFilters = useMemo(() => {
@@ -534,6 +663,21 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
         <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
       </Modal>
       <Modal
+        title={`正在下载 ${downloadTask?.name || ''}`}
+        open={!!downloadTask}
+        footer={null}
+        closable={false}
+        maskClosable={false}
+      >
+        <Progress percent={downloadTask?.percent || 0} status="active" />
+        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ color: 'rgba(0,0,0,0.45)' }}>
+            {formatSize(downloadTask?.received || 0)} / {formatSize(downloadTask?.total || 0)}
+          </span>
+          <Button size="small" onClick={cancelDownload}>取消</Button>
+        </div>
+      </Modal>
+      <Modal
         title={batchMoveOpen ? `批量移动 ${selectedIds.size} 项` : `移动「${moveModal.file?.name || ''}」`}
         open={moveModal.visible || batchMoveOpen}
         onCancel={closeMoveModal}
@@ -591,13 +735,21 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
         preview={{
           open: preview.open,
           src: preview.url,
-          onOpenChange: (v) => { if (!v) setPreview({ open: false, url: '' }) },
+          onOpenChange: (v) => {
+            if (!v) {
+              if (preview.objectUrl) URL.revokeObjectURL(preview.url)
+              setPreview({ open: false, url: '' })
+            }
+          },
         }}
       />
       <Modal
         title="视频预览"
         open={videoPreview.open}
-        onCancel={() => setVideoPreview({ open: false, url: '' })}
+        onCancel={() => {
+          if (videoPreview.objectUrl) URL.revokeObjectURL(videoPreview.url)
+          setVideoPreview({ open: false, url: '' })
+        }}
         footer={null}
         width={800}
         destroyOnHidden

@@ -19,6 +19,11 @@ type FileHandler struct {
 	fileService *service.FileService
 }
 
+// proxySegmentSize 代理下载的单段上限（1MB）：浏览器视频/图片等用 bytes=start- 流式
+// 请求时，云函数响应有约 6MB 缓冲上限，不能整文件返回，强制截为单段并通过
+// Content-Range 告知总大小，浏览器会继续按需拉取后续段（seek 走同一机制）。
+const proxySegmentSize = 1 * 1024 * 1024
+
 func NewFileHandler(fs *service.FileService) *FileHandler {
 	return &FileHandler{fileService: fs}
 }
@@ -476,6 +481,13 @@ func (h *FileHandler) ProxyDownload(c *gin.Context) {
 
 	// 解析 Range 请求头（大文件分段下载/断点续传）
 	start, end, hasRange := parseProxyRange(c.GetHeader("Range"))
+
+	// 浏览器 video 等用 bytes=start-（无 end）流式请求；云函数响应有约 6MB 缓冲上限，
+	// 不能整文件返回。强制截为单段（≤1MB），通过 Content-Range 告知总大小，
+	// 浏览器会继续按需拉取后续段（seek 走同一机制）。后缀范围（start<0）由 ProxyRead 换算。
+	if hasRange && start >= 0 && end < 0 {
+		end = start + proxySegmentSize - 1
+	}
 
 	rc, mime, size, ranged, err := h.fileService.ProxyRead(policy, storageKey, attachment, exp, sig, start, end)
 	if err != nil {
