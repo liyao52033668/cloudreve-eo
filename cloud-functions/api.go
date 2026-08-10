@@ -117,10 +117,12 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	fileService := service.NewFileService(storageMgr)
 	shareService := service.NewShareService(storageMgr)
 
-	// 无外链直链存储（如 Filen）的代理下载 URL 签名器：
-	// JWT 主密钥复用为签名密钥（传方法值，密钥轮转后自动跟随）；
-	// baseURL 为浏览器侧完整路径（网关剥离 /api 后 Gin 注册 /files/proxy）。
-	storageMgr.SetProxySigner(jwtSecrets.Get, "/api/files/proxy")
+	// 无外链直链存储（如 Filen/百度）的代理下载 URL 签名器：
+	// JWT 主密钥复用为签名密钥（传方法值，密钥轮转后自动跟随）。
+	// baseURL 指向边缘函数流式中继 /api/files/stream：EdgeOne 云函数响应被平台
+	// 整体缓冲且有 ~6MB 上限，大文件必须经边缘函数（ReadableStream）按 Range
+	// 分段回调 /api/files/proxy 再流式拼流，才能完整送达浏览器。
+	storageMgr.SetProxySigner(jwtSecrets.Get, "/api/files/stream")
 
 	authHandler := handler.NewAuthHandler(authService, jwtSecrets)
 	fileHandler := handler.NewFileHandler(fileService)
@@ -168,6 +170,9 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 
 	// 无外链直链存储（如 Filen）的代理下载：无登录态，URL 携带 HMAC 签名校验
 	r.GET("/files/proxy", fileHandler.ProxyDownload)
+	// 生产环境该路径由边缘函数流式中继处理（edge-functions/api/files/stream.js）；
+	// 此处注册同逻辑兜底，供本地开发（makers dev 可能不运行边缘函数）使用。
+	r.GET("/files/stream", fileHandler.ProxyDownload)
 
 	// 百度网盘 OAuth 回调（redirect_uri 固定路径，state 携带签名的策略 ID）
 	r.GET("/oauth/baidu/callback", policyHandler.BaiduOAuthCallback)

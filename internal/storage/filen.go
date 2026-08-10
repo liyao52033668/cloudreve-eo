@@ -257,6 +257,44 @@ func (d *FilenDriver) Read(key string) (io.ReadCloser, error) {
 	return &filenReadCloser{inner: reader, cancel: cancel}, nil
 }
 
+// ReadRange 按 [start, end] 闭区间读取解密后的文件内容流（Range 分段下载用）。
+// SDK 按偏移逐块拉取解密，不会读取整个文件；
+// 边缘函数流式中继据此把大文件拆成多段分别拉取，绕开云函数响应大小上限。
+func (d *FilenDriver) ReadRange(key string, start, end int64) (io.ReadCloser, error) {
+	if start < 0 {
+		return nil, fmt.Errorf("无效的 Range：start 不能为负")
+	}
+	if end >= 0 && end < start {
+		return nil, fmt.Errorf("无效的 Range：end 小于 start")
+	}
+	ctx, cancel := filenCtx(30 * time.Minute)
+	client, err := d.ensureClient(ctx)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	file, err := d.findFilenFile(ctx, client, key)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("查询文件失败: %w", err)
+	}
+	if file == nil {
+		cancel()
+		return nil, fmt.Errorf("文件不存在")
+	}
+	if start >= file.Size {
+		cancel()
+		return nil, ErrRangeNotSatisfiable
+	}
+	// SDK 的 limit 为开区间末偏移：闭区间 [start, end] → limit=end+1；end<0 表示读到文件尾
+	limit := int64(-1)
+	if end >= 0 {
+		limit = end + 1
+	}
+	reader := client.GetDownloadReaderWithOffset(ctx, file, start, limit)
+	return &filenReadCloser{inner: reader, cancel: cancel}, nil
+}
+
 // filenReadCloser 关闭下载流时同时释放上下文。
 type filenReadCloser struct {
 	inner  io.ReadCloser
