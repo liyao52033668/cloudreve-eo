@@ -3,11 +3,11 @@ import { FolderOutlined, FileOutlined, FileImageOutlined, VideoCameraOutlined, D
 import type { ColumnsType } from 'antd/es/table'
 import type { FileItem } from '../api/files'
 import { deleteFile, renameFile, getDownloadURL, listFiles, moveFile, batchDeleteFiles, batchMoveFiles, getFileContent } from '../api/files'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { isImage, isVideo, isText, isMarkdown, isJson } from '../utils/fileType'
 import { formatDateTime } from '../utils/time'
 import ShareModal from './ShareModal'
-import DownloadProgress from './DownloadProgress'
+import { runDownload } from '../store/downloadManager'
 import { proxySegmentDownload, saveBlob, toProxyUrl } from '../utils/proxyDownload'
 import { collectDirFiles, collectSelectedEntries, downloadEntriesAsZip } from '../utils/zipDownload'
 import { marked } from 'marked'
@@ -92,15 +92,6 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   // objectUrl=true 表示 url 是分段拼接 Blob 生成的对象 URL，关闭预览时需 revoke 释放内存
   const [preview, setPreview] = useState<{ open: boolean; url: string; objectUrl?: boolean }>({ open: false, url: '' })
   const [videoPreview, setVideoPreview] = useState<{ open: boolean; url: string; objectUrl?: boolean }>({ open: false, url: '' })
-  const [downloading, setDownloading] = useState(false)
-  // 前端分段下载进度（仅代理存储：Filen/百度等无外链直链）
-  const [downloadTask, setDownloadTask] = useState<{
-    name: string
-    percent: number
-    received: number
-    total: number
-  } | null>(null)
-  const downloadAbortRef = useRef<AbortController | null>(null)
   const [moveModal, setMoveModal] = useState<{ visible: boolean; file?: FileItem }>({ visible: false })
   const [moveDirs, setMoveDirs] = useState<FileItem[]>([])
   const [moveLoading, setMoveLoading] = useState(false)
@@ -148,9 +139,6 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   }
 
   const handleDownload = async (file: FileItem) => {
-    if (downloading) return
-    setDownloading(true)
-    message.loading({ content: `正在获取下载链接 ${file.name}...`, key: 'download', duration: 0 })
     try {
       const res = await getDownloadURL(file.id)
       const url = res.data.download_url
@@ -170,29 +158,17 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       }
     } catch {
       message.error({ content: '下载失败', key: 'download' })
-    } finally {
-      setDownloading(false)
     }
   }
 
-  /** 代理存储分段下载：浏览器 JS 按 Range 分段拉取并拼接 Blob（绕开云函数/边缘函数限制）。 */
+  /** 代理存储分段下载：浏览器 JS 按 Range 分段拉取并拼接 Blob（绕开云函数/边缘函数限制）。
+   * 走全局下载管理器，切页不丢进度。 */
   const handleProxyDownload = async (file: FileItem, streamUrl: string) => {
-    const controller = new AbortController()
-    downloadAbortRef.current = controller
-    setDownloadTask({ name: file.name, percent: 0, received: 0, total: 0 })
-
     try {
-      const blob = await proxySegmentDownload(
-        streamUrl,
-        (received, total) => setDownloadTask({
-          name: file.name,
-          percent: total > 0 ? Math.round((received / total) * 100) : 0,
-          received,
-          total,
-        }),
-        controller.signal,
-      )
-      saveBlob(blob, file.name)
+      await runDownload(file.name, async ({ onProgress, signal }) => {
+        const blob = await proxySegmentDownload(streamUrl, onProgress, signal)
+        saveBlob(blob, file.name)
+      })
       message.success({ content: `${file.name} 下载完成`, key: 'download' })
     } catch (err: any) {
       if (err?.name === 'AbortError') {
@@ -200,49 +176,30 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       } else {
         message.error({ content: err?.message || '下载失败', key: 'download' })
       }
-    } finally {
-      setDownloadTask(null)
-      downloadAbortRef.current = null
     }
   }
 
-  const cancelDownload = () => {
-    downloadAbortRef.current?.abort()
-  }
-
   const handleDownloadDir = async (file: FileItem) => {
-    if (downloading) return
-    setDownloading(true)
-    const controller = new AbortController()
-    downloadAbortRef.current = controller
-    setDownloadTask({ name: `${file.name}.zip`, percent: 0, received: 0, total: 0 })
     try {
       message.loading({ content: '正在收集文件列表...', key: 'download', duration: 0 })
-      const entries = await collectDirFiles(file.id)
-      message.destroy('download')
-      if (entries.length === 0) throw new Error('文件夹为空')
       // 前端逐个分段下载并打包 zip（绕开云函数 6MB 响应缓冲，zip 无法后端分段）
-      await downloadEntriesAsZip(
-        entries,
-        `${file.name}.zip`,
-        (id) => getDownloadURL(id).then(r => r.data.download_url),
-        (received, total) => setDownloadTask({
-          name: `${file.name}.zip`,
-          percent: total > 0 ? Math.round((received / total) * 100) : 0,
-          received,
-          total,
-        }),
-        controller.signal,
-      )
+      await runDownload(`${file.name}.zip`, async ({ onProgress, signal }) => {
+        const entries = await collectDirFiles(file.id)
+        if (entries.length === 0) throw new Error('文件夹为空')
+        await downloadEntriesAsZip(
+          entries,
+          `${file.name}.zip`,
+          (id) => getDownloadURL(id).then(r => r.data.download_url),
+          onProgress,
+          signal,
+        )
+      })
       message.success({ content: '打包下载完成', key: 'download' })
     } catch (err: any) {
       if (err?.name === 'AbortError') message.info({ content: '打包下载已取消', key: 'download' })
       else message.error({ content: err?.message || '打包下载失败', key: 'download' })
     } finally {
       message.destroy('download')
-      setDownloadTask(null)
-      downloadAbortRef.current = null
-      setDownloading(false)
     }
   }
 
@@ -466,38 +423,27 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   }
 
   const handleBatchDownload = async () => {
-    if (!someSelected || downloading) return
-    setDownloading(true)
-    const controller = new AbortController()
-    downloadAbortRef.current = controller
-    setDownloadTask({ name: '批量下载.zip', percent: 0, received: 0, total: 0 })
+    if (!someSelected) return
     try {
       message.loading({ content: '正在收集文件列表...', key: 'batch-download', duration: 0 })
       const selected = files.filter(f => selectedIds.has(f.id))
-      const entries = await collectSelectedEntries(selected)
-      message.destroy('batch-download')
-      if (entries.length === 0) throw new Error('没有可下载的文件')
-      await downloadEntriesAsZip(
-        entries,
-        '批量下载.zip',
-        (id) => getDownloadURL(id).then(r => r.data.download_url),
-        (received, total) => setDownloadTask({
-          name: '批量下载.zip',
-          percent: total > 0 ? Math.round((received / total) * 100) : 0,
-          received,
-          total,
-        }),
-        controller.signal,
-      )
+      await runDownload('批量下载.zip', async ({ onProgress, signal }) => {
+        const entries = await collectSelectedEntries(selected)
+        if (entries.length === 0) throw new Error('没有可下载的文件')
+        await downloadEntriesAsZip(
+          entries,
+          '批量下载.zip',
+          (id) => getDownloadURL(id).then(r => r.data.download_url),
+          onProgress,
+          signal,
+        )
+      })
       message.success({ content: '打包下载完成', key: 'batch-download' })
     } catch (err: any) {
       if (err?.name === 'AbortError') message.info({ content: '打包下载已取消', key: 'batch-download' })
       else message.error({ content: err?.message || '打包下载失败', key: 'batch-download' })
     } finally {
       message.destroy('batch-download')
-      setDownloadTask(null)
-      downloadAbortRef.current = null
-      setDownloading(false)
     }
   }
 
@@ -663,7 +609,6 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       <Modal title="重命名" open={renameModal.visible} onOk={handleRename} onCancel={() => setRenameModal({ visible: false })}>
         <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
       </Modal>
-      <DownloadProgress task={downloadTask} onCancel={cancelDownload} />
       <Modal
         title={batchMoveOpen ? `批量移动 ${selectedIds.size} 项` : `移动「${moveModal.file?.name || ''}」`}
         open={moveModal.visible || batchMoveOpen}

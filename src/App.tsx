@@ -8,6 +8,7 @@ import StoragePolicies from './pages/StoragePolicies'
 import UserGroups from './pages/UserGroups'
 import Users from './pages/Users'
 import RequireAuth from './components/RequireAuth'
+import DownloadProgress from './components/DownloadProgress'
 
 function App() {
   return (
@@ -58,6 +59,7 @@ function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <DownloadProgress />
     </BrowserRouter>
   )
 }

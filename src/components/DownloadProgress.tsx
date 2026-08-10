@@ -1,14 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Button, Progress, Space, Tooltip } from 'antd'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { Button, Progress, Tooltip } from 'antd'
 import { DownloadOutlined, MinusOutlined, CloseOutlined } from '@ant-design/icons'
-
-/** 下载进度任务状态。 */
-export interface DownloadTask {
-  name: string
-  percent: number
-  received: number
-  total: number
-}
+import { getDownloadTasks, subscribeDownload, cancelDownload, type DownloadTask } from '../store/downloadManager'
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '-'
@@ -22,25 +15,40 @@ function formatSize(bytes: number): string {
   return `${size.toFixed(1)} ${units[i]}`
 }
 
-/** 可最小化的下载进度浮窗：固定右下角、不遮罩页面，可收起为小按钮，可取消。 */
-export default function DownloadProgress({
-  task,
-  onCancel,
-}: {
-  task: DownloadTask | null
-  onCancel: () => void
-}) {
-  const [minimized, setMinimized] = useState(false)
-  // 新任务开始（task 从 null → 有值）时重置为展开态；下载进行中（percent 变化）保持当前态
-  useEffect(() => {
-    if (task) setMinimized(false)
-  }, [!!task])
+/** 单个下载任务的进度行。 */
+function TaskRow({ task }: { task: DownloadTask }) {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, flex: 1 }}>
+          {task.name}
+        </span>
+        <span style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, whiteSpace: 'nowrap' }}>
+          {formatSize(task.received)} / {formatSize(task.total)}
+        </span>
+        <Tooltip title="取消该下载">
+          <Button size="small" type="text" icon={<CloseOutlined />} onClick={() => cancelDownload(task.id)} />
+        </Tooltip>
+      </div>
+      <Progress percent={task.percent} status="active" size="small" />
+    </div>
+  )
+}
 
-  if (!task) return null
+/** 可最小化的下载进度浮窗：挂在 App 根，跨路由常驻，固定右下角、不遮罩页面，支持多任务并发。 */
+export default function DownloadProgress() {
+  const tasks = useSyncExternalStore(subscribeDownload, getDownloadTasks)
+  const [minimized, setMinimized] = useState(false)
+  // 任务数变化（新任务开始 / 全部结束）时重置为展开态；下载进行中（进度变化）保持当前态
+  useEffect(() => {
+    setMinimized(false)
+  }, [tasks.length])
+
+  if (tasks.length === 0) return null
 
   if (minimized) {
     return (
-      <Tooltip title={`${task.name}（${task.percent}%）`}>
+      <Tooltip title="点击展开下载列表">
         <Button
           type="primary"
           shape="round"
@@ -48,7 +56,7 @@ export default function DownloadProgress({
           style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 1000 }}
           onClick={() => setMinimized(false)}
         >
-          {task.percent}%
+          下载 {tasks.length} 项
         </Button>
       </Tooltip>
     )
@@ -62,6 +70,8 @@ export default function DownloadProgress({
         bottom: 24,
         zIndex: 1000,
         width: 320,
+        maxHeight: 420,
+        overflowY: 'auto',
         background: '#fff',
         borderRadius: 8,
         padding: '10px 12px',
@@ -70,23 +80,14 @@ export default function DownloadProgress({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>
-          {task.name}
+        <span style={{ fontWeight: 600, fontSize: 13 }}>
+          {tasks.length > 1 ? `正在下载 ${tasks.length} 项` : '正在下载'}
         </span>
-        <Space size={2}>
-          <Tooltip title="最小化">
-            <Button size="small" type="text" icon={<MinusOutlined />} onClick={() => setMinimized(true)} />
-          </Tooltip>
-          <Tooltip title="取消下载">
-            <Button size="small" type="text" icon={<CloseOutlined />} onClick={onCancel} />
-          </Tooltip>
-        </Space>
+        <Tooltip title="最小化">
+          <Button size="small" type="text" icon={<MinusOutlined />} onClick={() => setMinimized(true)} />
+        </Tooltip>
       </div>
-      <Progress percent={task.percent} status="active" size="small" />
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>
-        <span>{formatSize(task.received)} / {formatSize(task.total)}</span>
-        <span>{task.percent}%</span>
-      </div>
+      {tasks.map(t => <TaskRow key={t.id} task={t} />)}
     </div>
   )
 }
