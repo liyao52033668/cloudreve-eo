@@ -1,4 +1,4 @@
-import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrumb, Spin, Empty, Checkbox, Alert, Progress } from 'antd'
+import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrumb, Spin, Empty, Checkbox, Alert } from 'antd'
 import { FolderOutlined, FileOutlined, FileImageOutlined, VideoCameraOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, EyeOutlined, DragOutlined, FileTextOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { FileItem } from '../api/files'
@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { isImage, isVideo, isText, isMarkdown, isJson } from '../utils/fileType'
 import { formatDateTime } from '../utils/time'
 import ShareModal from './ShareModal'
+import DownloadProgress from './DownloadProgress'
 import { proxySegmentDownload, saveBlob, toProxyUrl } from '../utils/proxyDownload'
 import { collectDirFiles, collectSelectedEntries, downloadEntriesAsZip } from '../utils/zipDownload'
 import { marked } from 'marked'
@@ -662,21 +663,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       <Modal title="重命名" open={renameModal.visible} onOk={handleRename} onCancel={() => setRenameModal({ visible: false })}>
         <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
       </Modal>
-      <Modal
-        title={`正在下载 ${downloadTask?.name || ''}`}
-        open={!!downloadTask}
-        footer={null}
-        closable={false}
-        maskClosable={false}
-      >
-        <Progress percent={downloadTask?.percent || 0} status="active" />
-        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ color: 'rgba(0,0,0,0.45)' }}>
-            {formatSize(downloadTask?.received || 0)} / {formatSize(downloadTask?.total || 0)}
-          </span>
-          <Button size="small" onClick={cancelDownload}>取消</Button>
-        </div>
-      </Modal>
+      <DownloadProgress task={downloadTask} onCancel={cancelDownload} />
       <Modal
         title={batchMoveOpen ? `批量移动 ${selectedIds.size} 项` : `移动「${moveModal.file?.name || ''}」`}
         open={moveModal.visible || batchMoveOpen}

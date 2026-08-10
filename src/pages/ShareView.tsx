@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { Card, Input, Button, message, Space, Typography, Table, Breadcrumb, Spin, Modal, Progress } from 'antd'
+import { Card, Input, Button, message, Space, Typography, Table, Breadcrumb, Spin } from 'antd'
 import { DownloadOutlined, FolderOutlined, FileOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { getShare, getShareDownload, getShareFiles, getShareChildDownload, type ShareInfo } from '../api/shares'
 import type { FileItem } from '../api/files'
 import { formatDateTime } from '../utils/time'
+import DownloadProgress from '../components/DownloadProgress'
 import { proxySegmentDownload, saveBlob } from '../utils/proxyDownload'
 import { collectEntries, downloadEntriesAsZip } from '../utils/zipDownload'
 
@@ -306,19 +307,6 @@ export default function ShareView() {
     ? `过期时间：${formatDateTime(share.expire_at)}`
     : '永久有效'
 
-  // 分段下载进度弹窗
-  const downloadProgressModal = downloadTask ? (
-    <Modal title={`正在下载 ${downloadTask.name}`} open footer={null} closable={false} maskClosable={false}>
-      <Progress percent={downloadTask.percent} status="active" />
-      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ color: 'rgba(0,0,0,0.45)' }}>
-          {formatSize(downloadTask.received)} / {formatSize(downloadTask.total)}
-        </span>
-        <Button size="small" onClick={() => downloadAbortRef.current?.abort()}>取消</Button>
-      </div>
-    </Modal>
-  ) : null
-
   // 单个普通文件分享：简洁卡片 + 下载按钮
   if (singleFile) {
     return (
@@ -333,7 +321,7 @@ export default function ShareView() {
             <Button type="primary" icon={<DownloadOutlined />} block onClick={handleDownload} loading={downloading}>下载文件</Button>
           </div>
         </Card>
-        {downloadProgressModal}
+        <DownloadProgress task={downloadTask} onCancel={() => downloadAbortRef.current?.abort()} />
       </div>
     )
   }
@@ -383,7 +371,7 @@ export default function ShareView() {
           </Spin>
         </Space>
       </Card>
-      {downloadProgressModal}
+      <DownloadProgress task={downloadTask} onCancel={() => downloadAbortRef.current?.abort()} />
     </div>
   )
 }
