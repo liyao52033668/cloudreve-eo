@@ -507,9 +507,13 @@ func (h *FileHandler) ProxyDownload(c *gin.Context) {
 		if rangeEnd < 0 || rangeEnd >= size {
 			rangeEnd = size - 1
 		}
+		segLen := rangeEnd - start + 1
 		c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, rangeEnd, size))
-		c.Header("Content-Length", fmt.Sprintf("%d", rangeEnd-start+1))
+		c.Header("Content-Length", fmt.Sprintf("%d", segLen))
 		status = http.StatusPartialContent
+		// 上游存储可能忽略 Range 返回 200 整文件：把流截断到声明段长，
+		// 避免超写 Content-Length 触发 Go 强制关闭连接（浏览器表现为"网络错误"）。
+		rc = &limitedReadCloser{Reader: io.LimitReader(rc, segLen), Closer: rc}
 	} else if size >= 0 {
 		c.Header("Content-Length", fmt.Sprintf("%d", size))
 	}
@@ -562,6 +566,14 @@ func parseProxyRange(header string) (start, end int64, hasRange bool) {
 		return 0, -1, false
 	}
 	return s, e, true
+}
+
+// limitedReadCloser 流读取长度受限但保持原关闭语义。
+// 代理分段下载时，上游存储若忽略 Range 返回 200 整文件，用它截断到声明段长，
+// 防止超写 Content-Length 触发 Go 强制关闭连接（浏览器表现为"网络错误"）。
+type limitedReadCloser struct {
+	io.Reader
+	io.Closer
 }
 
 // DownloadDir GET /api/files/:id/zip —— 文件夹打包下载。

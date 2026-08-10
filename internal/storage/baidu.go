@@ -1038,6 +1038,15 @@ func (d *BaiduDriver) openDlinkRange(key string, start, end int64) (io.ReadClose
 			body:   string(body),
 		}
 	}
+	// 后续分段（start>0）若百度忽略 Range 返回 200 整文件，响应会从文件头开始，
+	// 拼流会把文件头重复多份导致文件损坏。明确报错并记录，而非静默产出坏文件。
+	// （start=0 的首段即使 200 也从文件头截取，段内容正确，不在此列。）
+	if resp.StatusCode == http.StatusOK && start > 0 {
+		resp.Body.Close()
+		logx.Error(logx.ModuleStorage, "百度 dlink 忽略 Range 请求，无法分段下载",
+			"key", key, "start", start, "end", end, "size", size)
+		return nil, fmt.Errorf("百度下载链接忽略 Range 请求，无法分段下载（start=%d）", start)
+	}
 	return resp.Body, nil
 }
 
