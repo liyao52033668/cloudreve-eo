@@ -266,6 +266,10 @@ export const getDownloadURL = (fileId: number, preview = false) =>
     params: preview ? { preview: 1 } : undefined,
   })
 
+/** 读取文本文件内容用于预览（txt/md/json 等），超大文本仅返回前 1MB */
+export const getFileContent = (fileId: number) =>
+  client.get<{ content: string; truncated: boolean }>(`/files/${fileId}/content`)
+
 /** 文件夹打包 zip 下载的浏览器直连 URL（?token= 鉴权）。
  * 浏览器原生下载管理器接管流式下载，chrome://downloads 可见进度。 */
 export const getDownloadZipURL = (fileId: number) =>

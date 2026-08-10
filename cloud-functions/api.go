@@ -202,6 +202,7 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		// GET + ?token= 鉴权：浏览器可直接导航，原生下载管理器接管 zip 流
 		files.GET("/batch/download", fileHandler.BatchDownloadZip)
 		files.GET("/:id/download", fileHandler.Download)
+		files.GET("/:id/content", fileHandler.Content)
 		files.GET("/:id/zip", fileHandler.DownloadDir)
 		files.DELETE("/:id", fileHandler.Delete)
 		files.PUT("/:id/rename", fileHandler.Rename)

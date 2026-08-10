@@ -714,6 +714,46 @@ func (s *FileService) GetDownloadURL(userID int64, fileID uint, preview bool) (s
 	return driver.GenerateDownloadURL(file.StorageKey, attachmentName, 30*time.Minute)
 }
 
+// 文本预览内容大小上限（1MB），超过部分截断，防止大文件占满云函数内存。
+const maxPreviewBytes = 1 << 20
+
+// ReadTextContent 读取文本文件内容用于前端预览（txt/md/json 等）。
+// 校验文件归属后从存储流式读取，最多读取 maxPreviewBytes 字节，超出部分截断。
+// 返回内容与是否被截断的标志；预览文件在界面提示仅显示前 1MB。
+func (s *FileService) ReadTextContent(userID int64, fileID uint) (string, bool, error) {
+	var file model.File
+	if err := model.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", false, errors.New("文件不存在")
+		}
+		return "", false, err
+	}
+	if file.IsDir {
+		return "", false, errors.New("不能预览文件夹")
+	}
+
+	driver, err := s.storageMgr.GetDriver(file.StoragePolicy)
+	if err != nil {
+		return "", false, err
+	}
+
+	rc, err := driver.Read(file.StorageKey)
+	if err != nil {
+		return "", false, err
+	}
+	defer rc.Close()
+
+	data, err := io.ReadAll(io.LimitReader(rc, maxPreviewBytes+1))
+	if err != nil {
+		return "", false, err
+	}
+	truncated := len(data) > maxPreviewBytes
+	if truncated {
+		data = data[:maxPreviewBytes]
+	}
+	return string(data), truncated, nil
+}
+
 // ProxyRead 校验代理下载 URL 签名后，返回文件内容流、MIME 类型与文件总大小。
 // 供无外链直链的存储（如 Filen / 百度网盘）经服务端中转下载/预览，调用方负责关闭返回的流。
 // start/end 为闭区间字节范围（0,-1 表示整文件）：驱动支持 RangeReader 时按段读取，

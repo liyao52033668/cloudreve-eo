@@ -446,6 +446,20 @@ func (h *FileHandler) Download(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"download_url": url})
 }
 
+// Content GET /api/files/:id/content —— 读取文本文件内容用于预览（txt/md/json 等）。
+// 返回内容与被截断标志；超大文本仅返回前 1MB。
+func (h *FileHandler) Content(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	fileID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	content, truncated, err := h.fileService.ReadTextContent(userID, uint(fileID))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"content": content, "truncated": truncated})
+}
+
 // ProxyDownload GET /api/files/proxy —— 无外链直链存储（如 Filen）的服务端代理下载。
 // URL 携带 HMAC 签名，无需登录态，签名校验通过后按策略读取并流式输出。
 func (h *FileHandler) ProxyDownload(c *gin.Context) {

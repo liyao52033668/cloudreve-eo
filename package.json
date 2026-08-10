@@ -14,6 +14,7 @@
     "@edgeone/pages-blob": "^0.0.14",
     "antd": "^6.5.1",
     "axios": "^1.18.1",
+    "marked": "^18.0.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.1",

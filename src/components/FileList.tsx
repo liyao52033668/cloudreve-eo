@@ -1,12 +1,35 @@
-import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrumb, Spin, Empty, Checkbox } from 'antd'
-import { FolderOutlined, FileOutlined, FileImageOutlined, VideoCameraOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, EyeOutlined, DragOutlined } from '@ant-design/icons'
+import { Table, Button, Dropdown, Modal, Input, message, Space, Image, Breadcrumb, Spin, Empty, Checkbox, Alert } from 'antd'
+import { FolderOutlined, FileOutlined, FileImageOutlined, VideoCameraOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, MoreOutlined, ShareAltOutlined, EyeOutlined, DragOutlined, FileTextOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { FileItem } from '../api/files'
-import { deleteFile, renameFile, getDownloadURL, getDownloadZipURL, listFiles, moveFile, batchDeleteFiles, batchMoveFiles, getBatchDownloadZipURL } from '../api/files'
+import { deleteFile, renameFile, getDownloadURL, getDownloadZipURL, listFiles, moveFile, batchDeleteFiles, batchMoveFiles, getBatchDownloadZipURL, getFileContent } from '../api/files'
 import { useEffect, useMemo, useState } from 'react'
-import { isImage, isVideo } from '../utils/fileType'
+import { isImage, isVideo, isText, isMarkdown, isJson } from '../utils/fileType'
 import { formatDateTime } from '../utils/time'
 import ShareModal from './ShareModal'
+import { marked } from 'marked'
+
+// markdown 渲染：raw HTML 一律转义为纯文本，防 XSS（文件内容可能来自他人分享）
+marked.use({
+  renderer: {
+    html({ text }) {
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    },
+  },
+})
+
+/** 文本预览内容格式化：JSON 文件格式化缩进展示，解析失败则回退原文；其余文本原样显示 */
+function renderTextContent(file: FileItem, content?: string): string {
+  if (content == null) return ''
+  if (isJson(file)) {
+    try {
+      return JSON.stringify(JSON.parse(content), null, 2)
+    } catch {
+      return content
+    }
+  }
+  return content
+}
 
 interface Props {
   files: FileItem[]
@@ -38,6 +61,7 @@ function GridThumb({ file }: { file: FileItem }) {
 
   if (file.is_dir) return <FolderOutlined style={{ fontSize: 44, color: '#faad14' }} />
   if (isVideo(file)) return <VideoCameraOutlined style={{ fontSize: 44, color: '#13c2c2' }} />
+  if (isText(file)) return <FileTextOutlined style={{ fontSize: 44, color: '#1677ff' }} />
   if (isImage(file)) {
     if (url) {
       return (
@@ -138,6 +162,11 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   }
 
   const handlePreview = async (file: FileItem) => {
+    // 文本类文件走内容读取接口，弹窗渲染；图片/视频走内联 URL
+    if (isText(file)) {
+      handleTextPreview(file)
+      return
+    }
     try {
       const res = await getDownloadURL(file.id, true)
       if (isVideo(file)) {
@@ -147,6 +176,25 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       }
     } catch {
       message.error('获取预览链接失败')
+    }
+  }
+
+  const [textPreview, setTextPreview] = useState<{
+    open: boolean
+    file?: FileItem
+    content?: string
+    truncated?: boolean
+    loading?: boolean
+  }>({ open: false })
+
+  const handleTextPreview = async (file: FileItem) => {
+    setTextPreview({ open: true, file, loading: true })
+    try {
+      const res = await getFileContent(file.id)
+      setTextPreview({ open: true, file, content: res.data.content, truncated: res.data.truncated, loading: false })
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '读取文件内容失败')
+      setTextPreview({ open: false })
     }
   }
 
@@ -332,7 +380,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   }, [files])
 
   const menuItemsFor = (record: FileItem) => [
-    ...(!record.is_dir && (isImage(record) || isVideo(record)) ? [{ key: 'preview', label: '预览', icon: <EyeOutlined /> }] : []),
+    ...(!record.is_dir && (isImage(record) || isVideo(record) || isText(record)) ? [{ key: 'preview', label: '预览', icon: <EyeOutlined /> }] : []),
     { key: 'download', label: record.is_dir ? '下载(zip)' : '下载', icon: <DownloadOutlined /> },
     { key: 'share', label: '分享', icon: <ShareAltOutlined /> },
     { key: 'rename', label: '重命名', icon: <EditOutlined /> },
@@ -361,7 +409,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
               className="file-grid__card"
               onClick={() => {
                 if (f.is_dir) onOpenDir(f.id)
-                else if (isImage(f) || isVideo(f)) handlePreview(f)
+                else if (isImage(f) || isVideo(f) || isText(f)) handlePreview(f)
                 else handleDownload(f)
               }}
             >
@@ -398,11 +446,13 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
               ? <VideoCameraOutlined style={{ color: '#13c2c2' }} />
               : isImage(record)
                 ? <FileImageOutlined style={{ color: '#52c41a' }} />
-                : <FileOutlined />}
+                : isText(record)
+                  ? <FileTextOutlined style={{ color: '#1677ff' }} />
+                  : <FileOutlined />}
           <a
             onClick={() => {
               if (record.is_dir) onOpenDir(record.id)
-              else if (isImage(record) || isVideo(record)) handlePreview(record)
+              else if (isImage(record) || isVideo(record) || isText(record)) handlePreview(record)
             }}
           >
             {name}
@@ -558,6 +608,37 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
           autoPlay
           style={{ width: '100%', maxHeight: '70vh' }}
         />
+      </Modal>
+      <Modal
+        title={textPreview.file ? `预览：${textPreview.file.name}` : '预览'}
+        open={textPreview.open}
+        onCancel={() => setTextPreview({ open: false })}
+        footer={null}
+        width={820}
+        destroyOnHidden
+      >
+        {textPreview.loading ? (
+          <div style={{ textAlign: 'center', padding: '48px 0' }}><Spin /></div>
+        ) : textPreview.file ? (
+          <>
+            {textPreview.truncated && (
+              <Alert
+                type="warning"
+                showIcon
+                message="文件较大，仅显示前 1MB 内容"
+                style={{ marginBottom: 12 }}
+              />
+            )}
+            {isMarkdown(textPreview.file) ? (
+              <div
+                className="text-preview-md"
+                dangerouslySetInnerHTML={{ __html: marked.parse(textPreview.content || '', { gfm: true }) }}
+              />
+            ) : (
+              <pre className="text-preview-plain">{renderTextContent(textPreview.file, textPreview.content)}</pre>
+            )}
+          </>
+        ) : null}
       </Modal>
     </>
   )

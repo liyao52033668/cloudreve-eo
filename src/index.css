@@ -376,3 +376,63 @@ body {
 .share-expire-picker.ant-picker-dropdown .ant-picker-panel-container .ant-picker-presets ul li + li {
   margin-top: 0;
 }
+
+/* 文本预览弹窗：markdown 渲染样式 */
+.text-preview-md {
+  line-height: 1.7;
+  word-break: break-word;
+}
+.text-preview-md h1, .text-preview-md h2, .text-preview-md h3,
+.text-preview-md h4, .text-preview-md h5, .text-preview-md h6 {
+  margin: 1em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.text-preview-md h1 { font-size: 1.6em; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 0.3em; }
+.text-preview-md h2 { font-size: 1.35em; border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 0.3em; }
+.text-preview-md h3 { font-size: 1.15em; }
+.text-preview-md p { margin: 0.6em 0; }
+.text-preview-md ul, .text-preview-md ol { padding-left: 1.6em; margin: 0.6em 0; }
+.text-preview-md code {
+  background: rgba(0,0,0,0.06);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+  font-size: 0.9em;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+.text-preview-md pre {
+  background: rgba(0,0,0,0.05);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0.8em 0;
+}
+.text-preview-md pre code { background: transparent; padding: 0; }
+.text-preview-md blockquote {
+  border-left: 4px solid rgba(0,0,0,0.15);
+  margin: 0.8em 0;
+  padding: 0.1em 1em;
+  color: rgba(0,0,0,0.55);
+}
+.text-preview-md a { color: #1677ff; text-decoration: none; }
+.text-preview-md table { border-collapse: collapse; margin: 0.8em 0; width: 100%; }
+.text-preview-md th, .text-preview-md td { border: 1px solid rgba(0,0,0,0.12); padding: 6px 12px; }
+.text-preview-md th { background: rgba(0,0,0,0.04); font-weight: 600; }
+.text-preview-md img { max-width: 100%; }
+.text-preview-md hr { border: none; border-top: 1px solid rgba(0,0,0,0.12); margin: 1em 0; }
+
+/* 文本预览弹窗：普通文本 / 代码 / JSON */
+.text-preview-plain {
+  margin: 0;
+  max-height: 70vh;
+  overflow: auto;
+  background: rgba(0,0,0,0.03);
+  border-radius: 6px;
+  padding: 14px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 4;
+}
