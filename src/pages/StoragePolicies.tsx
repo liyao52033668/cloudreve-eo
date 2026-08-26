@@ -73,6 +73,11 @@ const emptyForm: PolicyForm = {
 
 function formatBytes(n: number): string {
   if (!n || n <= 0) return '0（未配置）'
+  const TiB = GiB * 1024
+  if (n >= TiB) {
+    const t = n / TiB
+    return Number.isInteger(t) ? `${t} TiB` : `${t.toFixed(2)} TiB`
+  }
   if (n >= GiB) {
     const g = n / GiB
     return Number.isInteger(g) ? `${g} GiB` : `${g.toFixed(2)} GiB`
