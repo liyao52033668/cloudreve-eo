@@ -58,6 +58,11 @@ func InitDB(cfg *config.Config) error {
 				return fmt.Errorf("添加 oauth_token 字段失败: %w", err)
 			}
 		}
+		if !db.Migrator().HasColumn(&StoragePolicy{}, "webdav_direct") {
+			if err := db.Migrator().AddColumn(&StoragePolicy{}, "WebDAVDirect"); err != nil {
+				return fmt.Errorf("添加 webdav_direct 字段失败: %w", err)
+			}
+		}
 		// secret_key 早期为 varchar(255)，Dropbox 等 OAuth token 超长，需升级为 text。
 		// AutoMigrate 不会变更已存在列的类型，这里显式迁移。
 		if err := migrateSecretKeyType(db); err != nil {

@@ -142,6 +142,19 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 				authorized = bd.IsAuthorized()
 			}
 			driver = bd
+		case "webdav":
+			var wd *WebDAVDriver
+			wd, err = NewWebDAVDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath, p.CustomHost, p.WebDAVDirect)
+			if err == nil {
+				policyName := p.Name
+				mgr := m
+				// WebDAV 中转模式：下载/预览 URL 指向带签名的服务端代理；
+				// 直连模式（direct=true）不注入，直接返回内嵌凭据的直连 URL。
+				wd.proxyURL = func(storageKey, attachment string) (string, error) {
+					return mgr.SignProxyURL(policyName, storageKey, attachment, 30*time.Minute)
+				}
+			}
+			driver = wd
 		default: // s3
 			driver, err = NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle, p.CustomHost)
 		}

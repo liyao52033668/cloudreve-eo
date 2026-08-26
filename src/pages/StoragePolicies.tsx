@@ -68,6 +68,7 @@ const emptyForm: PolicyForm = {
   chunk_size: 0,
   is_default: false,
   default_quota: 0,
+  webdav_direct: false,
 }
 
 function formatBytes(n: number): string {
@@ -97,7 +98,7 @@ export default function StoragePolicies() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null; chunk_size_mib?: number | null }>()
-  const [policyType, setPolicyType] = useState<'s3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu'>('s3')
+  const [policyType, setPolicyType] = useState<'s3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav'>('s3')
   const [filterType, setFilterType] = useState<string | undefined>(undefined)
   const [searchKeyword, setSearchKeyword] = useState('')
   const [authTarget, setAuthTarget] = useState<{ id: number; type: string } | null>(null)
@@ -113,7 +114,9 @@ export default function StoragePolicies() {
             ? 'Filen'
             : t === 'dropbox'
               ? 'Dropbox'
-              : 'S3 兼容'
+              : t === 'webdav'
+                ? 'WebDAV'
+                : 'S3 兼容'
 
   // 分类选项只包含已添加的存储类型
   const categoryOptions = useMemo(() => {
@@ -201,8 +204,8 @@ export default function StoragePolicies() {
         name: p.name,
         type: p.type || 's3',
         endpoint: p.endpoint,
-        // terabox 的 region 复用为 Private Secret，filen/dropbox/baidu 不使用 region；编辑时留空表示不修改
-        region: p.type === 'terabox' || p.type === 'filen' || p.type === 'dropbox' || p.type === 'baidu' ? '' : p.region || 'us-east-1',
+        // terabox 的 region 复用为 Private Secret，filen/dropbox/baidu/webdav 不使用 region；编辑时留空表示不修改
+        region: p.type === 'terabox' || p.type === 'filen' || p.type === 'dropbox' || p.type === 'baidu' || p.type === 'webdav' ? '' : p.region || 'us-east-1',
         bucket: p.bucket,
         access_key: p.access_key,
         secret_key: '', // 留空表示不修改
@@ -213,6 +216,7 @@ export default function StoragePolicies() {
         is_default: p.is_default,
         default_quota_gib: (p.default_quota || 0) / GiB,
         chunk_size_mib: (p.chunk_size || 0) / MiB,
+        webdav_direct: p.webdav_direct || false,
       })
       setModalOpen(true)
     } catch (err: any) {
@@ -234,7 +238,7 @@ export default function StoragePolicies() {
         message.error('分片大小不能为负数')
         return
       }
-      if (values.type !== 'terabox' && values.type !== 'filen' && values.type !== 'dropbox' && values.type !== 'baidu' && chunkMib !== 0 && chunkMib < 5) {
+      if (values.type !== 'terabox' && values.type !== 'filen' && values.type !== 'dropbox' && values.type !== 'baidu' && values.type !== 'webdav' && chunkMib !== 0 && chunkMib < 5) {
         message.error('分片大小非 0 时至少为 5 MiB（S3 协议要求）')
         return
       }
@@ -253,6 +257,7 @@ export default function StoragePolicies() {
         chunk_size: Math.round(chunkMib * MiB),
         is_default: !!values.is_default,
         default_quota: Math.round(gib * GiB),
+        webdav_direct: !!values.webdav_direct,
       }
       if (editingId == null) {
         if (!payload.secret_key) {
@@ -261,7 +266,9 @@ export default function StoragePolicies() {
               ? '新建时 Client Secret 不能为空'
               : payload.type === 'baidu'
                 ? '新建时 SecretKey 不能为空'
-                : '新建时 Secret Key 不能为空',
+                : payload.type === 'webdav'
+                  ? '新建时密码不能为空'
+                  : '新建时 Secret Key 不能为空',
           )
           return
         }
@@ -460,10 +467,10 @@ export default function StoragePolicies() {
 
         <Paragraph type="secondary" style={{ marginBottom: 16 }}>
           在此添加多套互相独立的存储（S3 兼容：腾讯云 COS、阿里云 OSS、MinIO、Cloudflare R2；GitHub；TeraBox
-          开放平台；百度网盘开放平台；Filen 端到端加密网盘；Dropbox）。每套使用各自凭证与用户默认配额；上传时可任选其一。配置保存在数据库，修改后立即生效，无需环境变量与重启。
+          开放平台；百度网盘开放平台；Filen 端到端加密网盘；Dropbox；WebDAV：坚果云等）。每套使用各自凭证与用户默认配额；上传时可任选其一。配置保存在数据库，修改后立即生效，无需环境变量与重启。
           TeraBox 类型创建后需在列表中点击「授权」完成 OAuth 扫码/网页授权方可使用；百度网盘填写开放平台 AppKey 与
           SecretKey，创建后需在列表中点击「授权」完成 OAuth 授权方可使用；Filen 填写账号邮箱与密码即可；Dropbox 填写
-          App Console 生成的 Access Token 即可。
+          App Console 生成的 Access Token 即可；WebDAV 填写服务器地址、用户名与密码即可。
         </Paragraph>
 
         {policies.length === 0 && !loading ? (
@@ -547,6 +554,7 @@ export default function StoragePolicies() {
               <Select.Option value="filen">Filen</Select.Option>
               <Select.Option value="dropbox">Dropbox</Select.Option>
               <Select.Option value="baidu">百度网盘</Select.Option>
+              <Select.Option value="webdav">WebDAV</Select.Option>
             </Select>
           </Form.Item>
 
@@ -634,6 +642,42 @@ export default function StoragePolicies() {
             >
               <Input placeholder="例如 cloudreve-eo" allowClear />
             </Form.Item>
+          )}
+
+          {policyType === 'webdav' && (
+            <>
+              <Form.Item
+                name="endpoint"
+                label="服务器地址"
+                rules={[{ required: true, message: '请输入 WebDAV 服务器地址' }]}
+                extra="WebDAV 服务的基础 URL，如坚果云：https://dav.jianguoyun.com/dav/"
+              >
+                <Input placeholder="https://dav.example.com/dav/" />
+              </Form.Item>
+              <Form.Item
+                name="access_key"
+                label="用户名"
+                rules={[{ required: true, message: '请输入 WebDAV 用户名' }]}
+                extra="WebDAV 认证的用户名"
+              >
+                <Input placeholder="username" autoComplete="off" />
+              </Form.Item>
+              <Form.Item
+                name="base_path"
+                label="存储路径前缀"
+                extra="文件将存储在 WebDAV 的这个目录下，留空表示根目录"
+              >
+                <Input placeholder="例如 cloudreve/files" allowClear />
+              </Form.Item>
+              <Form.Item
+                name="webdav_direct"
+                label="浏览器直连"
+                valuePropName="checked"
+                extra="开启后浏览器直接访问 WebDAV 服务器（需服务商开放 CORS），失败时自动回退服务端中转"
+              >
+                <Switch />
+              </Form.Item>
+            </>
           )}
 
           {policyType === 's3' && (
@@ -732,17 +776,19 @@ export default function StoragePolicies() {
                       ? 'Filen 密码'
                       : policyType === 'dropbox'
                         ? 'Access Token'
-                        : 'Secret Key'
+                        : policyType === 'webdav'
+                          ? '密码'
+                          : 'Secret Key'
             }
             rules={
               editingId == null
-                ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'baidu' ? '请输入 SecretKey' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox Access Token' : '请输入 Secret Key' }]
+                ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'baidu' ? '请输入 SecretKey' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox Access Token' : policyType === 'webdav' ? '请输入密码' : '请输入 Secret Key' }]
                 : []
             }
             extra={editingId != null ? '留空表示不修改原密钥' : undefined}
           >
             <Input.Password
-              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'baidu' ? 'secret_key' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox Access Token（App Console 生成）' : 'Secret Access Key')}
+              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'baidu' ? 'secret_key' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox Access Token（App Console 生成）' : policyType === 'webdav' ? 'WebDAV 密码' : 'Secret Access Key')}
               autoComplete="new-password"
             />
           </Form.Item>

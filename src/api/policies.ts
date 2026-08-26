@@ -39,7 +39,7 @@ export interface StoragePolicyAdmin {
 export interface StoragePolicyDetail {
   id: number
   name: string
-  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav'
   endpoint: string
   region: string
   bucket: string
@@ -52,11 +52,13 @@ export interface StoragePolicyDetail {
   chunk_size: number
   is_default: boolean
   default_quota: number
+  /** 仅 WebDAV：是否启用浏览器直连（需服务商开放 CORS） */
+  webdav_direct?: boolean
 }
 
 export interface PolicyForm {
   name: string
-  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav'
   endpoint: string
   region: string
   bucket: string
@@ -75,6 +77,8 @@ export interface PolicyForm {
   is_default: boolean
   /** 该策略下每用户默认配额（字节） */
   default_quota: number
+  /** 仅 WebDAV：是否启用浏览器直连（需服务商开放 CORS），false 则服务端中转 */
+  webdav_direct?: boolean
 }
 
 export const listPublicPolicies = () =>

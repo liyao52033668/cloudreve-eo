@@ -53,6 +53,8 @@ type adminPolicyView struct {
 	CreatedAt      string `json:"created_at,omitempty"`
 	// Authorized 仅 TeraBox / 百度网盘：是否已完成 OAuth 授权。
 	Authorized bool `json:"authorized"`
+	// WebDAVDirect 仅 WebDAV：是否启用浏览器直连。
+	WebDAVDirect bool `json:"webdav_direct"`
 }
 
 func toAdminView(p *model.StoragePolicy) adminPolicyView {
@@ -84,6 +86,7 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		DefaultQuota:   p.DefaultQuota,
 		CreatedAt:      p.CreatedAt.Format("2006-01-02 15:04:05"),
 		Authorized:     (p.Type == "terabox" || p.Type == "baidu") && p.OAuthToken != "",
+		WebDAVDirect:   p.WebDAVDirect,
 	}
 }
 
@@ -135,6 +138,7 @@ type policyBody struct {
 	ChunkSize      int64  `json:"chunk_size"`
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
+	WebDAVDirect   bool   `json:"webdav_direct"`
 }
 
 // Create POST /api/admin/storage/policies
@@ -202,6 +206,19 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "百度网盘 SecretKey 不能为空"})
 			return
 		}
+	case "webdav":
+		if req.Endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "WebDAV 服务器地址不能为空"})
+			return
+		}
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "WebDAV 用户名不能为空"})
+			return
+		}
+		if req.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "WebDAV 密码不能为空"})
+			return
+		}
 	default: // s3
 		policyType = "s3"
 		if req.SecretKey == "" {
@@ -253,6 +270,7 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,
+		WebDAVDirect:   req.WebDAVDirect,
 	}
 	if err := model.CreateStoragePolicy(p); err != nil {
 		msg := err.Error()
@@ -375,6 +393,7 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,
+		WebDAVDirect:   req.WebDAVDirect,
 	}
 	if err := model.UpdateStoragePolicy(uint(id), updates, req.SecretKey != ""); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

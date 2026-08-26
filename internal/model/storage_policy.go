@@ -30,6 +30,11 @@ type StoragePolicy struct {
 	ChunkSize int64 `gorm:"not null;default:0" json:"chunk_size"`
 	// CORSEnabled 标记已为存储桶配置浏览器直传 CORS 规则（仅 S3 类型有意义）。
 	CORSEnabled bool `gorm:"not null;default:false" json:"cors_enabled"`
+	// WebDAVDirect 仅 WebDAV 类型：是否允许浏览器直连上传/下载。
+	// true 时 GenerateUploadURL/GenerateDownloadURL 返回内嵌 Basic Auth 凭据的 WebDAV 直连 URL
+	// （需服务商开放浏览器跨域 CORS 且允许 Authorization 头，否则浏览器直传/直下会失败）；
+	// false 时走服务端中转（默认，最稳妥）。
+	WebDAVDirect bool `gorm:"column:webdav_direct;not null;default:false" json:"webdav_direct"`
 	IsDefault   bool `gorm:"not null;default:false" json:"is_default"`
 	// DefaultQuota 该策略下每个用户的默认配额（字节）；0 表示未配置/不可用。
 	DefaultQuota int64 `gorm:"not null;default:0" json:"default_quota"`
@@ -122,6 +127,7 @@ func UpdateStoragePolicy(id uint, updates *StoragePolicy, updateSecret bool) err
 	existing.Branch = updates.Branch
 	existing.ChunkSize = updates.ChunkSize
 	existing.DefaultQuota = updates.DefaultQuota
+	existing.WebDAVDirect = updates.WebDAVDirect
 	if updateSecret && updates.SecretKey != "" {
 		existing.SecretKey = updates.SecretKey
 	}
