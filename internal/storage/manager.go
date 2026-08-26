@@ -144,7 +144,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			driver = bd
 		case "webdav":
 			var wd *WebDAVDriver
-			wd, err = NewWebDAVDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath, p.CustomHost, p.WebDAVDirect)
+			wd, err = NewWebDAVDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath, p.CustomHost)
 			if err == nil {
 				policyName := p.Name
 				mgr := m

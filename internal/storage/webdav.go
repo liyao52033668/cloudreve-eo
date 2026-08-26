@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
 )
+
+// ErrWebDAVCredentialsMissing 表示 WebDAV 凭据未配置。
+var ErrWebDAVCredentialsMissing = errors.New("WebDAV 凭据缺失，请到「存储策略」编辑并保存该策略")
 
 // WebDAVDriver 使用 WebDAV 协议实现存储驱动。
 // 通过 HTTP PUT/GET/DELETE/MKCOL 等标准方法操作远端文件。
@@ -24,7 +26,6 @@ type WebDAVDriver struct {
 	basePath   string // 存储路径前缀，如 cloudreve-eo
 	customHost string // 自定义下载域名（可选，留空使用 serverURL）
 	client     *http.Client
-	direct     bool // 是否允许浏览器直连（需服务商开放 CORS）
 
 	// proxyURL 生成带签名的服务端代理下载 URL（由 manager 注入）。
 	proxyURL func(storageKey, attachment string) (string, error)
@@ -35,8 +36,7 @@ type WebDAVDriver struct {
 // username/password: 认证凭据
 // basePath: 存储路径前缀，空则默认 cloudreve-eo
 // customHost: 自定义下载域名（可选），空则使用 serverURL
-// direct: 是否允许浏览器直连（需服务商开放 CORS），false 则走服务端中转
-func NewWebDAVDriver(serverURL, username, password, basePath, customHost string, direct bool) (*WebDAVDriver, error) {
+func NewWebDAVDriver(serverURL, username, password, basePath, customHost string) (*WebDAVDriver, error) {
 	if serverURL == "" {
 		return nil, fmt.Errorf("WebDAV 服务器地址不能为空")
 	}
@@ -64,7 +64,6 @@ func NewWebDAVDriver(serverURL, username, password, basePath, customHost string,
 		client: &http.Client{
 			Timeout: 30 * time.Minute, // 大文件上传需要较长超时
 		},
-		direct: direct,
 	}, nil
 }
 
@@ -149,45 +148,17 @@ func (d *WebDAVDriver) UploadFile(key string, content []byte) error {
 	return nil
 }
 
-// GenerateUploadURL WebDAV 无预签名直传。
-// direct=true 时返回内嵌 Basic Auth 凭据的直连 PUT URL（浏览器直传，需服务商开放 CORS）；
-// 否则返回错误，让调用方回退到服务端中转上传。
+// GenerateUploadURL WebDAV 无预签名直传，走服务端上传。
 func (d *WebDAVDriver) GenerateUploadURL(key string, contentType string, expire time.Duration) (string, error) {
-	if d.direct {
-		return d.directURL(key), nil
-	}
 	return "", fmt.Errorf("WebDAV 存储不支持客户端直传，请使用服务端上传")
 }
 
-// GenerateDownloadURL 生成下载 URL。
-// direct=true 时返回内嵌 Basic Auth 凭据的直连 GET URL（浏览器原生下载/预览，顶级导航无需 CORS）；
-// 否则返回带签名的服务端代理下载 URL。
+// GenerateDownloadURL 返回带签名的服务端代理下载 URL。
 func (d *WebDAVDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
-	if d.direct {
-		return d.directURL(key), nil
-	}
 	if d.proxyURL == nil {
 		return "", fmt.Errorf("WebDAV 代理下载未初始化")
 	}
 	return d.proxyURL(key, fileName)
-}
-
-// directURL 生成内嵌 Basic Auth 凭据的 WebDAV 直连 URL（https://user:pass@host/path）。
-// 浏览器 fetch / XMLHttpRequest / <a> / <img> / <video> 遇到 URL 中的 userinfo 会自动携带
-// Authorization: Basic 头，因此前端无需改动即可直连。凭据经 URL 编码避免特殊字符破坏 URL。
-func (d *WebDAVDriver) directURL(key string) string {
-	host := d.serverURL
-	// 自定义域名（可选）：覆盖服务器地址
-	if d.customHost != "" {
-		host = d.customHost
-	}
-	cred := url.QueryEscape(d.username) + ":" + url.QueryEscape(d.password)
-	// 在 scheme:// 之后插入 user:pass@
-	parts := strings.SplitN(host, "://", 2)
-	if len(parts) == 2 {
-		return parts[0] + "://" + cred + "@" + parts[1] + "/" + d.webdavPathOf(key)
-	}
-	return cred + "@" + host + "/" + d.webdavPathOf(key)
 }
 
 // Delete 删除远端文件。
@@ -449,6 +420,3 @@ var _ ServerChunkedUploader = (*WebDAVDriver)(nil)
 func (d *WebDAVDriver) IsConfigured() bool {
 	return d.serverURL != "" && d.username != "" && d.password != ""
 }
-
-// ErrWebDAVCredentialsMissing 表示 WebDAV 凭据未配置。
-var ErrWebDAVCredentialsMissing = errors.New("WebDAV 凭据缺失，请到「存储策略」编辑并保存该策略")
