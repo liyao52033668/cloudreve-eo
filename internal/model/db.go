@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/config"
 	"github.com/glebarez/sqlite"
@@ -40,6 +41,16 @@ func InitDB(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("连接数据库失败: %w", err)
 	}
+
+	// 配置连接池：Supabase session pooler 限制 15 个并发连接，
+	// 必须显式设置上限避免高并发时超限（EMAXCONNSESSION）。
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("获取底层数据库连接失败: %w", err)
+	}
+	sqlDB.SetMaxOpenConns(10)              // 最大打开连接数，留 5 个余量
+	sqlDB.SetMaxIdleConns(5)               // 最大空闲连接数
+	sqlDB.SetConnMaxLifetime(30 * time.Minute) // 连接最大存活时间，避免长时间占用
 
 	if err := db.AutoMigrate(&User{}, &UserGroup{}, &File{}, &Share{}, &Setting{}, &StoragePolicy{}, &UploadSession{}); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
