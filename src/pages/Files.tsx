@@ -640,10 +640,10 @@ export default function Files() {
   }
 
   const formatSize = (n: number) => {
-    const TiB = 1 << 40
-    const GiB = 1 << 30
-    const MiB = 1 << 20
-    const KiB = 1 << 10
+    const TiB = 1024 * 1024 * 1024 * 1024
+    const GiB = 1024 * 1024 * 1024
+    const MiB = 1024 * 1024
+    const KiB = 1024
     if (n >= TiB) return (n / TiB).toFixed(2) + ' TB'
     if (n >= GiB) return (n / GiB).toFixed(2) + ' GB'
     if (n >= MiB) return (n / MiB).toFixed(1) + ' MB'
