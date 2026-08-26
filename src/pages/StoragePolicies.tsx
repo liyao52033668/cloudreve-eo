@@ -107,6 +107,7 @@ export default function StoragePolicies() {
   const [filterType, setFilterType] = useState<string | undefined>(undefined)
   const [searchKeyword, setSearchKeyword] = useState('')
   const [authTarget, setAuthTarget] = useState<{ id: number; type: string } | null>(null)
+  const [quotaUnit, setQuotaUnit] = useState<'GiB' | 'TiB'>('GiB')
 
   const typeLabel = (t: string) =>
     t === 'github'
@@ -205,6 +206,15 @@ export default function StoragePolicies() {
       const p = res.data.policy
       setEditingId(id)
       setPolicyType(p.type || 's3')
+      // 根据配额大小自动选择合适单位
+      const quotaBytes = p.default_quota || 0
+      if (quotaBytes >= GiB * 1024) {
+        setQuotaUnit('TiB')
+        form.setFieldsValue({ default_quota_gib: quotaBytes / (GiB * 1024) })
+      } else {
+        setQuotaUnit('GiB')
+        form.setFieldsValue({ default_quota_gib: quotaBytes / GiB })
+      }
       form.setFieldsValue({
         name: p.name,
         type: p.type || 's3',
@@ -219,7 +229,6 @@ export default function StoragePolicies() {
         base_path: p.base_path || '',
         branch: p.branch || '',
         is_default: p.is_default,
-        default_quota_gib: (p.default_quota || 0) / GiB,
         chunk_size_mib: (p.chunk_size || 0) / MiB,
         webdav_direct: p.webdav_direct || false,
       })
@@ -233,11 +242,12 @@ export default function StoragePolicies() {
     try {
       const values = await form.validateFields()
       setSaving(true)
-      const gib = Number(values.default_quota_gib ?? 0)
-      if (Number.isNaN(gib) || gib < 0) {
+      const quotaVal = Number(values.default_quota_gib ?? 0)
+      if (Number.isNaN(quotaVal) || quotaVal < 0) {
         message.error('默认配额不能为负数')
         return
       }
+      const unitMultiplier = quotaUnit === 'TiB' ? GiB * 1024 : GiB
       const chunkMib = Number(values.chunk_size_mib ?? 0)
       if (Number.isNaN(chunkMib) || chunkMib < 0) {
         message.error('分片大小不能为负数')
@@ -261,7 +271,7 @@ export default function StoragePolicies() {
         branch: (values.branch || '').trim(),
         chunk_size: Math.round(chunkMib * MiB),
         is_default: !!values.is_default,
-        default_quota: Math.round(gib * GiB),
+        default_quota: Math.round(quotaVal * unitMultiplier),
         webdav_direct: !!values.webdav_direct,
       }
       if (editingId == null) {
@@ -799,19 +809,42 @@ export default function StoragePolicies() {
           </Form.Item>
 
           <Form.Item
-            name="default_quota_gib"
-            label="每用户默认配额 (GiB)"
+            label="每用户默认配额"
             extra="仅作用于本存储策略。0 表示未配置/不可用，用户在该策略下无法上传。"
-            rules={[
-              {
-                validator: async (_, v) => {
-                  if (v === null || v === undefined || v === '') return
-                  if (Number(v) < 0) throw new Error('不能为负数')
-                },
-              },
-            ]}
           >
-            <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item
+                name="default_quota_gib"
+                noStyle
+                rules={[
+                  {
+                    validator: async (_, v) => {
+                      if (v === null || v === undefined || v === '') return
+                      if (Number(v) < 0) throw new Error('不能为负数')
+                    },
+                  },
+                ]}
+              >
+                <InputNumber min={0} step={1} style={{ width: 'calc(100% - 80px)' }} placeholder="0" />
+              </Form.Item>
+              <Select
+                value={quotaUnit}
+                onChange={(v) => {
+                  const currentVal = form.getFieldValue('default_quota_gib') || 0
+                  setQuotaUnit(v)
+                  // 切换单位时转换数值
+                  if (v === 'TiB') {
+                    form.setFieldsValue({ default_quota_gib: +(currentVal / 1024).toFixed(4) })
+                  } else {
+                    form.setFieldsValue({ default_quota_gib: Math.round(currentVal * 1024) })
+                  }
+                }}
+                style={{ width: 80 }}
+              >
+                <Select.Option value="GiB">GiB</Select.Option>
+                <Select.Option value="TiB">TiB</Select.Option>
+              </Select>
+            </Space.Compact>
           </Form.Item>
 
           {policyType === 's3' && (
