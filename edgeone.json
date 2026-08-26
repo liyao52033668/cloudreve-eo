@@ -1,13 +1,5 @@
 {
     "cloudFunctions": {
-        "nodejs": {
-            "maxDuration": 120
-        },
-        "python": {
-            "maxDuration": 60
-        },
-        "go": {
-            "maxDuration": 120
-        }
+        "maxDuration": 120
     }
 }
