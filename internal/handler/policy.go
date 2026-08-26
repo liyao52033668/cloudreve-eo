@@ -339,6 +339,16 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 			return
 		}
 		// SecretKey 在编辑时可以为空（表示不修改）
+	case "webdav":
+		if req.Endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "WebDAV 服务器地址不能为空"})
+			return
+		}
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "WebDAV 用户名不能为空"})
+			return
+		}
+		// SecretKey（密码）在编辑时可以为空（表示不修改）
 	default: // s3
 		policyType = "s3"
 		if req.Endpoint == "" {
