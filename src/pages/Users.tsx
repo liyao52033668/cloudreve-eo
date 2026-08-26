@@ -57,6 +57,10 @@ const emptyForm = {
 
 function formatBytes(n: number): string {
   if (!n || n <= 0) return '0'
+  if (n >= 1024 * 1024 * 1024 * 1024) {
+    const t = n / (1024 * 1024 * 1024 * 1024)
+    return Number.isInteger(t) ? `${t} TiB` : `${t.toFixed(2)} TiB`
+  }
   if (n >= GiB) {
     const g = n / GiB
     return Number.isInteger(g) ? `${g} GiB` : `${g.toFixed(2)} GiB`

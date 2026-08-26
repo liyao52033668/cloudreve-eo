@@ -60,6 +60,10 @@ const emptyForm: GroupForm = {
 
 function formatBytes(n: number): string {
   if (!n || n <= 0) return '0（未配置）'
+  if (n >= 1024 * 1024 * 1024 * 1024) {
+    const t = n / (1024 * 1024 * 1024 * 1024)
+    return Number.isInteger(t) ? `${t} TiB` : `${t.toFixed(2)} TiB`
+  }
   if (n >= GiB) {
     const g = n / GiB
     return Number.isInteger(g) ? `${g} GiB` : `${g.toFixed(2)} GiB`
@@ -79,6 +83,7 @@ export default function UserGroups() {
   const [form] = Form.useForm<GroupForm>()
   const [policies, setPolicies] = useState<StoragePolicyAdmin[]>([])
   const [searchKeyword, setSearchKeyword] = useState('')
+  const [storageUnit, setStorageUnit] = useState<'GiB' | 'TiB'>('GiB')
 
   const filteredGroups = useMemo(() => {
     const kw = searchKeyword.trim().toLowerCase()
@@ -151,12 +156,27 @@ export default function UserGroups() {
       const res = await getAdminGroup(id)
       const g = res.data.group
       setEditingId(id)
-      form.setFieldsValue({
-        name: g.name,
-        storage_policies: g.storage_policies || [g.storage_policy || ''],
-        max_storage: (g.max_storage || 0) / GiB,
-        is_default: g.is_default,
-      })
+
+      // 根据容量大小自动选择单位
+      const maxStorage = g.max_storage || 0
+      if (maxStorage >= 1024 * GiB) {
+        setStorageUnit('TiB')
+        form.setFieldsValue({
+          name: g.name,
+          storage_policies: g.storage_policies || [g.storage_policy || ''],
+          max_storage: maxStorage / (1024 * GiB),
+          is_default: g.is_default,
+        })
+      } else {
+        setStorageUnit('GiB')
+        form.setFieldsValue({
+          name: g.name,
+          storage_policies: g.storage_policies || [g.storage_policy || ''],
+          max_storage: maxStorage / GiB,
+          is_default: g.is_default,
+        })
+      }
+
       setModalOpen(true)
     } catch (err: any) {
       message.error(err.response?.data?.error || '加载用户组失败')
@@ -167,10 +187,17 @@ export default function UserGroups() {
     try {
       const values = await form.validateFields()
       setSaving(true)
+
+      // 根据单位转换容量值
+      const storageValue = Number(values.max_storage) || 0
+      const storageBytes = storageUnit === 'TiB'
+        ? Math.round(storageValue * 1024 * GiB)
+        : Math.round(storageValue * GiB)
+
       const payload: GroupForm = {
         name: values.name,
         storage_policies: values.storage_policies || [],
-        max_storage: Math.round(Number(values.max_storage) * GiB),
+        max_storage: storageBytes,
         is_default: !!values.is_default,
       }
       if (editingId == null) {
@@ -355,15 +382,38 @@ export default function UserGroups() {
             />
           </Form.Item>
           <Form.Item
-            name="max_storage"
-            label="每用户最大容量 (GiB)"
+            label="每用户最大容量"
             extra="0 表示沿用策略默认配额"
-            rules={[
-              { required: true, message: '请输入容量' },
-              { type: 'number', min: 0, message: '不能为负数' },
-            ]}
           >
-            <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0" />
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item
+                name="max_storage"
+                noStyle
+                rules={[
+                  { required: true, message: '请输入容量' },
+                  { type: 'number', min: 0, message: '不能为负数' },
+                ]}
+              >
+                <InputNumber min={0} step={1} style={{ width: 'calc(100% - 80px)' }} placeholder="0" />
+              </Form.Item>
+              <Select
+                value={storageUnit}
+                onChange={(v) => {
+                  const currentVal = form.getFieldValue('max_storage') || 0
+                  setStorageUnit(v)
+                  // 切换单位时转换数值
+                  if (v === 'TiB') {
+                    form.setFieldsValue({ max_storage: +(currentVal / 1024).toFixed(4) })
+                  } else {
+                    form.setFieldsValue({ max_storage: Math.round(currentVal * 1024) })
+                  }
+                }}
+                style={{ width: 80 }}
+              >
+                <Select.Option value="GiB">GiB</Select.Option>
+                <Select.Option value="TiB">TiB</Select.Option>
+              </Select>
+            </Space.Compact>
           </Form.Item>
           <Form.Item name="is_default" label="设为默认组" valuePropName="checked">
             <Switch />
