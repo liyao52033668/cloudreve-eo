@@ -6,38 +6,9 @@ import (
 	"testing"
 )
 
-func TestWebDAVDriver_DirectMode(t *testing.T) {
-	// 测试直连模式生成带 Basic Auth 的 URL
-	d, err := NewWebDAVDriver("https://dav.example.com", "user", "pass", "cloudreve", "", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// 上传 URL 应该内嵌 Basic Auth 凭据
-	uploadURL, err := d.GenerateUploadURL("user123/file.txt", "text/plain", 0)
-	if err != nil {
-		t.Fatal("直连模式 GenerateUploadURL 不应返回错误:", err)
-	}
-	if !strings.Contains(uploadURL, "user:pass@") {
-		t.Errorf("上传 URL 应包含 user:pass@，实际: %s", uploadURL)
-	}
-	if !strings.Contains(uploadURL, "cloudreve/user123/file.txt") {
-		t.Errorf("上传 URL 应包含完整路径，实际: %s", uploadURL)
-	}
-
-	// 下载 URL 同样内嵌 Basic Auth
-	downloadURL, err := d.GenerateDownloadURL("user123/file.txt", "file.txt", 0)
-	if err != nil {
-		t.Fatal("直连模式 GenerateDownloadURL 不应返回错误:", err)
-	}
-	if !strings.Contains(downloadURL, "user:pass@") {
-		t.Errorf("下载 URL 应包含 user:pass@，实际: %s", downloadURL)
-	}
-}
-
 func TestWebDAVDriver_ProxyMode(t *testing.T) {
-	// 测试中转模式（默认）
-	d, err := NewWebDAVDriver("https://dav.example.com", "user", "pass", "cloudreve", "", false)
+	// 测试中转模式
+	d, err := NewWebDAVDriver("https://dav.example.com", "user", "pass", "cloudreve", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,23 +34,39 @@ func TestWebDAVDriver_ProxyMode(t *testing.T) {
 	}
 }
 
-func TestWebDAVDirectURL(t *testing.T) {
-	// 测试 directURL 生成逻辑
-	d := &WebDAVDriver{
-		serverURL: "https://dav.example.com",
-		username:  "user",
-		password:  "pass@word", // 包含特殊字符
-		basePath:  "cloudreve",
+func TestWebDAVDriver_NewValidation(t *testing.T) {
+	// 测试组件验证
+	_, err := NewWebDAVDriver("", "user", "pass", "cloudreve", "")
+	if err == nil {
+		t.Error("空 serverURL 应返回错误")
 	}
 
-	result := d.directURL("user123/file.txt")
-
-	// 应包含 URL 编码的凭据
-	if !strings.Contains(result, "user:pass%40word@") {
-		t.Errorf("directURL 应 URL 编码特殊字符，实际: %s", result)
+	_, err = NewWebDAVDriver("https://dav.example.com", "", "pass", "cloudreve", "")
+	if err == nil {
+		t.Error("空 username 应返回错误")
 	}
-	// 应包含完整路径
-	if !strings.Contains(result, "cloudreve/user123/file.txt") {
-		t.Errorf("directURL 应包含完整路径，实际: %s", result)
+
+	_, err = NewWebDAVDriver("https://dav.example.com", "user", "", "cloudreve", "")
+	if err == nil {
+		t.Error("空 password 应返回错误")
+	}
+
+	// 正常初始化
+	d, err := NewWebDAVDriver("https://dav.example.com", "user", "pass", "cloudreve", "")
+	if err != nil {
+		t.Fatal("正常初始化不应返回错误:", err)
+	}
+	if !d.IsConfigured() {
+		t.Error("IsConfigured 应返回 true")
+	}
+
+	// 验证 basePath 默认值
+	if d.basePath != "cloudreve" {
+		t.Errorf("basePath 应为 cloudreve，实际: %s", d.basePath)
+	}
+
+	// 验证 serverURL 末尾斜杠被清理
+	if d.serverURL != "https://dav.example.com" {
+		t.Errorf("serverURL 不应包含末尾斜杠，实际: %s", d.serverURL)
 	}
 }
