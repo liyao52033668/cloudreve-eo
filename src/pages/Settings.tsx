@@ -28,7 +28,7 @@ export default function Settings() {
   const [webdavHasPassword, setWebdavHasPassword] = useState(false)
   const [webdavSaving, setWebdavSaving] = useState(false)
   const [webdavPassword, setWebdavPassword] = useState('')
-  const [webdavPasswordSaving, setWebdavPasswordSaving] = useState(false)
+  const [, setWebdavPasswordSaving] = useState(false)
   // WebDAV 连接信息：用户名 = 当前登录用户名；密码明文仅在本会话设置后保留一次，刷新即失。
   const [webdavUsername, setWebdavUsername] = useState('')
   const [webdavPasswordPlain, setWebdavPasswordPlain] = useState('')
@@ -142,6 +142,26 @@ export default function Settings() {
     } finally {
       setWebdavSaving(false)
     }
+  }
+
+  // 自动生成随机密码（字母+数字+符号，16 位，便于客户端输入又足够安全）
+  const generatePassword = () => {
+    const chars =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*'
+    const arr = new Uint32Array(16)
+    crypto.getRandomValues(arr)
+    let pwd = ''
+    for (let i = 0; i < arr.length; i++) {
+      pwd += chars[arr[i] % chars.length]
+    }
+    return pwd
+  }
+
+  const handleGenerateWebDAVPassword = () => {
+    const pwd = generatePassword()
+    setWebdavPassword(pwd)
+    // 自动填充后直接设置
+    handleSetWebDAVPassword(pwd)
   }
 
   const handleSetWebDAVPassword = async (password: string = webdavPassword) => {
@@ -300,33 +320,6 @@ export default function Settings() {
 
             <div style={{ marginBottom: 16 }}>
               <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                WebDAV 用户名
-              </Paragraph>
-              <Space.Compact style={{ width: '100%' }}>
-                <Input value={webdavUsername} readOnly placeholder="加载中..." />
-                <Button
-                  icon={<CopyOutlined />}
-                  onClick={async () => {
-                    if (!webdavUsername) return
-                    try {
-                      await copyText(webdavUsername)
-                      message.success('已复制')
-                    } catch {
-                      message.error('复制失败')
-                    }
-                  }}
-                  disabled={!webdavUsername}
-                >
-                  复制
-                </Button>
-              </Space.Compact>
-              <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-                WebDAV 用户名即您的登录用户名
-              </Text>
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <Paragraph type="secondary" style={{ marginBottom: 8 }}>
                 WebDAV 密码
               </Paragraph>
               {webdavHasPassword ? (
@@ -334,7 +327,6 @@ export default function Settings() {
                   type="success"
                   showIcon
                   message="已设置 WebDAV 密码"
-                  description="使用上方用户名和此密码登录 WebDAV 客户端"
                   style={{ marginBottom: 12 }}
                 />
               ) : (
@@ -350,16 +342,25 @@ export default function Settings() {
                 <Input.Password
                   value={webdavPassword}
                   onChange={(e) => setWebdavPassword(e.target.value)}
-                  placeholder="输入新密码（至少 6 位）"
+                  placeholder="输入或自动生成新密码（至少 6 位）"
                   visibilityToggle
+                  autoComplete="new-password"
+                  suffix={
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<ReloadOutlined />}
+                      onClick={handleGenerateWebDAVPassword}
+                      title="自动生成密码"
+                    />
+                  }
                 />
                 <Button
                   type="primary"
-                  loading={webdavPasswordSaving}
                   onClick={() => handleSetWebDAVPassword()}
                   disabled={webdavPassword.length < 6}
                 >
-                  设置密码
+                  设置
                 </Button>
               </Space.Compact>
             </div>
@@ -405,8 +406,13 @@ export default function Settings() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <AppHeader title="参数设置" />
-      <Layout style={{ background: '#fff' }}>
-        <Sider width={200} style={{ background: '#fff', borderRight: '1px solid #f0f0f0' }}>
+      {/* 侧边栏固定：内层 Layout 高度锁定为视口剩余高度，Sider 不随内容滚动，
+          仅 Content 区域内部滚动 */}
+      <Layout style={{ background: '#fff', height: 'calc(100vh - 64px)' }}>
+        <Sider
+          width={200}
+          style={{ background: '#fff', borderRight: '1px solid #f0f0f0', position: 'sticky', top: 0, height: '100%' }}
+        >
           <Menu
             mode="inline"
             selectedKeys={[activeKey]}
@@ -415,7 +421,7 @@ export default function Settings() {
             style={{ height: '100%', borderRight: 0 }}
           />
         </Sider>
-        <Content style={{ padding: 24, maxWidth: 900, margin: '0 auto', width: '100%' }}>
+        <Content style={{ padding: 24, maxWidth: 900, margin: '0 auto', width: '100%', overflow: 'auto' }}>
           {renderContent()}
         </Content>
       </Layout>
