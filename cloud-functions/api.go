@@ -228,6 +228,8 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		user := protected.Group("/user")
 		user.GET("/profile", userHandler.Profile)
 		user.PUT("/password", userHandler.ChangePassword)
+		user.GET("/webdav", userHandler.GetWebDAVStatus)
+		user.PUT("/webdav-password", userHandler.SetWebDAVPassword)
 
 		// 管理员：参数设置 + 存储策略 CRUD
 		admin := protected.Group("")
@@ -236,6 +238,8 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 			admin.GET("/settings/security", settingHandler.GetSecurity)
 			admin.POST("/settings/security/rotate-jwt", settingHandler.RotateJWTSecret)
 			admin.PUT("/settings/register", settingHandler.UpdateRegister)
+			admin.GET("/settings/webdav", settingHandler.GetWebDAV)
+			admin.PUT("/settings/webdav", settingHandler.UpdateWebDAV)
 
 			adminPolicies := admin.Group("/admin/storage/policies")
 			{
