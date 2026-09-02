@@ -42,6 +42,11 @@ func (s *FileService) buildStorageKey(userID int64, policy string, fileName stri
 	return key, nil
 }
 
+// BuildStorageKey 公开方法，供 WebDAV 等服务端使用。
+func (s *FileService) BuildStorageKey(userID int64, policy string, fileName string) (string, error) {
+	return s.buildStorageKey(userID, policy, fileName)
+}
+
 func (s *FileService) ListFiles(userID int64, parentID uint) ([]model.File, error) {
 	var files []model.File
 	err := model.DB.Where("user_id = ? AND parent_id = ?", userID, parentID).

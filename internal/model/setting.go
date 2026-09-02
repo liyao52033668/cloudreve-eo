@@ -18,6 +18,7 @@ type Setting struct {
 const (
 	SettingKeyJWTSecret     = "jwt_secret"
 	SettingKeyAllowRegister = "allow_register"
+	SettingKeyWebDAVEnabled = "webdav_enabled"
 )
 
 // IsRegisterAllowed 是否允许新用户注册。
@@ -48,6 +49,28 @@ func SetAllowRegister(allow bool) error {
 		v = "true"
 	}
 	return SetSetting(SettingKeyAllowRegister, v)
+}
+
+// IsWebDAVEnabled 是否启用 WebDAV 服务。
+// 库中无记录时默认 false；管理员需在前端「参数设置」页手动开启。
+func IsWebDAVEnabled() (bool, error) {
+	val, err := GetSetting(SettingKeyWebDAVEnabled)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil // 默认关闭
+		}
+		return false, err
+	}
+	return val == "true" || val == "1", nil
+}
+
+// SetWebDAVEnabled 写入「启用 WebDAV 服务」开关。
+func SetWebDAVEnabled(enabled bool) error {
+	v := "false"
+	if enabled {
+		v = "true"
+	}
+	return SetSetting(SettingKeyWebDAVEnabled, v)
 }
 
 // GetSetting 读取配置项；不存在时返回 gorm.ErrRecordNotFound。

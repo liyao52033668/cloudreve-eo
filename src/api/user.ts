@@ -38,3 +38,13 @@ export interface ProfileResponse {
 
 export const getProfile = () =>
   client.get<ProfileResponse>('/user/profile')
+
+export interface WebDAVStatus {
+  has_password: boolean
+}
+
+export const getWebDAVStatus = () =>
+  client.get<WebDAVStatus>('/user/webdav')
+
+export const setWebDAVPassword = (password: string) =>
+  client.put<{ message: string }>('/user/webdav-password', { password })

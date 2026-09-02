@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Layout, Card, Button, Typography, Space, message, Modal, Input, Alert, Switch } from 'antd'
-import { ReloadOutlined, CopyOutlined } from '@ant-design/icons'
+import { Layout, Card, Button, Typography, Space, message, Modal, Input, Alert, Switch, Divider } from 'antd'
+import { ReloadOutlined, CopyOutlined, LinkOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
   getSecuritySettings,
@@ -8,6 +8,8 @@ import {
   updateAllowRegister,
 } from '../api/settings'
 import { getProfile } from '../api/user'
+import { getWebDAVSettings, updateWebDAVEnabled } from '../api/webdav'
+import { getWebDAVStatus, setWebDAVPassword } from '../api/user'
 import AppHeader from '../components/AppHeader'
 import { copyText } from '../utils/clipboard'
 
@@ -21,6 +23,11 @@ export default function Settings() {
   const [loading, setLoading] = useState(false)
   const [rotating, setRotating] = useState(false)
   const [registerSaving, setRegisterSaving] = useState(false)
+  const [webdavEnabled, setWebdavEnabled] = useState(false)
+  const [webdavHasPassword, setWebdavHasPassword] = useState(false)
+  const [webdavSaving, setWebdavSaving] = useState(false)
+  const [webdavPassword, setWebdavPassword] = useState('')
+  const [webdavPasswordSaving, setWebdavPasswordSaving] = useState(false)
 
   const ensureAdmin = useCallback(async () => {
     try {
@@ -46,6 +53,14 @@ export default function Settings() {
       setSecret(res.data.jwt_secret || '')
       // 仅明确 false 时视为关闭，避免字段缺失时误显示为关
       setAllowRegister(res.data.allow_register !== false)
+
+      // 加载 WebDAV 设置
+      const webdavRes = await getWebDAVSettings()
+      setWebdavEnabled(webdavRes.data.enabled)
+
+      // 加载当前用户 WebDAV 密码状态
+      const statusRes = await getWebDAVStatus()
+      setWebdavHasPassword(statusRes.data.has_password)
     } catch (err: any) {
       if (err.response?.status === 403) {
         message.error('需要管理员权限')
@@ -109,6 +124,42 @@ export default function Settings() {
     }
   }
 
+  const handleWebDAVChange = async (checked: boolean) => {
+    setWebdavSaving(true)
+    try {
+      await updateWebDAVEnabled(checked)
+      setWebdavEnabled(checked)
+      message.success(checked ? '已启用 WebDAV 服务' : '已禁用 WebDAV 服务')
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '更新失败')
+    } finally {
+      setWebdavSaving(false)
+    }
+  }
+
+  const handleSetWebDAVPassword = async () => {
+    if (webdavPassword.length < 6) {
+      message.error('密码长度至少 6 位')
+      return
+    }
+    setWebdavPasswordSaving(true)
+    try {
+      await setWebDAVPassword(webdavPassword)
+      setWebdavHasPassword(true)
+      setWebdavPassword('')
+      message.success('WebDAV 密码已设置')
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '设置失败')
+    } finally {
+      setWebdavPasswordSaving(false)
+    }
+  }
+
+  const getWebDAVURL = () => {
+    const baseUrl = window.location.origin
+    return `${baseUrl}/api/dav/`
+  }
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <AppHeader title="参数设置" />
@@ -158,6 +209,109 @@ export default function Settings() {
               </Button>
               <Text type="secondary">轮转后所有用户需重新登录</Text>
             </Space>
+          </Card>
+
+          <Card title="WebDAV 服务" loading={loading}>
+            <Alert
+              type="info"
+              showIcon
+              icon={<LinkOutlined />}
+              style={{ marginBottom: 16 }}
+              message="WebDAV 服务允许第三方客户端（如 Rclone、Windows 资源管理器、macOS Finder）挂载访问您的云盘文件"
+            />
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+                <div>
+                  <div style={{ fontWeight: 500, marginBottom: 4 }}>启用 WebDAV 服务</div>
+                  <Text type="secondary">开启后，用户可通过 WebDAV 协议访问云盘文件</Text>
+                </div>
+                <Switch
+                  checked={webdavEnabled}
+                  loading={webdavSaving}
+                  onChange={handleWebDAVChange}
+                />
+              </div>
+            </div>
+
+            <Divider />
+
+            <div style={{ marginBottom: 16 }}>
+              <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                WebDAV 访问地址
+              </Paragraph>
+              <Space.Compact style={{ width: '100%' }}>
+                <Input value={getWebDAVURL()} readOnly />
+                <Button
+                  icon={<CopyOutlined />}
+                  onClick={async () => {
+                    try {
+                      await copyText(getWebDAVURL())
+                      message.success('已复制')
+                    } catch {
+                      message.error('复制失败')
+                    }
+                  }}
+                >
+                  复制
+                </Button>
+              </Space.Compact>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                WebDAV 密码
+              </Paragraph>
+              {webdavHasPassword ? (
+                <Alert
+                  type="success"
+                  showIcon
+                  message="已设置 WebDAV 密码"
+                  description="使用用户名和此密码登录 WebDAV 客户端"
+                  style={{ marginBottom: 12 }}
+                />
+              ) : (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="尚未设置 WebDAV 密码"
+                  description="请先设置密码才能使用 WebDAV 服务"
+                  style={{ marginBottom: 12 }}
+                />
+              )}
+              <Space.Compact style={{ width: '100%' }}>
+                <Input.Password
+                  value={webdavPassword}
+                  onChange={(e) => setWebdavPassword(e.target.value)}
+                  placeholder="输入新密码（至少 6 位）"
+                  visibilityToggle
+                />
+                <Button
+                  type="primary"
+                  loading={webdavPasswordSaving}
+                  onClick={handleSetWebDAVPassword}
+                  disabled={webdavPassword.length < 6}
+                >
+                  设置密码
+                </Button>
+              </Space.Compact>
+            </div>
+
+            <Alert
+              type="info"
+              showIcon
+              message="使用说明"
+              description={
+                <div>
+                  <div>1. 启用 WebDAV 服务并设置密码</div>
+                  <div>2. 在 WebDAV 客户端中填入上方地址</div>
+                  <div>3. 使用您的用户名和 WebDAV 密码登录</div>
+                  <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                    注意：WebDAV 密码与登录密码独立，互不影响
+                  </div>
+                </div>
+              }
+            />
           </Card>
         </Space>
       </Content>

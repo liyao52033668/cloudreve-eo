@@ -4,18 +4,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type User struct {
-	ID           int64     `gorm:"primaryKey" json:"id"`
-	Username     string    `gorm:"uniqueIndex;size:64;not null" json:"username"`
-	PasswordHash string    `gorm:"size:128;not null" json:"-"`
-	IsAdmin      bool      `gorm:"not null;default:false" json:"is_admin"`
-	GroupID      uint      `gorm:"not null;default:0;index" json:"group_id"`
-	StorageQuota int64     `gorm:"not null;default:0" json:"storage_quota"`
-	StorageUsed  int64     `gorm:"not null;default:0" json:"storage_used"`
-	Banned       bool      `gorm:"not null;default:false" json:"banned"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID             int64     `gorm:"primaryKey" json:"id"`
+	Username       string    `gorm:"uniqueIndex;size:64;not null" json:"username"`
+	PasswordHash   string    `gorm:"size:128;not null" json:"-"`
+	IsAdmin        bool      `gorm:"not null;default:false" json:"is_admin"`
+	GroupID        uint      `gorm:"not null;default:0;index" json:"group_id"`
+	StorageQuota   int64     `gorm:"not null;default:0" json:"storage_quota"`
+	StorageUsed    int64     `gorm:"not null;default:0" json:"storage_used"`
+	Banned         bool      `gorm:"not null;default:false" json:"banned"`
+	WebDAVPassword string    `gorm:"column:webdav_password;size:128" json:"-"` // WebDAV 专用密码（bcrypt hash）
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // MarshalJSON 自定义 JSON 序列化，格式化时间为易读格式，ID 转为字符串避免 JS 精度丢失。
@@ -82,4 +85,35 @@ func CountUsers() (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// SetWebDAVPassword 设置用户的 WebDAV 密码（bcrypt hash）。
+func SetWebDAVPassword(userID int64, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return DB.Model(&User{}).Where("id = ?", userID).Update("webdav_password", string(hash)).Error
+}
+
+// VerifyWebDAVPassword 验证用户的 WebDAV 密码。
+func VerifyWebDAVPassword(userID int64, password string) (bool, error) {
+	var user User
+	if err := DB.Select("id", "webdav_password").First(&user, userID).Error; err != nil {
+		return false, err
+	}
+	if user.WebDAVPassword == "" {
+		return false, nil
+	}
+	err := bcrypt.CompareHashAndPassword([]byte(user.WebDAVPassword), []byte(password))
+	return err == nil, nil
+}
+
+// GetWebDAVPasswordHash 获取用户的 WebDAV 密码 hash（用于 Basic Auth）。
+func GetWebDAVPasswordHash(userID int64) (string, error) {
+	var user User
+	if err := DB.Select("id", "webdav_password").First(&user, userID).Error; err != nil {
+		return "", err
+	}
+	return user.WebDAVPassword, nil
 }

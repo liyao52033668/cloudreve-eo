@@ -77,3 +77,38 @@ func (h *SettingHandler) GetPublicSite(c *gin.Context) {
 		"allow_register": allowRegister,
 	})
 }
+
+// GetWebDAV GET /api/settings/webdav
+// 获取 WebDAV 服务配置（管理员）。
+func (h *SettingHandler) GetWebDAV(c *gin.Context) {
+	enabled, err := model.IsWebDAVEnabled()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"enabled": enabled,
+	})
+}
+
+type updateWebDAVRequest struct {
+	Enabled *bool `json:"enabled" binding:"required"`
+}
+
+// UpdateWebDAV PUT /api/settings/webdav
+// 管理员开关：是否启用 WebDAV 服务。
+func (h *SettingHandler) UpdateWebDAV(c *gin.Context) {
+	var req updateWebDAVRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
+		return
+	}
+	if err := model.SetWebDAVEnabled(*req.Enabled); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"enabled": *req.Enabled,
+		"message": "WebDAV 服务已" + map[bool]string{true: "启用", false: "禁用"}[*req.Enabled],
+	})
+}

@@ -149,3 +149,38 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "密码修改成功"})
 }
+
+type setWebDAVPasswordRequest struct {
+	Password string `json:"password" binding:"required,min=6"`
+}
+
+// SetWebDAVPassword PUT /api/user/webdav-password
+// 设置当前用户的 WebDAV 专用密码。
+func (h *UserHandler) SetWebDAVPassword(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	var req setWebDAVPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := model.SetWebDAVPassword(userID, req.Password); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "设置 WebDAV 密码失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "WebDAV 密码已设置"})
+}
+
+// GetWebDAVStatus GET /api/user/webdav
+// 获取当前用户的 WebDAV 状态（是否已设置密码）。
+func (h *UserHandler) GetWebDAVStatus(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	hash, err := model.GetWebDAVPasswordHash(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"has_password": hash != "",
+	})
+}
