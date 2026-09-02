@@ -48,3 +48,6 @@ export const getWebDAVStatus = () =>
 
 export const setWebDAVPassword = (password: string) =>
   client.put<{ message: string }>('/user/webdav-password', { password })
+
+export const getWebDAVPassword = () =>
+  client.get<{ password: string }>('/user/webdav/password')

@@ -230,6 +230,7 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		user.PUT("/password", userHandler.ChangePassword)
 		user.GET("/webdav", userHandler.GetWebDAVStatus)
 		user.PUT("/webdav-password", userHandler.SetWebDAVPassword)
+		user.GET("/webdav/password", userHandler.GetWebDAVPassword)
 
 		// 管理员：参数设置 + 存储策略 CRUD
 		admin := protected.Group("")

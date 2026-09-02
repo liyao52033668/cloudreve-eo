@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Layout, Card, Button, Typography, Space, message, Modal, Input, Alert, Switch, Divider } from 'antd'
-import { ReloadOutlined, CopyOutlined, LinkOutlined } from '@ant-design/icons'
+import { Layout, Card, Button, Typography, Space, message, Modal, Input, Alert, Switch, Divider, Menu } from 'antd'
+import { ReloadOutlined, CopyOutlined, LinkOutlined, UserOutlined, SafetyOutlined, CloudOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
   getSecuritySettings,
@@ -9,15 +9,16 @@ import {
 } from '../api/settings'
 import { getProfile } from '../api/user'
 import { getWebDAVSettings, updateWebDAVEnabled } from '../api/webdav'
-import { getWebDAVStatus, setWebDAVPassword } from '../api/user'
+import { getWebDAVStatus, setWebDAVPassword, getWebDAVPassword } from '../api/user'
 import AppHeader from '../components/AppHeader'
 import { copyText } from '../utils/clipboard'
 
-const { Content } = Layout
+const { Content, Sider } = Layout
 const { Text, Paragraph } = Typography
 
 export default function Settings() {
   const navigate = useNavigate()
+  const [activeKey, setActiveKey] = useState('register')
   const [secret, setSecret] = useState('')
   const [allowRegister, setAllowRegister] = useState(true)
   const [loading, setLoading] = useState(false)
@@ -28,6 +29,10 @@ export default function Settings() {
   const [webdavSaving, setWebdavSaving] = useState(false)
   const [webdavPassword, setWebdavPassword] = useState('')
   const [webdavPasswordSaving, setWebdavPasswordSaving] = useState(false)
+  // WebDAV 连接信息：用户名 = 当前登录用户名；密码明文仅在本会话设置后保留一次，刷新即失。
+  const [webdavUsername, setWebdavUsername] = useState('')
+  const [webdavPasswordPlain, setWebdavPasswordPlain] = useState('')
+  const [connInfoOpen, setConnInfoOpen] = useState(false)
 
   const ensureAdmin = useCallback(async () => {
     try {
@@ -35,20 +40,22 @@ export default function Settings() {
       if (!res.data.user?.is_admin) {
         message.error('需要管理员权限')
         navigate('/')
-        return false
+        return null
       }
-      return true
+      // WebDAV 用户名即登录用户名
+      setWebdavUsername(res.data.user?.username || '')
+      return res.data.user
     } catch {
       navigate('/login')
-      return false
+      return null
     }
   }, [navigate])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const ok = await ensureAdmin()
-      if (!ok) return
+      const profile = await ensureAdmin()
+      if (!profile) return
       const res = await getSecuritySettings()
       setSecret(res.data.jwt_secret || '')
       // 仅明确 false 时视为关闭，避免字段缺失时误显示为关
@@ -137,16 +144,19 @@ export default function Settings() {
     }
   }
 
-  const handleSetWebDAVPassword = async () => {
-    if (webdavPassword.length < 6) {
+  const handleSetWebDAVPassword = async (password: string = webdavPassword) => {
+    const pwd = password
+    if (pwd.length < 6) {
       message.error('密码长度至少 6 位')
       return
     }
     setWebdavPasswordSaving(true)
     try {
-      await setWebDAVPassword(webdavPassword)
+      await setWebDAVPassword(pwd)
       setWebdavHasPassword(true)
       setWebdavPassword('')
+      // 保留明文，供查看连接信息；仅本会话有效，刷新即失
+      setWebdavPasswordPlain(pwd)
       message.success('WebDAV 密码已设置')
     } catch (err: any) {
       message.error(err.response?.data?.error || '设置失败')
@@ -160,11 +170,57 @@ export default function Settings() {
     return `${baseUrl}/api/dav/`
   }
 
-  return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <AppHeader title="参数设置" />
-      <Content style={{ padding: 24, maxWidth: 800, margin: '0 auto', width: '100%' }}>
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+  const handleCopyConnInfo = async () => {
+    const url = getWebDAVURL()
+    const info =
+      `地址：${url}\n` +
+      `用户名：${webdavUsername || '（未获取）'}\n` +
+      `密码：${webdavPasswordPlain || '（未设置或已刷新）'}`
+    try {
+      await copyText(info)
+      message.success('连接信息已复制')
+    } catch {
+      message.error('复制失败')
+    }
+  }
+
+  const handleOpenConnInfo = async () => {
+    setConnInfoOpen(true)
+    // 如果本会话没有明文，从后端获取
+    if (!webdavPasswordPlain && webdavHasPassword) {
+      try {
+        const res = await getWebDAVPassword()
+        setWebdavPasswordPlain(res.data.password)
+      } catch (err: any) {
+        if (err.response?.status !== 404) {
+          message.error('获取密码失败')
+        }
+      }
+    }
+  }
+
+  const menuItems = [
+    {
+      key: 'register',
+      icon: <UserOutlined />,
+      label: '注册与登录',
+    },
+    {
+      key: 'security',
+      icon: <SafetyOutlined />,
+      label: '安全设置',
+    },
+    {
+      key: 'webdav',
+      icon: <CloudOutlined />,
+      label: 'WebDAV 服务',
+    },
+  ]
+
+  const renderContent = () => {
+    switch (activeKey) {
+      case 'register':
+        return (
           <Card title="注册与登录" loading={loading}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
               <div>
@@ -178,7 +234,10 @@ export default function Settings() {
               />
             </div>
           </Card>
+        )
 
+      case 'security':
+        return (
           <Card title="安全设置" loading={loading}>
             <Alert
               type="warning"
@@ -210,7 +269,10 @@ export default function Settings() {
               <Text type="secondary">轮转后所有用户需重新登录</Text>
             </Space>
           </Card>
+        )
 
+      case 'webdav':
+        return (
           <Card title="WebDAV 服务" loading={loading}>
             <Alert
               type="info"
@@ -238,24 +300,29 @@ export default function Settings() {
 
             <div style={{ marginBottom: 16 }}>
               <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                WebDAV 访问地址
+                WebDAV 用户名
               </Paragraph>
               <Space.Compact style={{ width: '100%' }}>
-                <Input value={getWebDAVURL()} readOnly />
+                <Input value={webdavUsername} readOnly placeholder="加载中..." />
                 <Button
                   icon={<CopyOutlined />}
                   onClick={async () => {
+                    if (!webdavUsername) return
                     try {
-                      await copyText(getWebDAVURL())
+                      await copyText(webdavUsername)
                       message.success('已复制')
                     } catch {
                       message.error('复制失败')
                     }
                   }}
+                  disabled={!webdavUsername}
                 >
                   复制
                 </Button>
               </Space.Compact>
+              <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+                WebDAV 用户名即您的登录用户名
+              </Text>
             </div>
 
             <div style={{ marginBottom: 16 }}>
@@ -267,7 +334,7 @@ export default function Settings() {
                   type="success"
                   showIcon
                   message="已设置 WebDAV 密码"
-                  description="使用用户名和此密码登录 WebDAV 客户端"
+                  description="使用上方用户名和此密码登录 WebDAV 客户端"
                   style={{ marginBottom: 12 }}
                 />
               ) : (
@@ -289,12 +356,27 @@ export default function Settings() {
                 <Button
                   type="primary"
                   loading={webdavPasswordSaving}
-                  onClick={handleSetWebDAVPassword}
+                  onClick={() => handleSetWebDAVPassword()}
                   disabled={webdavPassword.length < 6}
                 >
                   设置密码
                 </Button>
               </Space.Compact>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <Button
+                type="primary"
+                icon={<LinkOutlined />}
+                onClick={handleOpenConnInfo}
+                disabled={!webdavEnabled || !webdavHasPassword}
+                style={{ width: '100%' }}
+              >
+                查看连接信息
+              </Button>
+              <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+                点击按钮查看 WebDAV 客户端所需的地址、用户名、密码
+              </Text>
             </div>
 
             <Alert
@@ -304,8 +386,8 @@ export default function Settings() {
               description={
                 <div>
                   <div>1. 启用 WebDAV 服务并设置密码</div>
-                  <div>2. 在 WebDAV 客户端中填入上方地址</div>
-                  <div>3. 使用您的用户名和 WebDAV 密码登录</div>
+                  <div>2. 点击「查看连接信息」获取地址、用户名、密码</div>
+                  <div>3. 在 WebDAV 客户端中填入上述信息</div>
                   <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
                     注意：WebDAV 密码与登录密码独立，互不影响
                   </div>
@@ -313,8 +395,122 @@ export default function Settings() {
               }
             />
           </Card>
-        </Space>
-      </Content>
+        )
+
+      default:
+        return null
+    }
+  }
+
+  return (
+    <Layout style={{ minHeight: '100vh' }}>
+      <AppHeader title="参数设置" />
+      <Layout style={{ background: '#fff' }}>
+        <Sider width={200} style={{ background: '#fff', borderRight: '1px solid #f0f0f0' }}>
+          <Menu
+            mode="inline"
+            selectedKeys={[activeKey]}
+            items={menuItems}
+            onClick={({ key }) => setActiveKey(key)}
+            style={{ height: '100%', borderRight: 0 }}
+          />
+        </Sider>
+        <Content style={{ padding: 24, maxWidth: 900, margin: '0 auto', width: '100%' }}>
+          {renderContent()}
+        </Content>
+      </Layout>
+
+      {/* WebDAV 连接信息 Modal */}
+      <Modal
+        title="WebDAV 连接信息"
+        open={connInfoOpen}
+        onCancel={() => setConnInfoOpen(false)}
+        footer={[
+          <Button key="copy" type="primary" onClick={handleCopyConnInfo}>
+            复制全部
+          </Button>,
+          <Button key="close" onClick={() => setConnInfoOpen(false)}>
+            关闭
+          </Button>,
+        ]}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            地址
+          </Paragraph>
+          <Space.Compact style={{ width: '100%' }}>
+            <Input value={getWebDAVURL()} readOnly />
+            <Button
+              icon={<CopyOutlined />}
+              onClick={async () => {
+                try {
+                  await copyText(getWebDAVURL())
+                  message.success('已复制')
+                } catch {
+                  message.error('复制失败')
+                }
+              }}
+            >
+              复制
+            </Button>
+          </Space.Compact>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            用户名
+          </Paragraph>
+          <Space.Compact style={{ width: '100%' }}>
+            <Input value={webdavUsername} readOnly />
+            <Button
+              icon={<CopyOutlined />}
+              onClick={async () => {
+                if (!webdavUsername) return
+                try {
+                  await copyText(webdavUsername)
+                  message.success('已复制')
+                } catch {
+                  message.error('复制失败')
+                }
+              }}
+              disabled={!webdavUsername}
+            >
+              复制
+            </Button>
+          </Space.Compact>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            密码
+          </Paragraph>
+          {webdavPasswordPlain ? (
+            <Space.Compact style={{ width: '100%' }}>
+              <Input.Password value={webdavPasswordPlain} readOnly visibilityToggle />
+              <Button
+                icon={<CopyOutlined />}
+                onClick={async () => {
+                  try {
+                    await copyText(webdavPasswordPlain)
+                    message.success('已复制')
+                  } catch {
+                    message.error('复制失败')
+                  }
+                }}
+              >
+                复制
+              </Button>
+            </Space.Compact>
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              message="加载中..."
+              description="正在获取密码"
+            />
+          )}
+        </div>
+      </Modal>
     </Layout>
   )
 }

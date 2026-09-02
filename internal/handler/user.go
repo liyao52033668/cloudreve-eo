@@ -184,3 +184,21 @@ func (h *UserHandler) GetWebDAVStatus(c *gin.Context) {
 		"has_password": hash != "",
 	})
 }
+
+// GetWebDAVPassword GET /api/user/webdav/password
+// 获取当前用户的 WebDAV 密码明文（解密后）。
+func (h *UserHandler) GetWebDAVPassword(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	password, err := model.GetWebDAVPassword(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if password == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "未设置 WebDAV 密码"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"password": password,
+	})
+}

@@ -33,6 +33,11 @@ func setupWebDAVTest(t *testing.T) (*gin.Engine, *model.User) {
 		t.Fatalf("InitDB: %v", err)
 	}
 
+	// WebDAV 密码用 JWT secret 派生密钥加密，需先生成
+	if _, err := model.EnsureJWTSecret(); err != nil {
+		t.Fatalf("EnsureJWTSecret: %v", err)
+	}
+
 	// 启用 WebDAV
 	if err := model.SetWebDAVEnabled(true); err != nil {
 		t.Fatalf("SetWebDAVEnabled: %v", err)

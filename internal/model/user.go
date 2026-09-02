@@ -1,11 +1,16 @@
 package model
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 type User struct {
@@ -87,13 +92,75 @@ func CountUsers() (int64, error) {
 	return count, nil
 }
 
-// SetWebDAVPassword 设置用户的 WebDAV 密码（bcrypt hash）。
+// webdavEncryptKey 从 JWT secret 派生 AES 密钥（SHA256 取前 32 字节）。
+func webdavEncryptKey() ([]byte, error) {
+	jwtSecret, err := GetSetting(SettingKeyJWTSecret)
+	if err != nil {
+		return nil, err
+	}
+	hash := sha256.Sum256([]byte(jwtSecret))
+	return hash[:], nil
+}
+
+// encryptWebDAVPassword 用 AES-GCM 加密密码。
+func encryptWebDAVPassword(plaintext string) (string, error) {
+	key, err := webdavEncryptKey()
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// decryptWebDAVPassword 用 AES-GCM 解密密码。
+func decryptWebDAVPassword(encrypted string) (string, error) {
+	key, err := webdavEncryptKey()
+	if err != nil {
+		return "", err
+	}
+	ciphertext, err := base64.StdEncoding.DecodeString(encrypted)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", errors.New("密文太短")
+	}
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+// SetWebDAVPassword 设置用户的 WebDAV 密码（AES 加密存储）。
 func SetWebDAVPassword(userID int64, password string) error {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	encrypted, err := encryptWebDAVPassword(password)
 	if err != nil {
 		return err
 	}
-	return DB.Model(&User{}).Where("id = ?", userID).Update("webdav_password", string(hash)).Error
+	return DB.Model(&User{}).Where("id = ?", userID).Update("webdav_password", encrypted).Error
 }
 
 // VerifyWebDAVPassword 验证用户的 WebDAV 密码。
@@ -105,11 +172,27 @@ func VerifyWebDAVPassword(userID int64, password string) (bool, error) {
 	if user.WebDAVPassword == "" {
 		return false, nil
 	}
-	err := bcrypt.CompareHashAndPassword([]byte(user.WebDAVPassword), []byte(password))
-	return err == nil, nil
+	// 尝试解密后比较
+	decrypted, err := decryptWebDAVPassword(user.WebDAVPassword)
+	if err != nil {
+		return false, err
+	}
+	return decrypted == password, nil
 }
 
-// GetWebDAVPasswordHash 获取用户的 WebDAV 密码 hash（用于 Basic Auth）。
+// GetWebDAVPassword 获取用户的 WebDAV 密码明文（解密后）。
+func GetWebDAVPassword(userID int64) (string, error) {
+	var user User
+	if err := DB.Select("id", "webdav_password").First(&user, userID).Error; err != nil {
+		return "", err
+	}
+	if user.WebDAVPassword == "" {
+		return "", nil
+	}
+	return decryptWebDAVPassword(user.WebDAVPassword)
+}
+
+// GetWebDAVPasswordHash 获取用户的 WebDAV 密码（加密存储，用于 Basic Auth 验证）。
 func GetWebDAVPasswordHash(userID int64) (string, error) {
 	var user User
 	if err := DB.Select("id", "webdav_password").First(&user, userID).Error; err != nil {
