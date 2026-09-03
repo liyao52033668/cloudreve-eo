@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -281,8 +282,17 @@ func (d *S3Driver) SetBucketCORS() error {
 }
 
 // UploadFile S3 驱动不支持服务端直接上传，应使用预签名 URL 客户端直传。
+// UploadFile 服务端直接上传文件到 S3（WebDAV 等服务端场景使用）。
 func (d *S3Driver) UploadFile(key string, content []byte) error {
-	return errors.New("S3 存储不支持服务端直接上传，请使用客户端直传")
+	_, err := d.client.PutObject(context.Background(), &s3.PutObjectInput{
+		Bucket: aws.String(d.bucket),
+		Key:    aws.String(key),
+		Body:   bytes.NewReader(content),
+	})
+	if err != nil {
+		return fmt.Errorf("上传对象失败: %w", err)
+	}
+	return nil
 }
 
 // 确保 S3Driver 实现 StorageDriver 接口
