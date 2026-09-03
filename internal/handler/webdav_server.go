@@ -31,6 +31,19 @@ func NewWebDAVHandler(fs *service.FileService) *WebDAVHandler {
 // ServeHTTP 处理 WebDAV 请求。
 // OPTIONS 不需要认证（WebDAV 标准探测），其余请求需 Basic Auth。
 func (h *WebDAVHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// panic 兜底：任何内部 panic 都不能崩溃整个云函数（EdgeOne 会直接 500 页面），
+	// 改为记录日志并返回 500 JSON，保证同实例其它请求不受影响。
+	defer func() {
+		if rec := recover(); rec != nil {
+			logx.Error(logx.ModuleApp, "WebDAV handler panic",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"panic", fmt.Sprint(rec),
+			)
+			http.Error(w, "WebDAV 处理内部错误", http.StatusInternalServerError)
+		}
+	}()
+
 	// 检查 WebDAV 全局开关
 	enabled, err := model.IsWebDAVEnabled()
 	if err != nil {

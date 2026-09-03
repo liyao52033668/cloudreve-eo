@@ -137,7 +137,11 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	// gin.New 手动装配中间件：访问日志与 panic 恢复均走结构化单行 JSON，
 	// 保持 EdgeOne 控制台按关键字检索的格式。
 	r := gin.New()
-	// WebDAV 服务：使用 Basic Auth 而非 JWT，须在其他中间件（含 CORS/JWTAuth）之前接管。
+	r.Use(__edgeonePagesMiddleware())
+	r.Use(middleware.AccessLog(), middleware.Recovery())
+
+	// WebDAV 服务：使用 Basic Auth 而非 JWT，须在 Recovery 之后（panic 才能被捕获）、
+	// 其他业务中间件（含 CORS/JWTAuth）之前接管。
 	// 外部访问 /api/dav/...，EdgeOne 剥离 /api 后此处收到 /dav/...。
 	r.Use(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/dav") {
@@ -147,8 +151,6 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		}
 		c.Next()
 	})
-	r.Use(__edgeonePagesMiddleware())
-	r.Use(middleware.AccessLog(), middleware.Recovery())
 
 	r.Use(func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
