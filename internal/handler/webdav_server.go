@@ -28,7 +28,8 @@ func NewWebDAVHandler(fs *service.FileService) *WebDAVHandler {
 	return &WebDAVHandler{fileService: fs}
 }
 
-// ServeHTTP 处理 WebDAV 请求。每个请求都需要 Basic Auth 认证。
+// ServeHTTP 处理 WebDAV 请求。
+// OPTIONS 不需要认证（WebDAV 标准探测），其余请求需 Basic Auth。
 func (h *WebDAVHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 检查 WebDAV 全局开关
 	enabled, err := model.IsWebDAVEnabled()
@@ -39,6 +40,14 @@ func (h *WebDAVHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !enabled {
 		http.Error(w, "WebDAV 服务未启用", http.StatusServiceUnavailable)
+		return
+	}
+
+	// OPTIONS 是 WebDAV 客户端探测请求，无需认证即可返回能力头
+	if r.Method == "OPTIONS" {
+		w.Header().Set("Allow", "OPTIONS, LOCK, GET, HEAD, POST, DELETE, PROPPATCH, COPY, MOVE, UNLOCK, PROPFIND, PUT, MKCOL")
+		w.Header().Set("DAV", "1, 2")
+		w.Header().Set("MS-Author-Via", "DAV")
 		return
 	}
 
