@@ -109,7 +109,7 @@ export default function StoragePolicies() {
   const [policyType, setPolicyType] = useState<'s3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav'>('s3')
   const [filterType, setFilterType] = useState<string | undefined>(undefined)
   const [searchKeyword, setSearchKeyword] = useState('')
-  const [authTarget, setAuthTarget] = useState<{ id: number; type: string } | null>(null)
+  const [authTarget, setAuthTarget] = useState<{ id: number; type: string; appKey?: string } | null>(null)
   const [quotaUnit, setQuotaUnit] = useState<'GiB' | 'TiB'>('GiB')
 
   const typeLabel = (t: string) =>
@@ -416,7 +416,7 @@ export default function StoragePolicies() {
               type="link"
               size="small"
               icon={<SafetyCertificateOutlined />}
-              onClick={() => setAuthTarget({ id: p.id, type: p.type })}
+              onClick={() => setAuthTarget({ id: p.id, type: p.type, appKey: p.access_key })}
             >
               {p.authorized ? '重新授权' : '授权'}
             </Button>
@@ -931,6 +931,7 @@ export default function StoragePolicies() {
       {authTarget != null && authTarget.type === 'dropbox' && (
         <DropboxAuth
           policyId={authTarget.id}
+          appKey={authTarget.appKey}
           open={authTarget != null}
           onClose={() => setAuthTarget(null)}
           onAuthorized={() => {

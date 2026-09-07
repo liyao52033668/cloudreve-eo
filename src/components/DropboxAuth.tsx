@@ -7,13 +7,15 @@ const { Paragraph } = Typography
 
 interface Props {
   policyId: number
+  /** 策略的 App Key，用于生成 App 控制台直达链接 */
+  appKey?: string
   open: boolean
   onClose: () => void
   onAuthorized: () => void
 }
 
 /** Dropbox OAuth 授权弹窗：网页授权（新窗口 + 手动粘贴 code）。 */
-export default function DropboxAuth({ policyId, open, onClose, onAuthorized }: Props) {
+export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthorized }: Props) {
   const [authUrl, setAuthUrl] = useState('')
   const [code, setCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -98,9 +100,39 @@ export default function DropboxAuth({ policyId, open, onClose, onAuthorized }: P
           message="Dropbox OAuth 授权流程"
           description={
             <div>
-              <div>1. 在 Dropbox App Console 的 Redirect URIs 中添加本站回调地址</div>
-              <div style={{ fontSize: 12, color: '#1677ff', margin: '4px 0 8px' }}>
-                <code>https://你的域名/api/oauth/dropbox/callback</code>
+              <div>
+                1. 在 Dropbox App Console 的 Redirect URIs 中添加本站回调地址
+                {appKey && (
+                  <a
+                    href={`https://www.dropbox.com/developers/apps/info?app_key=${appKey}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ marginLeft: 8 }}
+                  >
+                    打开 App 控制台
+                  </a>
+                )}
+              </div>
+              <div style={{ margin: '4px 0 8px' }}>
+                <code
+                  onClick={() => {
+                    const url = `${window.location.origin}/api/oauth/dropbox/callback`
+                    navigator.clipboard.writeText(url)
+                    message.success('回调地址已复制')
+                  }}
+                  style={{
+                    fontSize: 12,
+                    color: '#1677ff',
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    background: '#f5f5f5',
+                    borderRadius: 4,
+                    userSelect: 'text',
+                  }}
+                  title="点击复制"
+                >
+                  {window.location.origin}/api/oauth/dropbox/callback
+                </code>
               </div>
               <div>2. 点击下方按钮打开 Dropbox 授权页面</div>
               <div>3. 登录并授权后，页面会跳转到回调地址</div>
