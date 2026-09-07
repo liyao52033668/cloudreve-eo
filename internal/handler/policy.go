@@ -89,7 +89,7 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		IsDefault:      p.IsDefault,
 		DefaultQuota:   p.DefaultQuota,
 		CreatedAt:      p.CreatedAt.Format("2006-01-02 15:04:05"),
-		Authorized:     (p.Type == "terabox" || p.Type == "baidu" || p.Type == "dropbox") && p.OAuthToken != "",
+		Authorized:     (p.Type == "terabox" || p.Type == "baidu" || p.Type == "dropbox" || p.Type == "gdrive") && p.OAuthToken != "",
 		WebDAVDirect:   p.WebDAVDirect,
 		ProxyEnabled:   p.ProxyEnabled,
 		ProxyURL:       p.ProxyURL,
@@ -207,6 +207,15 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		}
 		if req.SecretKey == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Dropbox App Secret 不能为空"})
+			return
+		}
+	case "gdrive":
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Google Drive Client ID 不能为空"})
+			return
+		}
+		if req.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Google Drive Client Secret 不能为空"})
 			return
 		}
 	case "baidu":
@@ -347,6 +356,8 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		// SecretKey（密码）在编辑时可以为空（表示不修改）
 	case "dropbox":
 		// App Key / App Secret 在编辑时可以为空（表示不修改）
+	case "gdrive":
+		// Client ID / Client Secret 在编辑时可以为空（表示不修改）
 	case "baidu":
 		if req.AccessKey == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "百度网盘 AppKey 不能为空"})

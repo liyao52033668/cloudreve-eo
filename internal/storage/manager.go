@@ -105,6 +105,24 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 				authorized = db.IsAuthorized()
 			}
 			driver = db
+		case "gdrive":
+			var gd *GDriveDriver
+			gd, err = NewGDriveDriver(p.AccessKey, p.SecretKey, p.BasePath, p.OAuthToken, p.ProxyEnabled, p.ProxyURL)
+			if err == nil {
+				policyID := p.ID
+				// token 刷新后持久化回数据库，保证进程重启后仍可用
+				gd.onTokenRefreshed = func(token GDriveToken) {
+					raw, marshalErr := json.Marshal(token)
+					if marshalErr != nil {
+						return
+					}
+					if saveErr := model.SetStoragePolicyOAuthToken(policyID, string(raw)); saveErr != nil {
+						logx.Warn(logx.ModuleStorage, "保存 Google Drive token 失败", "policy", p.Name, "err", saveErr.Error())
+					}
+				}
+				authorized = gd.IsAuthorized()
+			}
+			driver = gd
 		case "filen":
 			var fd *FilenDriver
 			fd, err = NewFilenDriver(p.AccessKey, p.SecretKey, p.BasePath)

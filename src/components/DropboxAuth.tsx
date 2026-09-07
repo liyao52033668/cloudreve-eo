@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal, Button, Input, Space, Typography, message, Alert } from 'antd'
 import { LinkOutlined } from '@ant-design/icons'
-import { getDropboxAuthURL, dropboxAuthByCode } from '../api/policies'
+import { getDropboxAuthURL, dropboxAuthByCode, getDropboxAuthStatus } from '../api/policies'
 
 const { Paragraph } = Typography
 
@@ -14,19 +14,48 @@ interface Props {
   onAuthorized: () => void
 }
 
-/** Dropbox OAuth 授权弹窗：网页授权（新窗口 + 手动粘贴 code）。 */
+/** Dropbox OAuth 授权弹窗：网页授权（新窗口 + 轮询状态 + 手动兜底）。 */
 export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthorized }: Props) {
   const [authUrl, setAuthUrl] = useState('')
   const [code, setCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const done = useRef(false)
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const handleAuthorized = useCallback(() => {
     if (done.current) return
     done.current = true
+    stopPolling()
     message.success('Dropbox 授权成功')
     onAuthorized()
   }, [onAuthorized])
+
+  const stopPolling = useCallback(() => {
+    if (pollTimer.current) {
+      clearInterval(pollTimer.current)
+      pollTimer.current = null
+    }
+  }, [])
+
+  const startPolling = useCallback(() => {
+    stopPolling()
+    const deadline = Date.now() + 5 * 60 * 1000 // 5 分钟超时
+    pollTimer.current = setInterval(async () => {
+      if (Date.now() > deadline) {
+        stopPolling()
+        message.warning('授权等待超时，请手动提交授权码')
+        return
+      }
+      try {
+        const res = await getDropboxAuthStatus(policyId)
+        if (res.data.status === 'authorized') {
+          handleAuthorized()
+        }
+      } catch {
+        // 网络抖动忽略，继续轮询
+      }
+    }, 2000)
+  }, [policyId, handleAuthorized, stopPolling])
 
   // 获取网页授权地址（带 origin 让后端拼出浏览器真实域名的回调地址）
   const loadAuthUrl = useCallback(async () => {
@@ -43,7 +72,14 @@ export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthori
     done.current = false
     setCode('')
     loadAuthUrl()
-  }, [open, policyId, loadAuthUrl])
+    return stopPolling
+  }, [open, policyId, loadAuthUrl, stopPolling])
+
+  const openAuthPage = () => {
+    if (!authUrl) return
+    window.open(authUrl, '_blank')
+    startPolling()
+  }
 
   const submitCode = async (authCode: string) => {
     if (!authCode.trim()) {
@@ -60,39 +96,6 @@ export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthori
       setSubmitting(false)
     }
   }
-
-  // 监听 postMessage（Dropbox 回调页面通知，自动处理 code）
-  useEffect(() => {
-    if (!open) return
-    const handler = async (e: MessageEvent) => {
-      try {
-        const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data
-        if (data?.event !== 'dropboxOauthDone') return
-        if (data.ok && data.code) {
-          // 自动处理：收到 code 后直接调用 API 换 token
-          setSubmitting(true)
-          try {
-            await dropboxAuthByCode(policyId, data.code, window.location.origin)
-            done.current = true
-            message.success('Dropbox 授权成功')
-            onAuthorized()
-          } catch (err: any) {
-            message.error(err.response?.data?.error || '授权失败')
-            setSubmitting(false)
-          }
-        } else if (data.ok) {
-          // 兼容旧版：没有 code 时提示用户手动输入
-          message.info('授权窗口已关闭，请复制授权码并粘贴到下方')
-        } else {
-          message.error(`授权失败: ${data.error || '未知错误'}`)
-        }
-      } catch {
-        // 非 JSON 消息忽略
-      }
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
-  }, [open, policyId, onAuthorized])
 
   return (
     <Modal
@@ -146,9 +149,8 @@ export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthori
                 </code>
               </div>
               <div>2. 点击下方按钮打开 Dropbox 授权页面</div>
-              <div>3. 登录并授权后，页面会跳转到回调地址</div>
-              <div>4. 从 URL 中复制 code 参数值</div>
-              <div>5. 粘贴到下方输入框并提交</div>
+              <div>3. 登录并授权后，系统将自动检测授权状态</div>
+              <div>4. 若自动检测未生效，可从回调地址 URL 中复制 code 手动提交</div>
             </div>
           }
           style={{ marginBottom: 16 }}
@@ -156,13 +158,11 @@ export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthori
 
         {authUrl ? (
           <Space orientation="vertical" style={{ width: '100%' }}>
-            {/* window.open 不带 noreferrer：保留 window.opener，
-                授权完成后回调落地页才能 postMessage 通知本弹窗自动完成 */}
-            <Button type="primary" onClick={() => window.open(authUrl, '_blank')} block>
+            <Button type="primary" onClick={openAuthPage} block>
               打开 Dropbox 授权页面
             </Button>
             <Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
-              授权后将自动完成；若浏览器拦截了自动流程，可从回调地址 URL 中复制 code 手动提交
+              授权后将自动检测完成；若自动流程未生效，请从回调地址 URL 中复制 code 手动提交
             </Paragraph>
           </Space>
         ) : (

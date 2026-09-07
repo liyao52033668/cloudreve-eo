@@ -135,7 +135,8 @@ func (d *DropboxDriver) dropboxPathOf(key string) string {
 }
 
 // GetAuthURL 生成 OAuth 授权 URL。
-func (d *DropboxDriver) GetAuthURL(redirectURI string) string {
+// state 随授权流程原样回传（回调时据此定位是哪个策略发起的授权）。
+func (d *DropboxDriver) GetAuthURL(state, redirectURI string) string {
 	cfg := &oauth2.Config{
 		ClientID:     d.clientID,
 		ClientSecret: d.clientSecret,
@@ -146,7 +147,7 @@ func (d *DropboxDriver) GetAuthURL(redirectURI string) string {
 		RedirectURL: redirectURI,
 	}
 	// token_access_type=offline 确保返回 refresh_token
-	return cfg.AuthCodeURL("", oauth2.SetAuthURLParam("token_access_type", "offline"))
+	return cfg.AuthCodeURL(state, oauth2.SetAuthURLParam("token_access_type", "offline"))
 }
 
 // GetTokenByCode 用授权码换取 token（授权码模式）。成功后立即持久化。

@@ -198,6 +198,10 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 	r.GET("/oauth/baidu/callback", policyHandler.BaiduOAuthCallback)
 	// Dropbox OAuth 回调
 	r.GET("/oauth/dropbox/callback", policyHandler.DropboxOAuthCallback)
+	// Google Drive OAuth 回调
+	r.GET("/oauth/gdrive/callback", policyHandler.GDriveOAuthCallback)
+	// Dropbox OAuth 完成接口（回调页调用，校验 state 签名后换 token）
+	r.POST("/oauth/dropbox/complete", policyHandler.DropboxComplete)
 
 	protected := r.Group("")
 	protected.Use(middleware.JWTAuth(jwtSecrets))
@@ -276,6 +280,10 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 				adminPolicies.GET("/:id/dropbox/auth-url", policyHandler.DropboxAuthURL)
 				adminPolicies.POST("/:id/dropbox/auth-code", policyHandler.DropboxAuthByCode)
 				adminPolicies.POST("/:id/dropbox/auth-status", policyHandler.DropboxAuthStatus)
+				// Google Drive OAuth 授权
+				adminPolicies.GET("/:id/gdrive/auth-url", policyHandler.GDriveAuthURL)
+				adminPolicies.POST("/:id/gdrive/auth-code", policyHandler.GDriveAuthByCode)
+				adminPolicies.POST("/:id/gdrive/auth-status", policyHandler.GDriveAuthStatus)
 			}
 
 			adminGroups := admin.Group("/admin/groups")
