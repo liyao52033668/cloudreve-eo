@@ -37,18 +37,17 @@ func (h *PolicyHandler) getDropboxDriver(id uint) (*model.StoragePolicy, *storag
 
 // dropboxRedirectURI 计算 Dropbox OAuth 回调地址（必须是绝对 URI）。
 // 优先使用策略的 CustomHost；否则从当前请求的协议 + Host 推导本站回调地址。
+// 与 baseURLFromRequest 同策略：边缘终结 TLS 后转发，默认 https；
+// X-Forwarded-Proto 显式给出时取首值；本地开发（localhost/127.0.0.1）用 http。
 func (h *PolicyHandler) dropboxRedirectURI(c *gin.Context, p *model.StoragePolicy) string {
 	if p.CustomHost != "" {
 		return strings.TrimRight(p.CustomHost, "/") + "/api/oauth/dropbox/callback"
 	}
-	// EdgeOne 等反向代理场景下需优先读 X-Forwarded-Proto
-	scheme := c.GetHeader("X-Forwarded-Proto")
-	if scheme == "" {
-		if c.Request.TLS != nil {
-			scheme = "https"
-		} else {
-			scheme = "http"
-		}
+	scheme := "https"
+	if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
+		scheme = strings.TrimSpace(strings.Split(proto, ",")[0])
+	} else if strings.HasPrefix(c.Request.Host, "localhost") || strings.HasPrefix(c.Request.Host, "127.0.0.1") {
+		scheme = "http"
 	}
 	return scheme + "://" + c.Request.Host + "/api/oauth/dropbox/callback"
 }
