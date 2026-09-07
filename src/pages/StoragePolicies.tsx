@@ -361,7 +361,7 @@ export default function StoragePolicies() {
         <Space size={4}>
           <Tag>{typeLabel(t || 's3')}</Tag>
           {p.cors_enabled && <Tag color="green">CORS</Tag>}
-          {(t === 'terabox' || t === 'baidu') &&
+          {(t === 'terabox' || t === 'baidu' || t === 'dropbox') &&
             (p.authorized ? <Tag color="green">已授权</Tag> : <Tag color="orange">未授权</Tag>)}
         </Space>
       ),
@@ -379,18 +379,7 @@ export default function StoragePolicies() {
       title: '上传路径',
       dataIndex: 'base_path',
       width: 140,
-      render: (v: string, p) =>
-        v
-          ? `/${v}/`
-          : p.type === 'github'
-            ? '（仓库根）'
-            : p.type === 'filen'
-              ? '（Filen 根）'
-              : p.type === 'dropbox'
-                ? '（Dropbox 根）'
-                : p.type === 'baidu'
-                  ? '（网盘根目录）'
-                  : '（bucket 根）',
+      render: (v: string) => (v ? `/${v}/` : '/'),
     },
     {
       title: '每用户配额',
@@ -492,7 +481,7 @@ export default function StoragePolicies() {
           开放平台；百度网盘开放平台；Filen 端到端加密网盘；Dropbox；WebDAV：坚果云等）。每套使用各自凭证与用户默认配额；上传时可任选其一。配置保存在数据库，修改后立即生效，无需环境变量与重启。
           TeraBox 类型创建后需在列表中点击「授权」完成 OAuth 扫码/网页授权方可使用；百度网盘填写开放平台 AppKey 与
           SecretKey，创建后需在列表中点击「授权」完成 OAuth 授权方可使用；Filen 填写账号邮箱与密码即可；Dropbox 填写
-          App Console 生成的 Access Token 即可；WebDAV 填写服务器地址、用户名与密码即可。
+          填写 App Key 与 App Secret，创建后需在列表中点击「授权」完成 OAuth 授权方可使用；WebDAV 填写服务器地址、用户名与密码即可。
         </Paragraph>
 
         {policies.length === 0 && !loading ? (
@@ -785,6 +774,17 @@ export default function StoragePolicies() {
             </Form.Item>
           )}
 
+          {policyType === 'dropbox' && (
+            <Form.Item
+              name="access_key"
+              label="App Key"
+              rules={[{ required: true, message: '请输入 Dropbox App Key' }]}
+              extra="在 Dropbox App Console 中获取"
+            >
+              <Input placeholder="App Key" autoComplete="off" />
+            </Form.Item>
+          )}
+
           <Form.Item
             name="secret_key"
             label={
@@ -797,20 +797,20 @@ export default function StoragePolicies() {
                     : policyType === 'filen'
                       ? 'Filen 密码'
                       : policyType === 'dropbox'
-                        ? 'Access Token'
+                        ? 'App Secret'
                         : policyType === 'webdav'
                           ? '密码'
                           : 'Secret Key'
             }
             rules={
               editingId == null
-                ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'baidu' ? '请输入 SecretKey' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox Access Token' : policyType === 'webdav' ? '请输入密码' : '请输入 Secret Key' }]
+                ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'baidu' ? '请输入 SecretKey' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox App Secret' : policyType === 'webdav' ? '请输入密码' : '请输入 Secret Key' }]
                 : []
             }
             extra={editingId != null ? '留空表示不修改原密钥' : undefined}
           >
             <Input.Password
-              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'baidu' ? 'secret_key' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox Access Token（App Console 生成）' : policyType === 'webdav' ? 'WebDAV 密码' : 'Secret Access Key')}
+              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'baidu' ? 'secret_key' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox App Secret' : policyType === 'webdav' ? 'WebDAV 密码' : 'Secret Access Key')}
               autoComplete="new-password"
             />
           </Form.Item>

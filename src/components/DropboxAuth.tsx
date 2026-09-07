@@ -108,7 +108,7 @@ export default function DropboxAuth({ policyId, open, onClose, onAuthorized }: P
         />
 
         {authUrl ? (
-          <Space direction="vertical" style={{ width: '100%' }}>
+          <Space orientation="vertical" style={{ width: '100%' }}>
             <Button type="primary" href={authUrl} target="_blank" rel="noreferrer" block>
               打开 Dropbox 授权页面
             </Button>

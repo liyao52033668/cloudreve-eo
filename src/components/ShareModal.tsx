@@ -60,7 +60,7 @@ export default function ShareModal({ open, fileIds, onClose }: Props) {
 
   return (
     <Modal title={title} open={open} onCancel={() => { onClose(); setShareLink(''); setPassword(''); setExpireAt(undefined) }} footer={null}>
-      <Space direction="vertical" style={{ width: '100%' }}>
+      <Space orientation="vertical" style={{ width: '100%' }}>
         <Space.Compact style={{ width: '100%' }}>
           <Input placeholder="提取码（可选）" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" style={{ flex: 1 }} />
           <Button icon={<ThunderboltOutlined />} onClick={() => setPassword(generateRandomPassword())}>

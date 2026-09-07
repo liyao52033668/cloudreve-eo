@@ -115,7 +115,7 @@ export default function BaiduAuth({ policyId, open, onClose, onAuthorized }: Pro
       </Paragraph>
 
       {authUrl ? (
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space orientation="vertical" style={{ width: '100%' }}>
           <Button type="primary" onClick={openAuthPage}>
             新标签页打开授权页
           </Button>

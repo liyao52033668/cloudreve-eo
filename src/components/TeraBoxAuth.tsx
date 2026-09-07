@@ -202,7 +202,7 @@ export default function TeraBoxAuth({ policyId, open, onClose, onAuthorized }: P
                   方式二：新窗口打开授权页，授权成功后将获得的授权码（code）粘贴到下方提交。
                 </Paragraph>
                 {authUrl ? (
-                  <Space direction="vertical" style={{ width: '100%' }}>
+                  <Space orientation="vertical" style={{ width: '100%' }}>
                     <iframe
                       src={authUrl}
                       title="TeraBox 授权页"

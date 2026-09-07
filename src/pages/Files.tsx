@@ -859,7 +859,7 @@ export default function Files() {
 
         {Object.keys(uploadTasks).length > 0 && (
           <Card size="small" title="上传任务" style={{ marginBottom: 16 }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
+            <Space orientation="vertical" style={{ width: '100%' }}>
               {Object.entries(uploadTasks).map(([key, t]) => (
                 <div key={key}>
                   <Space style={{ width: '100%', justifyContent: 'space-between', display: 'flex' }}>
@@ -893,7 +893,7 @@ export default function Files() {
             style={{ marginBottom: 16 }}
             message={`有 ${pendingSessions.length} 个未完成的上传，可断点续传`}
             description={
-              <Space direction="vertical" style={{ width: '100%' }}>
+              <Space orientation="vertical" style={{ width: '100%' }}>
                 {pendingSessions.map(s => (
                   <Space key={s.storage_key} wrap>
                     <span>{s.file_name}（{formatSize(s.size)}，策略 {s.storage_policy}）</span>
@@ -939,7 +939,7 @@ export default function Files() {
         }}
         destroyOnHidden={false}
       >
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space orientation="vertical" style={{ width: '100%' }}>
           <Input
             value={newFileName}
             onChange={(e) => setNewFileName(e.target.value)}

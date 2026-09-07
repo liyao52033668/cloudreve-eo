@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
@@ -34,6 +35,24 @@ func (h *PolicyHandler) getDropboxDriver(id uint) (*model.StoragePolicy, *storag
 	return p, db, nil
 }
 
+// dropboxRedirectURI 计算 Dropbox OAuth 回调地址（必须是绝对 URI）。
+// 优先使用策略的 CustomHost；否则从当前请求的协议 + Host 推导本站回调地址。
+func (h *PolicyHandler) dropboxRedirectURI(c *gin.Context, p *model.StoragePolicy) string {
+	if p.CustomHost != "" {
+		return strings.TrimRight(p.CustomHost, "/") + "/api/oauth/dropbox/callback"
+	}
+	// EdgeOne 等反向代理场景下需优先读 X-Forwarded-Proto
+	scheme := c.GetHeader("X-Forwarded-Proto")
+	if scheme == "" {
+		if c.Request.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	return scheme + "://" + c.Request.Host + "/api/oauth/dropbox/callback"
+}
+
 // DropboxAuthURL GET /api/admin/storage/policies/:id/dropbox/auth-url
 // 返回 Dropbox OAuth 授权地址。
 func (h *PolicyHandler) DropboxAuthURL(c *gin.Context) {
@@ -48,14 +67,7 @@ func (h *PolicyHandler) DropboxAuthURL(c *gin.Context) {
 		return
 	}
 
-	// 回调地址：优先使用策略的 CustomHost，否则使用本站域名
-	redirectURI := p.CustomHost
-	if redirectURI == "" {
-		// 使用本站回调路由
-		redirectURI = "/api/oauth/dropbox/callback"
-	}
-
-	authURL := db.GetAuthURL(redirectURI)
+	authURL := db.GetAuthURL(h.dropboxRedirectURI(c, p))
 	c.JSON(http.StatusOK, gin.H{"auth_url": authURL})
 }
 
@@ -81,12 +93,7 @@ func (h *PolicyHandler) DropboxAuthByCode(c *gin.Context) {
 	}
 
 	// 回调地址需与生成授权 URL 时一致
-	redirectURI := p.CustomHost
-	if redirectURI == "" {
-		redirectURI = "/api/oauth/dropbox/callback"
-	}
-
-	if err := db.GetTokenByCode(req.Code, redirectURI); err != nil {
+	if err := db.GetTokenByCode(req.Code, h.dropboxRedirectURI(c, p)); err != nil {
 		logx.Error(logx.ModuleStorage, "Dropbox 授权码换 token 失败", logx.Err(err), "policy", p.Name)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

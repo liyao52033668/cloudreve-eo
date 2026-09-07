@@ -244,7 +244,7 @@ export default function ShareView() {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
         <Card title="输入提取码" style={{ width: 360 }}>
-          <Space direction="vertical" style={{ width: '100%' }}>
+          <Space orientation="vertical" style={{ width: '100%' }}>
             <Input.Password value={password} onChange={(e) => setPassword(e.target.value)} placeholder="提取码" />
             <Button type="primary" block onClick={() => loadShare(password)}>确认</Button>
           </Space>
@@ -282,7 +282,7 @@ export default function ShareView() {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', minHeight: '100vh', background: '#f0f2f5', padding: '48px 16px' }}>
       <Card title={listTitle} style={{ width: '100%', maxWidth: 760 }}>
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+        <Space orientation="vertical" style={{ width: '100%' }} size="middle">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <Space wrap align="center">
               <Button type="primary" icon={<DownloadOutlined />} onClick={handleDownloadZip}>下载全部(zip)</Button>
