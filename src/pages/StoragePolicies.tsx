@@ -673,16 +673,6 @@ export default function StoragePolicies() {
             </Form.Item>
           )}
 
-          {policyType === 'gdrive' && (
-            <Form.Item
-              name="base_path"
-              label="存储路径前缀"
-              extra="文件将存储在该目录下（相对 Google Drive 根目录），留空表示根目录"
-            >
-              <Input placeholder="例如 cloudreve-eo" allowClear />
-            </Form.Item>
-          )}
-
           {policyType === 'webdav' && (
             <>
               <Form.Item
