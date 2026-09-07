@@ -158,9 +158,9 @@ export const getDropboxAuthURL = (id: number, origin?: string) =>
     params: origin ? { origin } : {},
   })
 
-/** 用授权码（code）换取 token */
-export const dropboxAuthByCode = (id: number, code: string) =>
-  client.post(`/admin/storage/policies/${id}/dropbox/auth-code`, { code })
+/** 用授权码（code）换取 token（需传 origin 确保 redirect_uri 与授权时一致） */
+export const dropboxAuthByCode = (id: number, code: string, origin?: string) =>
+  client.post(`/admin/storage/policies/${id}/dropbox/auth-code`, { code, origin })
 
 /** 查询 Dropbox 授权状态 */
 export const getDropboxAuthStatus = (id: number) =>

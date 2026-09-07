@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -87,7 +88,8 @@ func (h *PolicyHandler) DropboxAuthByCode(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Code string `json:"code" binding:"required"`
+		Code   string `json:"code" binding:"required"`
+		Origin string `json:"origin"` // 浏览器真实域名，须与生成授权 URL 时一致
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
@@ -97,6 +99,10 @@ func (h *PolicyHandler) DropboxAuthByCode(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// origin 放入 Query 供 dropboxRedirectURI 统一读取
+	if req.Origin != "" {
+		c.Request.URL.RawQuery = "origin=" + url.QueryEscape(req.Origin)
 	}
 
 	// 回调地址需与生成授权 URL 时一致
@@ -170,8 +176,20 @@ func (h *PolicyHandler) DropboxOAuthCallback(c *gin.Context) {
 		return
 	}
 
-	// 注意：Dropbox 回调没有 state 参数，无法直接定位策略
-	// 这里需要前端在授权前记录策略 ID，授权后通过 postMessage 传递
-	// 暂时返回成功，让前端处理后续逻辑
-	render("Dropbox 授权成功", "请返回管理页面完成授权绑定", true)
+	// 自动处理：提取 code 并通过 postMessage 传给弹窗，弹窗收到后自动调用 API 换 token
+	callbackPageWithCode := `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Dropbox 授权成功</title>
+<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f6f7}
+.box{text-align:center;padding:32px}h1{font-size:18px;margin:0 0 8px;color:#52c41a}p{color:#666;font-size:14px;margin:0}</style></head>
+<body><div class="box"><h1>✓ 授权成功</h1><p>正在自动完成授权，请稍候...</p></div>
+<script>
+const code = "%s";
+try {
+  window.opener && window.opener.postMessage({event:"dropboxOauthDone",ok:true,code:code},"*");
+} catch(e) {}
+</script>
+</body></html>`
+
+	c.Data(http.StatusOK, "text/html; charset=utf-8",
+		[]byte(fmt.Sprintf(callbackPageWithCode, code)))
 }

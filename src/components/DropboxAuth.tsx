@@ -52,7 +52,7 @@ export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthori
     }
     setSubmitting(true)
     try {
-      await dropboxAuthByCode(policyId, authCode.trim())
+      await dropboxAuthByCode(policyId, authCode.trim(), window.location.origin)
       handleAuthorized()
     } catch (err: any) {
       message.error(err.response?.data?.error || '授权失败')
@@ -61,16 +61,27 @@ export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthori
     }
   }
 
-  // 监听 postMessage（Dropbox 回调页面通知）
+  // 监听 postMessage（Dropbox 回调页面通知，自动处理 code）
   useEffect(() => {
     if (!open) return
-    const handler = (e: MessageEvent) => {
+    const handler = async (e: MessageEvent) => {
       try {
         const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data
         if (data?.event !== 'dropboxOauthDone') return
-        if (data.ok) {
-          // 授权成功，但 Dropbox 回调没有直接返回 code
-          // 需要用户手动复制 code 粘贴
+        if (data.ok && data.code) {
+          // 自动处理：收到 code 后直接调用 API 换 token
+          setSubmitting(true)
+          try {
+            await dropboxAuthByCode(policyId, data.code, window.location.origin)
+            done.current = true
+            message.success('Dropbox 授权成功')
+            onAuthorized()
+          } catch (err: any) {
+            message.error(err.response?.data?.error || '授权失败')
+            setSubmitting(false)
+          }
+        } else if (data.ok) {
+          // 兼容旧版：没有 code 时提示用户手动输入
           message.info('授权窗口已关闭，请复制授权码并粘贴到下方')
         } else {
           message.error(`授权失败: ${data.error || '未知错误'}`)
@@ -81,7 +92,7 @@ export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthori
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [open])
+  }, [open, policyId, onAuthorized])
 
   return (
     <Modal
