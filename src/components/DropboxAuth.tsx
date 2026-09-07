@@ -26,10 +26,10 @@ export default function DropboxAuth({ policyId, open, onClose, onAuthorized }: P
     onAuthorized()
   }, [onAuthorized])
 
-  // 获取网页授权地址
+  // 获取网页授权地址（带 origin 让后端拼出浏览器真实域名的回调地址）
   const loadAuthUrl = useCallback(async () => {
     try {
-      const { data } = await getDropboxAuthURL(policyId)
+      const { data } = await getDropboxAuthURL(policyId, window.location.origin)
       setAuthUrl(data.auth_url)
     } catch {
       setAuthUrl('')
@@ -98,10 +98,14 @@ export default function DropboxAuth({ policyId, open, onClose, onAuthorized }: P
           message="Dropbox OAuth 授权流程"
           description={
             <div>
-              <div>1. 点击下方按钮打开 Dropbox 授权页面</div>
-              <div>2. 登录并授权后，页面会跳转到回调地址</div>
-              <div>3. 从 URL 中复制 code 参数值</div>
-              <div>4. 粘贴到下方输入框并提交</div>
+              <div>1. 在 Dropbox App Console 的 Redirect URIs 中添加本站回调地址</div>
+              <div style={{ fontSize: 12, color: '#1677ff', margin: '4px 0 8px' }}>
+                <code>https://你的域名/api/oauth/dropbox/callback</code>
+              </div>
+              <div>2. 点击下方按钮打开 Dropbox 授权页面</div>
+              <div>3. 登录并授权后，页面会跳转到回调地址</div>
+              <div>4. 从 URL 中复制 code 参数值</div>
+              <div>5. 粘贴到下方输入框并提交</div>
             </div>
           }
           style={{ marginBottom: 16 }}

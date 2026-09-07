@@ -152,9 +152,11 @@ export const baiduAuthByCode = (id: number, code: string) =>
 
 // ============ Dropbox OAuth 授权 ============
 
-/** 获取 Dropbox OAuth 授权地址 */
-export const getDropboxAuthURL = (id: number) =>
-  client.get<{ auth_url: string }>(`/admin/storage/policies/${id}/dropbox/auth-url`)
+/** 获取 Dropbox OAuth 授权地址（传入 origin 让后端用浏览器真实域名拼回调） */
+export const getDropboxAuthURL = (id: number, origin?: string) =>
+  client.get<{ auth_url: string }>(`/admin/storage/policies/${id}/dropbox/auth-url`, {
+    params: origin ? { origin } : {},
+  })
 
 /** 用授权码（code）换取 token */
 export const dropboxAuthByCode = (id: number, code: string) =>
