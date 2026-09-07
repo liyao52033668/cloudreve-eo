@@ -43,7 +43,7 @@ export interface StoragePolicyAdmin {
 export interface StoragePolicyDetail {
   id: number
   name: string
-  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav' | 'gdrive'
   endpoint: string
   region: string
   bucket: string
@@ -66,7 +66,7 @@ export interface StoragePolicyDetail {
 
 export interface PolicyForm {
   name: string
-  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav' | 'gdrive'
   endpoint: string
   region: string
   bucket: string
@@ -165,3 +165,19 @@ export const dropboxAuthByCode = (id: number, code: string, origin?: string) =>
 /** 查询 Dropbox 授权状态 */
 export const getDropboxAuthStatus = (id: number) =>
   client.post<{ status: 'authorized' | 'unauthorized' }>(`/admin/storage/policies/${id}/dropbox/auth-status`)
+
+// ============ Google Drive OAuth 授权 ============
+
+/** 获取 Google Drive OAuth 授权地址（传入 origin 让后端用浏览器真实域名拼回调） */
+export const getGDriveAuthURL = (id: number, origin?: string) =>
+  client.get<{ auth_url: string }>(`/admin/storage/policies/${id}/gdrive/auth-url`, {
+    params: origin ? { origin } : {},
+  })
+
+/** 用授权码（code）换取 token（需传 origin 确保 redirect_uri 与授权时一致） */
+export const gdriveAuthByCode = (id: number, code: string, origin?: string) =>
+  client.post(`/admin/storage/policies/${id}/gdrive/auth-code`, { code, origin })
+
+/** 查询 Google Drive 授权状态 */
+export const getGDriveAuthStatus = (id: number) =>
+  client.post<{ status: 'authorized' | 'unauthorized' }>(`/admin/storage/policies/${id}/gdrive/auth-status`)
