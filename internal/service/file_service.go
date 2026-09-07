@@ -29,17 +29,47 @@ func (s *FileService) GetDriver(policy string) (storage.StorageDriver, error) {
 }
 
 // buildStorageKey 生成对象键：{basePath/}userID/uuid{.ext}，保留原文件扩展名便于在存储桶中识别与预览。
+// Dropbox 类型例外：其下载走 GetTemporaryLink 临时链接，文件名由 Dropbox 内路径末段决定，
+// 因此用 {basePath/}userID/{uuid}/原始文件名 让 Dropbox 内保持原始文件名，下载文件名才正确。
 func (s *FileService) buildStorageKey(userID int64, policy string, fileName string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(fileName))
 	if len(ext) > 16 || strings.ContainsAny(ext, "/\\?#%") {
 		ext = ""
 	}
 	// userID 已经是雪花 ID
-	key := fmt.Sprintf("%d/%s%s", userID, uuid.New().String(), ext)
+	var key string
+	if info, ok := s.storageMgr.GetPolicyInfo(policy); ok && info.Type == "dropbox" {
+		key = fmt.Sprintf("%d/%s/%s", userID, uuid.New().String(), sanitizeFileName(fileName))
+		if info.BasePath != "" {
+			key = strings.Trim(info.BasePath, "/") + "/" + key
+		}
+		return key, nil
+	}
+	key = fmt.Sprintf("%d/%s%s", userID, uuid.New().String(), ext)
 	if info, ok := s.storageMgr.GetPolicyInfo(policy); ok && info.BasePath != "" {
 		key = strings.Trim(info.BasePath, "/") + "/" + key
 	}
 	return key, nil
+}
+
+// sanitizeFileName 清理文件名中不适合作为路径段的字符（保留中文等多数字符）。
+func sanitizeFileName(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, "\\", "_")
+	if name == "" {
+		return "unnamed"
+	}
+	if len(name) > 200 {
+		// 过长时保留扩展名截断
+		ext := filepath.Ext(name)
+		if ext != "" && len(ext) < 20 {
+			name = name[:200-len(ext)] + ext
+		} else {
+			name = name[:200]
+		}
+	}
+	return name
 }
 
 // BuildStorageKey 公开方法，供 WebDAV 等服务端使用。
