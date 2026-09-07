@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -176,20 +177,49 @@ func (h *PolicyHandler) DropboxOAuthCallback(c *gin.Context) {
 		return
 	}
 
-	// 自动处理：提取 code 并通过 postMessage 传给弹窗，弹窗收到后自动调用 API 换 token
+	// 自动处理：提取 code 并通过 postMessage 传给弹窗，弹窗收到后自动调用 API 换 token。
+	// 兜底：若 opener 为 null（浏览器拦截）或 postMessage 失败，显示 code 让用户手动复制。
+	// code 来自 URL 参数，用 JSON 编码防 XSS。
+	codeJSON, _ := json.Marshal(code)
 	callbackPageWithCode := `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>Dropbox 授权成功</title>
-<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f6f7}
-.box{text-align:center;padding:32px}h1{font-size:18px;margin:0 0 8px;color:#52c41a}p{color:#666;font-size:14px;margin:0}</style></head>
-<body><div class="box"><h1>✓ 授权成功</h1><p>正在自动完成授权，请稍候...</p></div>
+<style>
+body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f6f7}
+.box{text-align:center;padding:32px;max-width:500px}
+h1{font-size:18px;margin:0 0 8px;color:#52c41a}
+p{color:#666;font-size:14px;margin:0 0 16px}
+.manual{display:none;margin-top:24px;padding:16px;background:#fff;border-radius:8px;border:1px solid #d9d9d9}
+.manual.show{display:block}
+.code-box{background:#f5f5f5;padding:8px 12px;border-radius:4px;font-family:monospace;font-size:12px;word-break:break-all;margin:8px 0;cursor:pointer;user-select:all}
+.btn{display:inline-block;padding:8px 20px;background:#1677ff;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px}
+.btn:hover{background:#4096ff}
+</style></head>
+<body><div class="box">
+<h1>✓ 授权成功</h1>
+<p id="status">正在自动完成授权，请稍候...</p>
+<div class="manual" id="manual">
+<p style="color:#fa8c16">自动流程未完成，请手动复制授权码</p>
+<div class="code-box" id="codeBox" onclick="this.select();document.execCommand('copy');this.textContent='已复制！'"></div>
+<button class="btn" onclick="window.close()">关闭此页</button>
+</div>
+</div>
 <script>
-const code = "%s";
-try {
-  window.opener && window.opener.postMessage({event:"dropboxOauthDone",ok:true,code:code},"*");
-} catch(e) {}
+const code = %s;
+const hasOpener = (() => { try { return !!window.opener; } catch(e) { return false; } })();
+let posted = false;
+if (hasOpener) {
+  try {
+    window.opener.postMessage({event:"dropboxOauthDone",ok:true,code:code},"*");
+    posted = true;
+  } catch(e) {}
+}
+if (!posted) {
+  document.getElementById("status").textContent = "授权成功！请复制下方授权码并返回管理页面提交";
+  document.getElementById("manual").classList.add("show");
+  document.getElementById("codeBox").textContent = code;
+}
 </script>
 </body></html>`
 
-	c.Data(http.StatusOK, "text/html; charset=utf-8",
-		[]byte(fmt.Sprintf(callbackPageWithCode, code)))
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(fmt.Sprintf(callbackPageWithCode, string(codeJSON))))
 }

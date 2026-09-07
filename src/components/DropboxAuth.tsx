@@ -156,11 +156,13 @@ export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthori
 
         {authUrl ? (
           <Space orientation="vertical" style={{ width: '100%' }}>
-            <Button type="primary" href={authUrl} target="_blank" rel="noreferrer" block>
+            {/* window.open 不带 noreferrer：保留 window.opener，
+                授权完成后回调落地页才能 postMessage 通知本弹窗自动完成 */}
+            <Button type="primary" onClick={() => window.open(authUrl, '_blank')} block>
               打开 Dropbox 授权页面
             </Button>
             <Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
-              提示：授权成功后，URL 中会包含 ?code=xxx，复制 xxx 部分
+              授权后将自动完成；若浏览器拦截了自动流程，可从回调地址 URL 中复制 code 手动提交
             </Paragraph>
           </Space>
         ) : (
