@@ -31,7 +31,8 @@ type GitHubDriver struct {
 // endpoint 格式：owner/repo 或 https://github.com/owner/repo
 // basePath 为存储路径前缀，如 "files" 或 "cloudreve/uploads"
 // branch 为分支名称，为空时默认使用 main
-func NewGitHubDriver(endpoint, token, basePath, customHost, branch string) (*GitHubDriver, error) {
+// proxyEnabled/proxyURL 控制是否使用代理及代理地址。
+func NewGitHubDriver(endpoint, token, basePath, customHost, branch string, proxyEnabled bool, proxyURL string) (*GitHubDriver, error) {
 	// 解析 endpoint 获取 owner/repo
 	owner, repo, err := parseGitHubEndpoint(endpoint)
 	if err != nil {
@@ -50,6 +51,13 @@ func NewGitHubDriver(endpoint, token, basePath, customHost, branch string) (*Git
 		branch = "main"
 	}
 
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+	}
+	if transport := buildHTTPTransport(proxyEnabled, proxyURL); transport != nil {
+		client.Transport = transport
+	}
+
 	return &GitHubDriver{
 		owner:      owner,
 		repo:       repo,
@@ -57,9 +65,7 @@ func NewGitHubDriver(endpoint, token, basePath, customHost, branch string) (*Git
 		token:      token,
 		basePath:   basePath,
 		customHost: customHost,
-		client: &http.Client{
-			Timeout: 60 * time.Second,
-		},
+		client:     client,
 	}, nil
 }
 

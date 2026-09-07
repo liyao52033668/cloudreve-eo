@@ -14,6 +14,7 @@ import (
 	"github.com/cloudreve-eo/cloudreve-eo/internal/middleware"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/persist"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/proxyx"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/service"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/snowflake"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/storage"
@@ -79,6 +80,12 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 
 	if err := model.InitDB(cfg); err != nil {
 		return nil, fmt.Errorf("初始化数据库失败: %w", err)
+	}
+
+	// 加载出站代理设置（空 = 直连）
+	if proxyURL, err := model.GetProxyURL(); err == nil && proxyURL != "" {
+		proxyx.Set(proxyURL)
+		logx.Info(logx.ModuleApp, "已配置出站代理", "proxy", proxyURL)
 	}
 
 	// 初始化雪花 ID 生成器
@@ -243,6 +250,8 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 			admin.PUT("/settings/register", settingHandler.UpdateRegister)
 			admin.GET("/settings/webdav", settingHandler.GetWebDAV)
 			admin.PUT("/settings/webdav", settingHandler.UpdateWebDAV)
+			admin.GET("/settings/proxy", settingHandler.GetProxy)
+			admin.PUT("/settings/proxy", settingHandler.UpdateProxy)
 
 			adminPolicies := admin.Group("/admin/storage/policies")
 			{

@@ -63,7 +63,8 @@ type TeraBoxDriver struct {
 // NewTeraBoxDriver 创建 TeraBox 驱动。
 // endpoint 为应用根目录（如 /From: Other Applications/MyApp-123/）；
 // region 复用为签名私钥 private_secret；tokenJSON 为已授权凭据（可空，待授权）。
-func NewTeraBoxDriver(clientID, clientSecret, privateSecret, endpoint, tokenJSON string) (*TeraBoxDriver, error) {
+// proxyEnabled/proxyURL 控制是否使用代理及代理地址。
+func NewTeraBoxDriver(clientID, clientSecret, privateSecret, endpoint, tokenJSON string, proxyEnabled bool, proxyURL string) (*TeraBoxDriver, error) {
 	if clientID == "" {
 		return nil, fmt.Errorf("TeraBox Client ID 不能为空")
 	}
@@ -78,12 +79,17 @@ func NewTeraBoxDriver(clientID, clientSecret, privateSecret, endpoint, tokenJSON
 		return nil, fmt.Errorf("TeraBox 应用根目录不能为空")
 	}
 
+	client := &http.Client{Timeout: 10 * time.Minute}
+	if transport := buildHTTPTransport(proxyEnabled, proxyURL); transport != nil {
+		client.Transport = transport
+	}
+
 	d := &TeraBoxDriver{
 		clientID:      clientID,
 		clientSecret:  clientSecret,
 		privateSecret: privateSecret,
 		appRootDir:    rootDir,
-		client:        &http.Client{Timeout: 10 * time.Minute},
+		client:        client,
 	}
 
 	tokenJSON = strings.TrimSpace(tokenJSON)

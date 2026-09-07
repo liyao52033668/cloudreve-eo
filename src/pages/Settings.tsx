@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Layout, Card, Button, Typography, Space, message, Modal, Input, Alert, Switch, Divider, Menu } from 'antd'
-import { ReloadOutlined, CopyOutlined, LinkOutlined, UserOutlined, SafetyOutlined, CloudOutlined } from '@ant-design/icons'
+import { ReloadOutlined, CopyOutlined, LinkOutlined, UserOutlined, SafetyOutlined, CloudOutlined, GlobalOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
   getSecuritySettings,
   rotateJWTSecret,
   updateAllowRegister,
+  getProxySettings,
+  updateProxySettings,
 } from '../api/settings'
 import { getProfile } from '../api/user'
 import { getWebDAVSettings, updateWebDAVEnabled } from '../api/webdav'
@@ -29,6 +31,9 @@ export default function Settings() {
   const [webdavSaving, setWebdavSaving] = useState(false)
   const [webdavPassword, setWebdavPassword] = useState('')
   const [, setWebdavPasswordSaving] = useState(false)
+  const [proxyURL, setProxyURL] = useState('')
+  const [proxyEnabled, setProxyEnabled] = useState(false)
+  const [proxySaving, setProxySaving] = useState(false)
   // WebDAV 连接信息：用户名 = 当前登录用户名；密码明文仅在本会话设置后保留一次，刷新即失。
   const [webdavUsername, setWebdavUsername] = useState('')
   const [webdavPasswordPlain, setWebdavPasswordPlain] = useState('')
@@ -64,6 +69,11 @@ export default function Settings() {
       // 加载 WebDAV 设置
       const webdavRes = await getWebDAVSettings()
       setWebdavEnabled(webdavRes.data.enabled)
+
+      // 加载代理设置
+      const proxyRes = await getProxySettings()
+      setProxyURL(proxyRes.data.proxy_url || '')
+      setProxyEnabled(proxyRes.data.enabled)
 
       // 加载当前用户 WebDAV 密码状态
       const statusRes = await getWebDAVStatus()
@@ -141,6 +151,19 @@ export default function Settings() {
       message.error(err.response?.data?.error || '更新失败')
     } finally {
       setWebdavSaving(false)
+    }
+  }
+
+  const handleProxySave = async () => {
+    setProxySaving(true)
+    try {
+      const res = await updateProxySettings(proxyURL)
+      setProxyEnabled(res.data.enabled)
+      message.success(res.data.message)
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '更新失败')
+    } finally {
+      setProxySaving(false)
     }
   }
 
@@ -234,6 +257,11 @@ export default function Settings() {
       key: 'webdav',
       icon: <CloudOutlined />,
       label: 'WebDAV 服务',
+    },
+    {
+      key: 'proxy',
+      icon: <GlobalOutlined />,
+      label: '网络代理',
     },
   ]
 
@@ -395,6 +423,51 @@ export default function Settings() {
                 </div>
               }
             />
+          </Card>
+        )
+
+      case 'proxy':
+        return (
+          <Card title="网络代理" loading={loading}>
+            <Alert
+              type="info"
+              showIcon
+              icon={<GlobalOutlined />}
+              style={{ marginBottom: 16 }}
+              message="配置出站 HTTP 代理"
+              description="填写代理地址后，后端访问外部存储（S3、GitHub、百度网盘等）的请求将经该代理转发；留空则直连。支持 http、https、socks5 协议。"
+            />
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontWeight: 500, marginBottom: 8 }}>代理地址</div>
+              <Input
+                value={proxyURL}
+                onChange={(e) => setProxyURL(e.target.value)}
+                placeholder="http://127.0.0.1:7890（留空直连）"
+                style={{ maxWidth: 500 }}
+              />
+              <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                示例：http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
+              </div>
+            </div>
+
+            {proxyEnabled && (
+              <Alert
+                type="success"
+                showIcon
+                message="代理已启用"
+                description={`当前代理：${proxyURL}`}
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
+            <Button
+              type="primary"
+              onClick={handleProxySave}
+              loading={proxySaving}
+            >
+              保存
+            </Button>
           </Card>
         )
 

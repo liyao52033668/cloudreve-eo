@@ -26,6 +26,19 @@ export const updateAllowRegister = (allow_register: boolean) =>
     allow_register,
   })
 
+export interface ProxySettings {
+  proxy_url: string
+  enabled: boolean
+}
+
+export const getProxySettings = () =>
+  client.get<ProxySettings>('/settings/proxy')
+
+export const updateProxySettings = (proxy_url: string) =>
+  client.put<ProxySettings & { message: string }>('/settings/proxy', {
+    proxy_url,
+  })
+
 function parseAllowRegister(value: unknown): boolean {
   // 仅明确关闭时返回 false；缺省 / 异常默认开放，避免误藏注册入口
   if (value === false || value === 0 || value === 'false' || value === '0') {

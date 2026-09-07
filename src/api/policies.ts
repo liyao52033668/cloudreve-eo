@@ -33,6 +33,10 @@ export interface StoragePolicyAdmin {
   created_at?: string
   /** 仅 TeraBox / 百度网盘：是否已完成 OAuth 授权 */
   authorized?: boolean
+  /** 是否为此策略启用代理 */
+  proxy_enabled: boolean
+  /** 策略专用代理地址 */
+  proxy_url: string
 }
 
 /** 管理端编辑详情（含密钥） */
@@ -54,6 +58,10 @@ export interface StoragePolicyDetail {
   default_quota: number
   /** 仅 WebDAV：是否启用浏览器直连（需服务商开放 CORS） */
   webdav_direct?: boolean
+  /** 是否为此策略启用代理 */
+  proxy_enabled: boolean
+  /** 策略专用代理地址 */
+  proxy_url: string
 }
 
 export interface PolicyForm {
@@ -79,6 +87,10 @@ export interface PolicyForm {
   default_quota: number
   /** 仅 WebDAV：是否启用浏览器直连（需服务商开放 CORS），false 则服务端中转 */
   webdav_direct?: boolean
+  /** 是否为此策略启用代理 */
+  proxy_enabled: boolean
+  /** 策略专用代理地址（空则使用全局代理） */
+  proxy_url: string
 }
 
 export const listPublicPolicies = () =>

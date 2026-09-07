@@ -41,7 +41,8 @@ type WebDAVDriver struct {
 // username/password: 认证凭据
 // basePath: 存储路径前缀，空则默认 cloudreve-eo
 // customHost: 自定义下载域名（可选），空则使用 serverURL
-func NewWebDAVDriver(serverURL, username, password, basePath, customHost string) (*WebDAVDriver, error) {
+// proxyEnabled/proxyURL 控制是否使用代理及代理地址。
+func NewWebDAVDriver(serverURL, username, password, basePath, customHost string, proxyEnabled bool, proxyURL string) (*WebDAVDriver, error) {
 	if serverURL == "" {
 		return nil, fmt.Errorf("WebDAV 服务器地址不能为空")
 	}
@@ -60,15 +61,20 @@ func NewWebDAVDriver(serverURL, username, password, basePath, customHost string)
 	}
 	basePath = strings.Trim(basePath, "/")
 
+	client := &http.Client{
+		Timeout: 30 * time.Minute, // 大文件上传需要较长超时
+	}
+	if transport := buildHTTPTransport(proxyEnabled, proxyURL); transport != nil {
+		client.Transport = transport
+	}
+
 	return &WebDAVDriver{
 		serverURL:  serverURL,
 		username:   username,
 		password:   password,
 		basePath:   basePath,
 		customHost: strings.TrimRight(customHost, "/"),
-		client: &http.Client{
-			Timeout: 30 * time.Minute, // 大文件上传需要较长超时
-		},
+		client:     client,
 	}, nil
 }
 

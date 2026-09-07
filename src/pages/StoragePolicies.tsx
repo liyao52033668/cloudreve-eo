@@ -69,6 +69,8 @@ const emptyForm: PolicyForm = {
   is_default: false,
   default_quota: 0,
   webdav_direct: false,
+  proxy_enabled: false,
+  proxy_url: '',
 }
 
 function formatBytes(n: number): string {
@@ -92,7 +94,7 @@ const officialSites: Record<string, { label: string; url: string }> = {
   terabox: { label: 'TeraBox 开放平台', url: 'https://www.terabox.com' },
   baidu: { label: '百度网盘开放平台', url: 'https://pan.baidu.com/union/console/app' },
   filen: { label: 'Filen', url: 'https://filen.io/r/2b8a482d566c14ebef8f7c634d9a42ea' },
-  dropbox: { label: 'Dropbox Developers', url: 'https://www.dropbox.com/referrals/AAAPux-KYGhTqYV8Jfes9AZXxj53M4oeAcA?src=global9' },
+  dropbox: { label: 'Dropbox Developers', url: 'https://www.dropbox.com/developers' },
 }
 
 export default function StoragePolicies() {
@@ -231,6 +233,8 @@ export default function StoragePolicies() {
         is_default: p.is_default,
         chunk_size_mib: (p.chunk_size || 0) / MiB,
         webdav_direct: p.webdav_direct || false,
+        proxy_enabled: p.proxy_enabled || false,
+        proxy_url: p.proxy_url || '',
       })
       setModalOpen(true)
     } catch (err: any) {
@@ -273,6 +277,8 @@ export default function StoragePolicies() {
         is_default: !!values.is_default,
         default_quota: Math.round(quotaVal * unitMultiplier),
         webdav_direct: !!values.webdav_direct,
+        proxy_enabled: !!values.proxy_enabled,
+        proxy_url: (values.proxy_url || '').trim(),
       }
       if (editingId == null) {
         if (!payload.secret_key) {
@@ -866,6 +872,32 @@ export default function StoragePolicies() {
               <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="0（默认 25）" />
             </Form.Item>
           )}
+
+          <Form.Item
+            name="proxy_enabled"
+            label="使用代理"
+            valuePropName="checked"
+            extra="开启后该策略的出站请求经代理转发（Filen 不支持按策略代理，仅使用全局代理）"
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, cur) => prev.proxy_enabled !== cur.proxy_enabled}
+          >
+            {({ getFieldValue }) =>
+              getFieldValue('proxy_enabled') ? (
+                <Form.Item
+                  name="proxy_url"
+                  label="代理地址"
+                  extra="留空则使用全局代理（参数设置 → 网络代理）；填写则覆盖全局"
+                >
+                  <Input placeholder="http://127.0.0.1:7890（留空使用全局代理）" allowClear />
+                </Form.Item>
+              ) : null
+            }
+          </Form.Item>
 
           <Form.Item name="is_default" label="设为默认策略" valuePropName="checked">
             <Switch />

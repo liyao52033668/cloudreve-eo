@@ -86,9 +86,9 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 
 		switch p.Type {
 		case "github":
-			driver, err = NewGitHubDriver(p.Endpoint, p.SecretKey, p.BasePath, p.CustomHost, p.Branch)
+			driver, err = NewGitHubDriver(p.Endpoint, p.SecretKey, p.BasePath, p.CustomHost, p.Branch, p.ProxyEnabled, p.ProxyURL)
 		case "dropbox":
-			driver, err = NewDropboxDriver(p.SecretKey, p.BasePath)
+			driver, err = NewDropboxDriver(p.SecretKey, p.BasePath, p.ProxyEnabled, p.ProxyURL)
 		case "filen":
 			var fd *FilenDriver
 			fd, err = NewFilenDriver(p.AccessKey, p.SecretKey, p.BasePath)
@@ -103,7 +103,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			driver = fd
 		case "terabox":
 			var tb *TeraBoxDriver
-			tb, err = NewTeraBoxDriver(p.AccessKey, p.SecretKey, p.Region, p.Endpoint, p.OAuthToken)
+			tb, err = NewTeraBoxDriver(p.AccessKey, p.SecretKey, p.Region, p.Endpoint, p.OAuthToken, p.ProxyEnabled, p.ProxyURL)
 			if err == nil {
 				policyID := p.ID
 				// token 刷新后持久化回数据库，保证进程重启后仍可用
@@ -121,7 +121,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			driver = tb
 		case "baidu":
 			var bd *BaiduDriver
-			bd, err = NewBaiduDriver(p.AccessKey, p.SecretKey, p.Endpoint, p.BasePath, p.OAuthToken)
+			bd, err = NewBaiduDriver(p.AccessKey, p.SecretKey, p.Endpoint, p.BasePath, p.OAuthToken, p.ProxyEnabled, p.ProxyURL)
 			if err == nil {
 				policyID := p.ID
 				// token 刷新后持久化回数据库，保证进程重启后仍可用
@@ -144,7 +144,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			driver = bd
 		case "webdav":
 			var wd *WebDAVDriver
-			wd, err = NewWebDAVDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath, p.CustomHost)
+			wd, err = NewWebDAVDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath, p.CustomHost, p.ProxyEnabled, p.ProxyURL)
 			if err == nil {
 				policyName := p.Name
 				mgr := m
@@ -156,7 +156,7 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			}
 			driver = wd
 		default: // s3
-			driver, err = NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle, p.CustomHost)
+			driver, err = NewS3Driver(p.Endpoint, p.Region, p.Bucket, p.AccessKey, p.SecretKey, p.ForcePathStyle, p.CustomHost, p.ProxyEnabled, p.ProxyURL)
 		}
 
 		if err != nil {

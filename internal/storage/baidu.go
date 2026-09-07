@@ -96,12 +96,18 @@ type BaiduDriver struct {
 // endpoint 复用为 OAuth 回调地址（redirect_uri，可空走默认 oob）；
 // basePath 不在此使用——key 已由 FileService.buildStorageKey 拼上 base_path，
 // 驱动不得再拼，否则前缀重复（与 GitHub 驱动约定一致）；tokenJSON 为已授权凭据（可空，待授权）。
-func NewBaiduDriver(clientID, clientSecret, endpoint, basePath, tokenJSON string) (*BaiduDriver, error) {
+// proxyEnabled/proxyURL 控制是否使用代理及代理地址。
+func NewBaiduDriver(clientID, clientSecret, endpoint, basePath, tokenJSON string, proxyEnabled bool, proxyURL string) (*BaiduDriver, error) {
 	if clientID == "" {
 		return nil, fmt.Errorf("百度网盘 AppKey 不能为空")
 	}
 	if clientSecret == "" {
 		return nil, fmt.Errorf("百度网盘 SecretKey 不能为空")
+	}
+
+	client := &http.Client{Timeout: 30 * time.Minute}
+	if transport := buildHTTPTransport(proxyEnabled, proxyURL); transport != nil {
+		client.Transport = transport
 	}
 
 	d := &BaiduDriver{
@@ -113,8 +119,7 @@ func NewBaiduDriver(clientID, clientSecret, endpoint, basePath, tokenJSON string
 		pcsURL:      baiduPCSURL,
 		limiter:     newBaiduLimiter(baiduRatePerSecond, baiduRateBurst),
 		dlinkCache:  make(map[string]baiduDlinkEntry),
-		// 分片上传单片 4MB、单文件可能数 GB，整体超时放宽到 30 分钟
-		client: &http.Client{Timeout: 30 * time.Minute},
+		client:      client,
 	}
 
 	tokenJSON = strings.TrimSpace(tokenJSON)

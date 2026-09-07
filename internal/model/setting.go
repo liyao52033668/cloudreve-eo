@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -19,6 +20,8 @@ const (
 	SettingKeyJWTSecret     = "jwt_secret"
 	SettingKeyAllowRegister = "allow_register"
 	SettingKeyWebDAVEnabled = "webdav_enabled"
+	// SettingKeyProxyURL 出站 HTTP(S) 代理地址（如 http://127.0.0.1:7890）；空表示直连。
+	SettingKeyProxyURL = "proxy_url"
 )
 
 // IsRegisterAllowed 是否允许新用户注册。
@@ -71,6 +74,23 @@ func SetWebDAVEnabled(enabled bool) error {
 		v = "true"
 	}
 	return SetSetting(SettingKeyWebDAVEnabled, v)
+}
+
+// GetProxyURL 读取出站代理地址；未配置时返回空字符串（直连）。
+func GetProxyURL() (string, error) {
+	val, err := GetSetting(SettingKeyProxyURL)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil // 默认直连
+		}
+		return "", err
+	}
+	return strings.TrimSpace(val), nil
+}
+
+// SetProxyURL 写入出站代理地址；空字符串表示清除代理（直连）。
+func SetProxyURL(proxyURL string) error {
+	return SetSetting(SettingKeyProxyURL, strings.TrimSpace(proxyURL))
 }
 
 // GetSetting 读取配置项；不存在时返回 gorm.ErrRecordNotFound。

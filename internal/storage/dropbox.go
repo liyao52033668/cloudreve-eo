@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"path"
 	"strings"
 	"time"
@@ -30,14 +31,21 @@ type DropboxDriver struct {
 
 // NewDropboxDriver 创建 Dropbox 驱动。
 // token=访问令牌；basePath=存储路径前缀（空则 Dropbox 根目录）。
-func NewDropboxDriver(token, basePath string) (*DropboxDriver, error) {
+// proxyEnabled/proxyURL 控制是否使用代理及代理地址。
+func NewDropboxDriver(token, basePath string, proxyEnabled bool, proxyURL string) (*DropboxDriver, error) {
 	if token == "" {
 		return nil, fmt.Errorf("Dropbox Access Token 不能为空")
 	}
+
+	cfg := dbx.Config{Token: token}
+	if transport := buildHTTPTransport(proxyEnabled, proxyURL); transport != nil {
+		cfg.Client = &http.Client{Transport: transport}
+	}
+
 	return &DropboxDriver{
 		token:    token,
 		basePath: strings.Trim(basePath, "/"),
-		client:   files.New(dbx.Config{Token: token}),
+		client:   files.New(cfg),
 	}, nil
 }
 

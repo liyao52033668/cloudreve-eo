@@ -32,7 +32,8 @@ type S3Driver struct {
 // forcePathStyle 为 true 时使用 path-style（http://endpoint/bucket/key），
 // false 时使用 virtual-hosted（http://bucket.endpoint/key）；MinIO 与部分私有 S3 通常需开启。
 // customHost 非空时，生成的下载/预览 URL 将使用该自定义域名（如 COS / 七牛的 CDN 加速域名）。
-func NewS3Driver(endpoint, region, bucket, accessKey, secretKey string, forcePathStyle bool, customHost string) (*S3Driver, error) {
+// proxyEnabled/proxyURL 控制是否使用代理及代理地址。
+func NewS3Driver(endpoint, region, bucket, accessKey, secretKey string, forcePathStyle bool, customHost string, proxyEnabled bool, proxyURL string) (*S3Driver, error) {
 	resolver := aws.EndpointResolverWithOptionsFunc(
 		func(service, reg string, options ...interface{}) (aws.Endpoint, error) {
 			if endpoint != "" {
@@ -42,12 +43,19 @@ func NewS3Driver(endpoint, region, bucket, accessKey, secretKey string, forcePat
 		},
 	)
 
+	// 构建 HTTP 客户端（支持代理）
+	httpClient := &http.Client{}
+	if transport := buildHTTPTransport(proxyEnabled, proxyURL); transport != nil {
+		httpClient.Transport = transport
+	}
+
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background(),
 		awsconfig.WithRegion(region),
 		awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
 		),
 		awsconfig.WithEndpointResolverWithOptions(resolver),
+		awsconfig.WithHTTPClient(httpClient),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("加载 S3 配置失败: %w", err)

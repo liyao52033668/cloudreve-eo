@@ -37,6 +37,7 @@ type FilenDriver struct {
 
 // NewFilenDriver 创建 Filen 驱动。
 // AccessKey=email、SecretKey=账号密码、BasePath=存储路径前缀（空则 cloudreve-eo）。
+// 注意：Filen SDK 使用 rclone 的 fshttp，代理通过环境变量控制，不支持按策略独立代理。
 func NewFilenDriver(email, password, basePath string) (*FilenDriver, error) {
 	if email == "" {
 		return nil, fmt.Errorf("Filen 邮箱不能为空")

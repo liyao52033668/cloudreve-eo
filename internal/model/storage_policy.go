@@ -40,6 +40,10 @@ type StoragePolicy struct {
 	DefaultQuota int64 `gorm:"not null;default:0" json:"default_quota"`
 	// OAuthToken TeraBox OAuth 凭据 JSON（access/refresh token）；json:"-" 避免回显给前端。
 	OAuthToken string    `gorm:"column:oauth_token;type:text" json:"-"`
+	// ProxyEnabled 是否为此策略启用代理（覆盖全局代理设置）。
+	ProxyEnabled bool `gorm:"not null;default:false" json:"proxy_enabled"`
+	// ProxyURL 策略专用代理地址；为空时使用全局代理（若全局也未配置则直连）。
+	ProxyURL string `gorm:"size:512" json:"proxy_url"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
@@ -128,6 +132,8 @@ func UpdateStoragePolicy(id uint, updates *StoragePolicy, updateSecret bool) err
 	existing.ChunkSize = updates.ChunkSize
 	existing.DefaultQuota = updates.DefaultQuota
 	existing.WebDAVDirect = updates.WebDAVDirect
+	existing.ProxyEnabled = updates.ProxyEnabled
+	existing.ProxyURL = updates.ProxyURL
 	if updateSecret && updates.SecretKey != "" {
 		existing.SecretKey = updates.SecretKey
 	}
