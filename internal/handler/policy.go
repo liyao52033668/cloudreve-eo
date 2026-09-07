@@ -55,6 +55,10 @@ type adminPolicyView struct {
 	Authorized bool `json:"authorized"`
 	// WebDAVDirect 仅 WebDAV：是否启用浏览器直连。
 	WebDAVDirect bool `json:"webdav_direct"`
+	// ProxyEnabled 是否为此策略启用代理。
+	ProxyEnabled bool `json:"proxy_enabled"`
+	// ProxyURL 策略专用代理地址。
+	ProxyURL string `json:"proxy_url"`
 }
 
 func toAdminView(p *model.StoragePolicy) adminPolicyView {
@@ -87,6 +91,8 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		CreatedAt:      p.CreatedAt.Format("2006-01-02 15:04:05"),
 		Authorized:     (p.Type == "terabox" || p.Type == "baidu") && p.OAuthToken != "",
 		WebDAVDirect:   p.WebDAVDirect,
+		ProxyEnabled:   p.ProxyEnabled,
+		ProxyURL:       p.ProxyURL,
 	}
 }
 
@@ -139,6 +145,8 @@ type policyBody struct {
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
 	WebDAVDirect   bool   `json:"webdav_direct"`
+	ProxyEnabled   bool   `json:"proxy_enabled"`
+	ProxyURL       string `json:"proxy_url"`
 }
 
 // Create POST /api/admin/storage/policies
@@ -271,6 +279,8 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,
 		WebDAVDirect:   req.WebDAVDirect,
+		ProxyEnabled:   req.ProxyEnabled,
+		ProxyURL:       strings.TrimSpace(req.ProxyURL),
 	}
 	if err := model.CreateStoragePolicy(p); err != nil {
 		msg := err.Error()
@@ -404,6 +414,8 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,
 		WebDAVDirect:   req.WebDAVDirect,
+		ProxyEnabled:   req.ProxyEnabled,
+		ProxyURL:       strings.TrimSpace(req.ProxyURL),
 	}
 	if err := model.UpdateStoragePolicy(uint(id), updates, req.SecretKey != ""); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
