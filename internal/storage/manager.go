@@ -88,7 +88,23 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 		case "github":
 			driver, err = NewGitHubDriver(p.Endpoint, p.SecretKey, p.BasePath, p.CustomHost, p.Branch, p.ProxyEnabled, p.ProxyURL)
 		case "dropbox":
-			driver, err = NewDropboxDriver(p.SecretKey, p.BasePath, p.ProxyEnabled, p.ProxyURL)
+			var db *DropboxDriver
+			db, err = NewDropboxDriver(p.AccessKey, p.SecretKey, p.BasePath, p.OAuthToken, p.ProxyEnabled, p.ProxyURL)
+			if err == nil {
+				policyID := p.ID
+				// token 刷新后持久化回数据库，保证进程重启后仍可用
+				db.onTokenRefreshed = func(token DropboxToken) {
+					raw, marshalErr := json.Marshal(token)
+					if marshalErr != nil {
+						return
+					}
+					if saveErr := model.SetStoragePolicyOAuthToken(policyID, string(raw)); saveErr != nil {
+						logx.Warn(logx.ModuleStorage, "保存 Dropbox token 失败", "policy", p.Name, "err", saveErr.Error())
+					}
+				}
+				authorized = db.IsAuthorized()
+			}
+			driver = db
 		case "filen":
 			var fd *FilenDriver
 			fd, err = NewFilenDriver(p.AccessKey, p.SecretKey, p.BasePath)

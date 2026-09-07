@@ -196,6 +196,8 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 
 	// 百度网盘 OAuth 回调（redirect_uri 固定路径，state 携带签名的策略 ID）
 	r.GET("/oauth/baidu/callback", policyHandler.BaiduOAuthCallback)
+	// Dropbox OAuth 回调
+	r.GET("/oauth/dropbox/callback", policyHandler.DropboxOAuthCallback)
 
 	protected := r.Group("")
 	protected.Use(middleware.JWTAuth(jwtSecrets))
@@ -270,6 +272,10 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 				// 百度网盘 OAuth 授权
 				adminPolicies.GET("/:id/baidu/auth-url", policyHandler.BaiduAuthURL)
 				adminPolicies.POST("/:id/baidu/auth-code", policyHandler.BaiduAuthByCode)
+				// Dropbox OAuth 授权
+				adminPolicies.GET("/:id/dropbox/auth-url", policyHandler.DropboxAuthURL)
+				adminPolicies.POST("/:id/dropbox/auth-code", policyHandler.DropboxAuthByCode)
+				adminPolicies.POST("/:id/dropbox/auth-status", policyHandler.DropboxAuthStatus)
 			}
 
 			adminGroups := admin.Group("/admin/groups")

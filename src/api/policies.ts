@@ -149,3 +149,17 @@ export const getBaiduAuthURL = (id: number) =>
 /** 用授权码（code）换取 token */
 export const baiduAuthByCode = (id: number, code: string) =>
   client.post(`/admin/storage/policies/${id}/baidu/auth-code`, { code })
+
+// ============ Dropbox OAuth 授权 ============
+
+/** 获取 Dropbox OAuth 授权地址 */
+export const getDropboxAuthURL = (id: number) =>
+  client.get<{ auth_url: string }>(`/admin/storage/policies/${id}/dropbox/auth-url`)
+
+/** 用授权码（code）换取 token */
+export const dropboxAuthByCode = (id: number, code: string) =>
+  client.post(`/admin/storage/policies/${id}/dropbox/auth-code`, { code })
+
+/** 查询 Dropbox 授权状态 */
+export const getDropboxAuthStatus = (id: number) =>
+  client.post<{ status: 'authorized' | 'unauthorized' }>(`/admin/storage/policies/${id}/dropbox/auth-status`)

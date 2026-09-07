@@ -46,6 +46,7 @@ import { getProfile } from '../api/user'
 import AppHeader from '../components/AppHeader'
 import TeraBoxAuth from '../components/TeraBoxAuth'
 import BaiduAuth from '../components/BaiduAuth'
+import DropboxAuth from '../components/DropboxAuth'
 
 const { Content } = Layout
 const { Paragraph } = Typography
@@ -421,7 +422,7 @@ export default function StoragePolicies() {
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(p.id)}>
             编辑
           </Button>
-          {(p.type === 'terabox' || p.type === 'baidu') && (
+          {(p.type === 'terabox' || p.type === 'baidu' || p.type === 'dropbox') && (
             <Button
               type="link"
               size="small"
@@ -918,6 +919,17 @@ export default function StoragePolicies() {
       )}
       {authTarget != null && authTarget.type === 'baidu' && (
         <BaiduAuth
+          policyId={authTarget.id}
+          open={authTarget != null}
+          onClose={() => setAuthTarget(null)}
+          onAuthorized={() => {
+            setAuthTarget(null)
+            load()
+          }}
+        />
+      )}
+      {authTarget != null && authTarget.type === 'dropbox' && (
+        <DropboxAuth
           policyId={authTarget.id}
           open={authTarget != null}
           onClose={() => setAuthTarget(null)}
