@@ -67,6 +67,9 @@ export default function Login() {
               没有账号？<Link to="/register">去注册</Link>
             </div>
           )}
+          <div style={{ textAlign: 'center', marginTop: 8 }}>
+            <Link to="/privacy-policy">隐私政策</Link>
+          </div>
         </Form>
       </Card>
     </div>

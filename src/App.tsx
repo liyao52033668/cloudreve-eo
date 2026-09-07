@@ -7,6 +7,7 @@ import Settings from './pages/Settings'
 import StoragePolicies from './pages/StoragePolicies'
 import UserGroups from './pages/UserGroups'
 import Users from './pages/Users'
+import PrivacyPolicy from './pages/PrivacyPolicy'
 import RequireAuth from './components/RequireAuth'
 import DownloadProgress from './components/DownloadProgress'
 
@@ -17,6 +18,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/share/:code" element={<ShareView />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route
           path="/"
           element={
