@@ -100,6 +100,7 @@ type uploadRequest struct {
 	FileName    string `json:"file_name" binding:"required"`
 	ContentType string `json:"content_type" binding:"required"`
 	ParentID    uint   `json:"parent_id"`
+	Size        int64  `json:"size"`
 }
 
 func (h *FileHandler) Upload(c *gin.Context) {
@@ -110,7 +111,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	url, key, policy, err := h.fileService.GetUploadURL(userID, req.FileName, req.ContentType)
+	result, key, policy, err := h.fileService.GetUploadURL(userID, req.FileName, req.ContentType, req.Size)
 	if err != nil {
 		// 如果驱动不支持预签名 URL（如 GitHub），返回标志让前端用服务端上传
 		if strings.Contains(err.Error(), "不支持客户端直传") || strings.Contains(err.Error(), "服务端上传") {
@@ -121,17 +122,10 @@ func (h *FileHandler) Upload(c *gin.Context) {
 			}
 			// 驱动支持分块中转时（百度/TeraBox），告知前端大文件走分块通道，
 			// 避免整文件超过网关单次请求 body 上限（EdgeOne 为 6MB）。
-			// Cloudreve 直传也走这个通道（前端会优先尝试 createCloudreveSession）。
 			if driver, derr := h.fileService.GetDriver(policy); derr == nil {
 				if _, ok := driver.(storage.ServerChunkedUploader); ok {
 					resp["chunked"] = true
 					resp["chunk_size"] = service.ServerChunkSize
-				}
-				if _, ok := driver.(storage.CloudreveDirectUploader); ok {
-					// Cloudreve 直传：前端优先 createCloudreveSession 直传 S3（不经网关）
-					// 标记 cloudreve_direct，前端跳过 MULTIPART_THRESHOLD 逻辑
-					resp["cloudreve_direct"] = true
-					resp["chunked"] = true
 				}
 			}
 			c.JSON(http.StatusOK, resp)
@@ -140,8 +134,21 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Cloudreve 直传：返回会话信息
+	if result.CloudreveSession != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"cloudreve_direct": true,
+			"storage_key":      key,
+			"storage_policy":   policy,
+			"session":          result.CloudreveSession,
+		})
+		return
+	}
+
+	// 普通 S3 预签名 URL
 	c.JSON(http.StatusOK, gin.H{
-		"upload_url":     url,
+		"upload_url":     result.URL,
 		"storage_key":    key,
 		"storage_policy": policy,
 	})

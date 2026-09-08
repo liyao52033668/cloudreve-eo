@@ -15,7 +15,6 @@ import {
   chunkedInit,
   chunkedUploadChunk,
   chunkedComplete,
-  createCloudreveSession,
   cloudreveCallback,
   listStoragePolicies,
   initMultipartUpload,
@@ -28,6 +27,7 @@ import {
   type CompletedPart,
   type MultipartSession,
   type UploadSessionInfo,
+  type CloudreveSession,
 } from '../api/files'
 import SparkMD5 from 'spark-md5'
 import { getProfile } from '../api/user'
@@ -283,15 +283,8 @@ export default function Files() {
     contentType: string,
     parentId: number,
     onProgress: (percent: number) => void,
+    session: CloudreveSession, // 从 getUploadURL 返回的会话信息
   ) => {
-    const sessionRes = await createCloudreveSession(
-      file.name,
-      file.size,
-      storageKey,
-      storagePolicy,
-    )
-    const session = sessionRes.data.session
-
     // 分片数等于 upload_urls 数量（Cloudreve 返回的预签名 URL 数量）
     const partCount = session.upload_urls.length
     if (partCount === 0) {
@@ -385,19 +378,11 @@ export default function Files() {
     preloadedData?: Awaited<ReturnType<typeof getUploadURL>>['data'],
   ) => {
     const contentType = file.type || 'application/octet-stream'
-    const data = preloadedData ?? (await getUploadURL(file.name, contentType, parentId)).data
+    const data = preloadedData ?? (await getUploadURL(file.name, contentType, parentId, file.size)).data
 
     // 检查是否需要服务端上传（如 GitHub 存储）
     if (data.server_upload) {
-      // 优先尝试 Cloudreve 直传（绕过 6MB 网关限制）
       if (data.chunked) {
-        try {
-          await uploadCloudreveDirect(file, data.storage_key, data.storage_policy, contentType, parentId, onProgress)
-          return
-        } catch (err: any) {
-          // Cloudreve 直传失败，回退到 chunked
-          console.warn('Cloudreve 直传失败，回退到服务端中转:', err)
-        }
         // 百度/TeraBox：网关限单请求 body ≤6MB，切块逐块提交
         await uploadChunked(file, data.storage_key, data.storage_policy, contentType, parentId, data.chunk_size!, onProgress)
       } else {
@@ -510,20 +495,12 @@ export default function Files() {
       const { data } = await initMultipartUpload(file.name, contentType, file.size, parentId)
       session = data.session
     } catch (err: any) {
-      // 策略不支持客户端分片直传（如 TeraBox/GitHub/Cloudreve）时，回退到服务端中转上传
+      // 策略不支持客户端分片直传（如 TeraBox/GitHub）时，回退到服务端中转上传
       const errMsg: string = err?.response?.data?.error || ''
       if (errMsg.includes('不支持客户端')) {
-        const { data } = await getUploadURL(file.name, contentType, parentId)
+        const { data } = await getUploadURL(file.name, contentType, parentId, file.size)
         if (data.server_upload) {
           if (data.chunked) {
-            // Cloudreve 策略：优先前端直传 S3（大文件分片，不经网关）
-            try {
-              await uploadCloudreveDirect(file, data.storage_key, data.storage_policy, contentType, parentId, onProgress)
-              return
-            } catch (directErr: any) {
-              // 非 Cloudreve 存储会话创建失败，或直传出错，回退到分块中转
-              console.warn('Cloudreve 直传失败，回退到服务端中转:', directErr)
-            }
             // 百度/TeraBox：网关限单请求 body ≤6MB，切块逐块提交
             await uploadChunked(file, data.storage_key, data.storage_policy, contentType, parentId, data.chunk_size!, onProgress)
           } else {
@@ -559,11 +536,11 @@ export default function Files() {
     try {
       // 先获取上传 URL，根据策略决定路径
       const contentType = file.type || 'application/octet-stream'
-      const { data } = await getUploadURL(file.name, contentType, parentId)
+      const { data } = await getUploadURL(file.name, contentType, parentId, file.size)
 
       // Cloudreve 策略：始终使用直传（不经过 EdgeOne 网关，不受 25MB 阈值限制）
-      if (data.cloudreve_direct) {
-        await uploadCloudreveDirect(file, data.storage_key, data.storage_policy, contentType, parentId, onProgress)
+      if (data.session) {
+        await uploadCloudreveDirect(file, data.storage_key, data.storage_policy, contentType, parentId, onProgress, data.session)
       } else if (file.size > MULTIPART_THRESHOLD && !data.server_upload) {
         // S3 等策略：大文件使用客户端分片上传
         await uploadMultipart(file, onProgress, parentId)

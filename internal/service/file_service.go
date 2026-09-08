@@ -194,26 +194,42 @@ func (s *FileService) UserGroupOf(userID int64) (*model.UserGroup, error) {
 
 // GetUploadURL 生成上传预签名 URL。存储策略由用户所属用户组决定。
 // 返回 uploadURL, storageKey, resolvedPolicy。
-func (s *FileService) GetUploadURL(userID int64, fileName string, contentType string) (string, string, string, error) {
+// UploadURLResult 上传 URL 响应结果
+type UploadURLResult struct {
+	URL              string                        // S3 预签名 URL（普通存储）
+	CloudreveSession *storage.CloudreveUploadSession // Cloudreve 直传会话（Cloudreve 存储）
+}
+
+func (s *FileService) GetUploadURL(userID int64, fileName string, contentType string, size int64) (*UploadURLResult, string, string, error) {
 	resolved, err := s.ResolveUserPolicy(userID)
 	if err != nil {
-		return "", "", "", err
+		return nil, "", "", err
 	}
 	driver, err := s.storageMgr.GetDriver(resolved)
 	if err != nil {
-		return "", "", "", err
+		return nil, "", "", err
 	}
 
 	key, err := s.buildStorageKey(userID, resolved, fileName)
 	if err != nil {
-		return "", "", "", err
+		return nil, "", "", err
 	}
+
+	// Cloudreve 直传：直接创建会话并返回直传信息
+	if uploader, ok := driver.(storage.CloudreveDirectUploader); ok && size > 0 {
+		session, err := uploader.CreateCloudreveSession(key, size, fileName)
+		if err != nil {
+			return nil, key, resolved, err
+		}
+		return &UploadURLResult{CloudreveSession: session}, key, resolved, nil
+	}
+
 	url, err := driver.GenerateUploadURL(key, contentType, 30*time.Minute)
 	if err != nil {
 		// 即使生成 URL 失败，也返回 key 和 policy，以便服务端上传使用
-		return "", key, resolved, err
+		return nil, key, resolved, err
 	}
-	return url, key, resolved, nil
+	return &UploadURLResult{URL: url}, key, resolved, nil
 }
 
 // resolveCallbackPolicy 确定回调落库的存储策略。

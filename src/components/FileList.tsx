@@ -146,13 +146,15 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
         // 代理存储（Filen/百度等）：云函数响应有 6MB 缓冲上限、边缘函数有时长限制，
         // 改由前端 JS 按 Range 分段拉取并拼接 Blob，避开平台限制。
         await handleProxyDownload(file, url)
-      } else if (isCrossOrigin(url)) {
-        // 跨域 URL（如 Cloudreve 返回的 S3 预签名 URL）：
+      } else if (isCrossOrigin(url) && !url.includes('response-content-disposition')) {
+        // 跨域 URL 且没有 Content-Disposition 参数：
         // <a download> 对跨域无效，浏览器会用 URL 路径作为文件名（随机无后缀）。
         // 改用 blob 方式下载，保证文件名正确。
+        // 但如果 URL 包含 response-content-disposition 参数（如 Cloudreve/S3），
+        // 浏览器会使用 header 里的文件名，可以直接下载。
         await handleCrossOriginDownload(file, url)
       } else {
-        // 同源外链：直接交给浏览器下载管理器，原生流式落盘
+        // 同源外链或带 Content-Disposition 的跨域 URL：直接交给浏览器下载管理器
         const a = document.createElement('a')
         a.href = url
         a.download = file.name
