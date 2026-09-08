@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -167,12 +168,56 @@ func (d *WebDAVDriver) GenerateUploadURL(key string, contentType string, expire 
 	return "", fmt.Errorf("WebDAV 存储不支持客户端直传，请使用服务端上传")
 }
 
-// GenerateDownloadURL 返回带签名的服务端代理下载 URL。
+// GenerateDownloadURL 返回浏览器可直接下载的 URL。
+// 1. 先对 WebDAV 发起 HEAD 请求：若服务器返回 302 重定向（如 Cloudreve 转发到 S3 预签名 URL），
+//    直接返回 Location 头的直链；
+// 2. 否则返回内嵌 Basic Auth 凭据的 WebDAV URL（浏览器原生支持，直连下载不经服务端中转）。
 func (d *WebDAVDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
-	if d.proxyURL == nil {
-		return "", fmt.Errorf("WebDAV 代理下载未初始化")
+	fullPath := d.webdavPathOf(key)
+	base := d.serverURL
+	if d.customHost != "" {
+		base = d.customHost
 	}
-	return d.proxyURL(key, fileName)
+	webdavURL := base + "/" + fullPath
+
+	// 发起 HEAD 请求获取重定向地址（不下载文件内容）
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "HEAD", webdavURL, nil)
+	if err == nil {
+		req.SetBasicAuth(d.username, d.password)
+
+		// 不自动跟随重定向，读取 Location 头
+		client := &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+			Timeout: 30 * time.Second,
+		}
+		if transport := d.client.Transport; transport != nil {
+			client.Transport = transport
+		}
+
+		if resp, rerr := client.Do(req); rerr == nil {
+			resp.Body.Close()
+			// 重定向响应（301/302/307/308）：Location 即直链
+			if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+				if location := resp.Header.Get("Location"); location != "" {
+					return location, nil
+				}
+			}
+		}
+	}
+
+	// 非重定向（服务器直接返回文件流）或 HEAD 失败：
+	// 返回内嵌 Basic Auth 的直连 URL，浏览器自动携带凭据下载。
+	u, err := url.Parse(webdavURL)
+	if err != nil {
+		return "", fmt.Errorf("解析 WebDAV URL 失败: %w", err)
+	}
+	u.User = url.UserPassword(d.username, d.password)
+	return u.String(), nil
 }
 
 // getManifest 尝试读取分片元数据，文件不存在或非分片文件时返回 nil。
