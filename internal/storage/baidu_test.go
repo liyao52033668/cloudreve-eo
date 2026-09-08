@@ -15,7 +15,7 @@ import (
 // newBaiduTestDriver 构造指向 mock 服务器的驱动，token 预置为未过期。
 func newBaiduTestDriver(t *testing.T, tokenJSON string) *BaiduDriver {
 	t.Helper()
-	d, err := NewBaiduDriver("appid", "secret", "", "", tokenJSON)
+	d, err := NewBaiduDriver("appid", "secret", "", "", tokenJSON, false, "")
 	if err != nil {
 		t.Fatalf("NewBaiduDriver: %v", err)
 	}
@@ -50,20 +50,20 @@ func mockBaiduServer(t *testing.T, handler func(method string, w http.ResponseWr
 }
 
 func TestNewBaiduDriverValidation(t *testing.T) {
-	if _, err := NewBaiduDriver("", "s", "", "", ""); err == nil {
+	if _, err := NewBaiduDriver("", "s", "", "", "", false, ""); err == nil {
 		t.Fatal("AppKey 为空应报错")
 	}
-	if _, err := NewBaiduDriver("k", "", "", "", ""); err == nil {
+	if _, err := NewBaiduDriver("k", "", "", "", "", false, ""); err == nil {
 		t.Fatal("SecretKey 为空应报错")
 	}
-	d, err := NewBaiduDriver("k", "s", "", "", "")
+	d, err := NewBaiduDriver("k", "s", "", "", "", false, "")
 	if err != nil {
 		t.Fatalf("未授权驱动应可创建: %v", err)
 	}
 	if d.IsAuthorized() {
 		t.Fatal("未授权驱动 IsAuthorized 应为 false")
 	}
-	if _, err := NewBaiduDriver("k", "s", "", "", "{bad json"); err == nil {
+	if _, err := NewBaiduDriver("k", "s", "", "", "{bad json", false, ""); err == nil {
 		t.Fatal("token JSON 格式错误应报错")
 	}
 }

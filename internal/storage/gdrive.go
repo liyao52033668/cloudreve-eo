@@ -521,7 +521,9 @@ func (d *GDriveDriver) GenerateUploadURL(key string, contentType string, expire 
 	return "", fmt.Errorf("Google Drive 存储不支持客户端直传，请使用服务端上传")
 }
 
-// GenerateDownloadURL 返回 Google Drive 文件下载链接。
+// GenerateDownloadURL 返回 Google Drive 文件临时下载链接。
+// 后端调用 Drive API（不跟随重定向），提取 302 Location 的 googleusercontent.com 签名 URL，
+// 该 URL 免认证、有时效（约 1 小时），前端直连下载，不经服务端代理。
 func (d *GDriveDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
 	if err := d.ensureClient(); err != nil {
 		return "", err
@@ -531,7 +533,6 @@ func (d *GDriveDriver) GenerateDownloadURL(key string, fileName string, expire t
 	defer cancel()
 
 	fullPath := d.gdrivePathOf(key)
-	dir := path.Dir(fullPath)
 	name := path.Base(fullPath)
 
 	// 查找父目录 ID
@@ -539,7 +540,6 @@ func (d *GDriveDriver) GenerateDownloadURL(key string, fileName string, expire t
 	if err != nil {
 		return "", err
 	}
-	_ = dir // 避免未使用警告
 
 	// 查找文件
 	fileID, _, err := d.findFile(ctx, name, parentID)
@@ -547,19 +547,46 @@ func (d *GDriveDriver) GenerateDownloadURL(key string, fileName string, expire t
 		return "", fmt.Errorf("文件不存在: %w", err)
 	}
 
-	// 生成下载链接（需要 alt=media 参数）
+	// 获取 OAuth token
 	token, err := d.currentToken()
 	if err != nil {
 		return "", err
 	}
 
-	downloadURL := fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%s?alt=media", fileID)
+	// 创建不跟随重定向的 HTTP 客户端，提取 Google 返回的签名 URL
+	noRedirectClient := &http.Client{
+		Transport: d.client.Transport,
+		Timeout:   30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // 不跟随重定向
+		},
+	}
 
-	// 返回带 token 的完整 URL（Google Drive 要求 Authorization 头，但临时链接可绕过）
-	// 实际上 Google Drive 不支持预签名 URL，需要每次带 token
-	// 这里返回一个需要服务端代理的 URL
-	_ = token
-	return downloadURL, nil
+	downloadURL := fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%s?alt=media&supportsAllDrives=true", fileID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := noRedirectClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("请求 Google Drive 下载链接失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Google Drive API 返回 302 重定向到 googleusercontent.com 签名 URL
+	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusTemporaryRedirect {
+		location := resp.Header.Get("Location")
+		if location != "" {
+			logx.Info(logx.ModuleStorage, "生成 Google Drive 临时下载链接", "fileID", fileID, "expire", "1h")
+			return location, nil
+		}
+	}
+
+	// 如果未返回重定向（某些文件可能直接返回内容），读取错误信息
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return "", fmt.Errorf("Google Drive 未返回临时下载链接 (HTTP %d): %s", resp.StatusCode, string(respBody))
 }
 
 // Delete 删除文件；不存在视为成功。

@@ -293,7 +293,7 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		DefaultQuota:   req.DefaultQuota,
 		WebDAVDirect:   req.WebDAVDirect,
 		ProxyEnabled:   req.ProxyEnabled,
-		ProxyURL:       strings.TrimSpace(req.ProxyURL),
+		ProxyURL:       storage.NormalizeProxyURL(req.ProxyURL),
 	}
 	if err := model.CreateStoragePolicy(p); err != nil {
 		msg := err.Error()
@@ -430,7 +430,7 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		DefaultQuota:   req.DefaultQuota,
 		WebDAVDirect:   req.WebDAVDirect,
 		ProxyEnabled:   req.ProxyEnabled,
-		ProxyURL:       strings.TrimSpace(req.ProxyURL),
+		ProxyURL:       storage.NormalizeProxyURL(req.ProxyURL),
 	}
 	if err := model.UpdateStoragePolicy(uint(id), updates, req.SecretKey != ""); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

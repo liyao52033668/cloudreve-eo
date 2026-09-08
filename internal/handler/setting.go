@@ -3,11 +3,11 @@ package handler
 import (
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/model"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/proxyx"
 	"github.com/cloudreve-eo/cloudreve-eo/internal/service"
+	"github.com/cloudreve-eo/cloudreve-eo/internal/storage"
 	"github.com/gin-gonic/gin"
 )
 
@@ -143,13 +143,13 @@ func (h *SettingHandler) UpdateProxy(c *gin.Context) {
 		return
 	}
 
-	proxyURL := strings.TrimSpace(req.ProxyURL)
+	proxyURL := storage.NormalizeProxyURL(req.ProxyURL)
 
 	// 校验代理地址格式（非空时）
 	if proxyURL != "" {
 		u, err := url.Parse(proxyURL)
 		if err != nil || u.Scheme == "" || u.Host == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "代理地址格式无效，应为 http://host:port 或 socks5://host:port"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "代理地址格式无效，应为 http://host:port、socks5://host:port 或 host:port:user:pass"})
 			return
 		}
 		if u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5" {

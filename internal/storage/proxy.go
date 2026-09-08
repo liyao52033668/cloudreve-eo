@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/proxyx"
 )
@@ -47,4 +49,40 @@ func mustParseURL(rawURL string) *url.URL {
 		panic("invalid proxy URL: " + rawURL)
 	}
 	return u
+}
+
+// NormalizeProxyURL 将常见代理格式规范化为标准 URL。
+// 支持的格式：
+//   - 标准 URL：http://host:port、socks5://user:pass@host:port（保持不变）
+//   - host:port:user:pass → http://user:pass@host:port（用户名和密码中可包含冒号）
+//   - host:port → http://host:port
+//
+// 空字符串直接返回空。
+func NormalizeProxyURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	// 已包含 scheme（如 http://、socks5://），视为标准 URL
+	if strings.Contains(raw, "://") {
+		return raw
+	}
+
+	// 按冒号分割，支持 host:port:user:pass 格式
+	// 前两段固定为 host 和 port，剩余部分合并为用户名和密码
+	parts := strings.SplitN(raw, ":", 4)
+	switch len(parts) {
+	case 2:
+		// host:port
+		return fmt.Sprintf("http://%s:%s", parts[0], parts[1])
+	case 4:
+		// host:port:user:pass → http://user:pass@host:port
+		// parts[3] 可能包含冒号（密码中的冒号）
+		userInfo := url.UserPassword(parts[2], parts[3]).String()
+		return fmt.Sprintf("http://%s@%s:%s", userInfo, parts[0], parts[1])
+	default:
+		// 无法识别的格式，返回原值让后续校验处理
+		return raw
+	}
 }

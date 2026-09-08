@@ -8,7 +8,7 @@ import (
 
 func TestWebDAVDriver_ProxyMode(t *testing.T) {
 	// 测试中转模式
-	d, err := NewWebDAVDriver("https://dav.example.com", "user", "pass", "cloudreve", "")
+	d, err := NewWebDAVDriver("https://dav.example.com", "user", "pass", "cloudreve", "", false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,23 +36,23 @@ func TestWebDAVDriver_ProxyMode(t *testing.T) {
 
 func TestWebDAVDriver_NewValidation(t *testing.T) {
 	// 测试组件验证
-	_, err := NewWebDAVDriver("", "user", "pass", "cloudreve", "")
+	_, err := NewWebDAVDriver("", "user", "pass", "cloudreve", "", false, "")
 	if err == nil {
 		t.Error("空 serverURL 应返回错误")
 	}
 
-	_, err = NewWebDAVDriver("https://dav.example.com", "", "pass", "cloudreve", "")
+	_, err = NewWebDAVDriver("https://dav.example.com", "", "pass", "cloudreve", "", false, "")
 	if err == nil {
 		t.Error("空 username 应返回错误")
 	}
 
-	_, err = NewWebDAVDriver("https://dav.example.com", "user", "", "cloudreve", "")
+	_, err = NewWebDAVDriver("https://dav.example.com", "user", "", "cloudreve", "", false, "")
 	if err == nil {
 		t.Error("空 password 应返回错误")
 	}
 
 	// 正常初始化
-	d, err := NewWebDAVDriver("https://dav.example.com", "user", "pass", "cloudreve", "")
+	d, err := NewWebDAVDriver("https://dav.example.com", "user", "pass", "cloudreve", "", false, "")
 	if err != nil {
 		t.Fatal("正常初始化不应返回错误:", err)
 	}
