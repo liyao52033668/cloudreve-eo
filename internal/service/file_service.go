@@ -28,6 +28,11 @@ func (s *FileService) GetDriver(policy string) (storage.StorageDriver, error) {
 	return s.storageMgr.GetDriver(policy)
 }
 
+// StorageManager 返回存储策略管理器（handler 层访问默认策略等）。
+func (s *FileService) StorageManager() *storage.StoragePolicyManager {
+	return s.storageMgr
+}
+
 // buildStorageKey 生成对象键：{basePath/}userID/uuid{.ext}，保留原文件扩展名便于在存储桶中识别与预览。
 // Dropbox 类型例外：其下载走 GetTemporaryLink 临时链接，文件名由 Dropbox 内路径末段决定，
 // 因此文件名用 名称-uuid.扩展名 格式（如 photo-3f2a....jpg），既保留原始文件名又避免同名覆盖。

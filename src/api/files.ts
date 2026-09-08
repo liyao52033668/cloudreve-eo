@@ -105,6 +105,29 @@ export const uploadCallback = (
     storage_policy: storagePolicy,
   })
 
+/** Cloudreve 直传会话信息（前端直传 S3，不经服务端中转） */
+export interface CloudreveSession {
+  session_id: string
+  chunk_size: number
+  upload_urls: string[]
+  completeURL: string
+  callback_secret: string
+}
+
+/** 创建 Cloudreve 直传会话（前端直传 S3，绕过 6MB 网关限制） */
+export const createCloudreveSession = (
+  fileName: string,
+  size: number,
+  storageKey: string,
+  storagePolicy: string = '',
+) =>
+  client.post<{ session: CloudreveSession }>('/files/upload/cloudreve-session', {
+    file_name: fileName,
+    size,
+    storage_key: storageKey,
+    storage_policy: storagePolicy,
+  })
+
 /** 服务端中转分块上传会话（百度/TeraBox，网关单请求 body ≤6MB） */
 export interface ChunkedSession {
   upload_id: string

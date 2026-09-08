@@ -246,6 +246,67 @@ func (d *WebDAVDriver) cloudreveUploadViaAPI(ctx context.Context, key string, co
 	return fmt.Errorf("Cloudreve 未返回直传 URL（存储类型 %s），回退到 WebDAV 上传", session.Data.StoragePolicy.Type)
 }
 
+// CreateCloudreveSession 创建 Cloudreve 上传会话，返回直传所需信息（供前端直传）。
+func (d *WebDAVDriver) CreateCloudreveSession(key string, size int64) (*CloudreveUploadSession, error) {
+	// 构建 Cloudreve URI: cloudreve://my/{basePath}/{key}
+	cloudreveURI := "cloudreve://my/" + d.webdavPathOf(key)
+
+	// 创建上传会话
+	sessionURL := d.cloudreveAPIURL + "/api/v4/file/upload"
+	reqBody := map[string]interface{}{
+		"uri":  cloudreveURI,
+		"size": size,
+	}
+	bodyJSON, _ := json.Marshal(reqBody)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := d.cloudreveAPIRequest(ctx, "PUT", sessionURL, bytes.NewReader(bodyJSON))
+	if err != nil {
+		return nil, fmt.Errorf("创建上传会话失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("创建上传会话失败: HTTP %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var session struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			SessionID      string   `json:"session_id"`
+			ChunkSize      int64    `json:"chunk_size"`
+			UploadURLs     []string `json:"upload_urls"`
+			CompleteURL    string   `json:"completeURL"`
+			CallbackSecret string   `json:"callback_secret"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return nil, fmt.Errorf("解析上传会话响应失败: %w", err)
+	}
+	if session.Code != 0 {
+		return nil, fmt.Errorf("创建上传会话失败: %s", session.Msg)
+	}
+
+	if len(session.Data.UploadURLs) == 0 {
+		return nil, fmt.Errorf("Cloudreve 未返回直传 URL")
+	}
+
+	logx.Info(logx.ModuleStorage, "Cloudreve 直传会话已创建",
+		"key", key, "size", size, "upload_urls", len(session.Data.UploadURLs))
+
+	return &CloudreveUploadSession{
+		SessionID:      session.Data.SessionID,
+		ChunkSize:      session.Data.ChunkSize,
+		UploadURLs:     session.Data.UploadURLs,
+		CompleteURL:    session.Data.CompleteURL,
+		CallbackSecret: session.Data.CallbackSecret,
+	}, nil
+}
+
 // cloudreveUploadToS3 上传到 S3 兼容存储（Cloudreve 返回预签名 URL）。
 func (d *WebDAVDriver) cloudreveUploadToS3(ctx context.Context, key string, content []byte, session struct {
 	SessionID     string   `json:"session_id"`
@@ -1023,6 +1084,9 @@ var _ RangeReader = (*WebDAVDriver)(nil)
 
 // 确保 WebDAVDriver 实现 ServerChunkedUploader 接口
 var _ ServerChunkedUploader = (*WebDAVDriver)(nil)
+
+// 确保 WebDAVDriver 实现 CloudreveDirectUploader 接口
+var _ CloudreveDirectUploader = (*WebDAVDriver)(nil)
 
 // IsConfigured 凭据是否齐备。
 func (d *WebDAVDriver) IsConfigured() bool {

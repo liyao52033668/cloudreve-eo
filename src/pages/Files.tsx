@@ -15,6 +15,7 @@ import {
   chunkedInit,
   chunkedUploadChunk,
   chunkedComplete,
+  createCloudreveSession,
   listStoragePolicies,
   initMultipartUpload,
   completeMultipartUpload,
@@ -324,7 +325,35 @@ export default function Files() {
 
     // 检查是否需要服务端上传（如 GitHub 存储）
     if (data.server_upload) {
+      // 优先尝试 Cloudreve 直传（绕过 6MB 网关限制）
       if (data.chunked) {
+        try {
+          const sessionRes = await createCloudreveSession(
+            file.name,
+            file.size,
+            data.storage_key,
+            data.storage_policy,
+          )
+          const session = sessionRes.data.session
+          // 前端直传到 S3
+          const etag = await putWithProgress(session.upload_urls[0], file, contentType, (loaded) => {
+            onProgress(file.size === 0 ? 100 : Math.round((loaded / file.size) * 100))
+          })
+          // 完成分片上传
+          await fetch(session.completeURL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/xml' },
+            body: `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>${etag}</ETag></Part></CompleteMultipartUpload>`,
+          })
+          // 回调 Cloudreve
+          await fetch(`${import.meta.env.VITE_API_BASE || ''}/api/v4/callback/s3/${session.session_id}/${session.callback_secret}`)
+          // 创建文件记录
+          await uploadCallback(file.name, data.storage_key, file.size, contentType, parentId, data.storage_policy)
+          return
+        } catch (err: any) {
+          // Cloudreve 直传失败，回退到 chunked
+          console.warn('Cloudreve 直传失败，回退到服务端中转:', err)
+        }
         // 百度/TeraBox：网关限单请求 body ≤6MB，切块逐块提交
         await uploadChunked(file, data.storage_key, data.storage_policy, contentType, parentId, data.chunk_size!, onProgress)
       } else {

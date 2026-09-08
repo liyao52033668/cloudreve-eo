@@ -66,5 +66,22 @@ type ServerChunkedUploader interface {
 	CompleteChunkedUpload(key string, uploadID string, size int64, blockMD5s []string) error
 }
 
+// CloudreveDirectUploader 驱动可选实现：Cloudreve API 客户端直传。
+// 后端只负责创建 Cloudreve 上传会话，文件数据由浏览器直达对象存储，
+// 完全不经服务端中转（无 EdgeOne 6MB 网关限制）。
+type CloudreveDirectUploader interface {
+	// CreateCloudreveSession 创建 Cloudreve 上传会话，返回直传所需信息。
+	CreateCloudreveSession(key string, size int64) (*CloudreveUploadSession, error)
+}
+
+// CloudreveUploadSession Cloudreve 直传会话信息（返回给前端）。
+type CloudreveUploadSession struct {
+	SessionID      string `json:"session_id"`
+	ChunkSize      int64  `json:"chunk_size"`
+	UploadURLs     []string `json:"upload_urls"`
+	CompleteURL    string `json:"completeURL"`
+	CallbackSecret string `json:"callback_secret"`
+}
+
 // ErrRangeNotSatisfiable Range 起始位置超出文件大小（handler 应返回 416）。
 var ErrRangeNotSatisfiable = errors.New("Range 超出文件大小")

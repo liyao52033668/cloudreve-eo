@@ -212,6 +212,7 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		files.POST("/upload", fileHandler.Upload)
 		files.POST("/upload/server", fileHandler.UploadServer)
 		files.POST("/upload/callback", fileHandler.UploadCallback)
+		files.POST("/upload/cloudreve-session", fileHandler.CloudreveSession)
 		files.POST("/upload/multipart", fileHandler.MultipartInit)
 		files.GET("/upload/multipart/sessions", fileHandler.MultipartSessions)
 		files.POST("/upload/multipart/resume", fileHandler.MultipartResume)
