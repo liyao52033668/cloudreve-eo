@@ -113,7 +113,7 @@ export default function StoragePolicies() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null; chunk_size_mib?: number | null }>()
-  const [policyType, setPolicyType] = useState<'s3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav' | 'gdrive'>('s3')
+  const [policyType, setPolicyType] = useState<'s3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav' | 'gdrive' | 'cloudreve'>('s3')
   // Cloudreve API 优化上传开关：控制 WebDAV 表单中 Cloudreve 配置区的显隐
   const [cloudreveApiEnabled, setCloudreveApiEnabled] = useState(false)
   const [filterType, setFilterType] = useState<string | undefined>(undefined)
@@ -136,7 +136,9 @@ export default function StoragePolicies() {
                 ? 'Google Drive'
                 : t === 'webdav'
                   ? 'WebDAV'
-                  : 'S3 兼容'
+                  : t === 'cloudreve'
+                    ? 'Cloudreve'
+                    : 'S3 兼容'
 
   // 分类选项只包含已添加的存储类型
   const categoryOptions = useMemo(() => {
@@ -594,19 +596,12 @@ export default function StoragePolicies() {
               <Select.Option value="gdrive">Google Drive</Select.Option>
               <Select.Option value="baidu">百度网盘</Select.Option>
               <Select.Option value="webdav">WebDAV</Select.Option>
+              <Select.Option value="cloudreve">Cloudreve</Select.Option>
             </Select>
           </Form.Item>
 
           {policyType === 'terabox' && (
             <>
-              <Form.Item
-                name="access_key"
-                label="Client ID"
-                rules={[{ required: true, message: '请输入 Client ID' }]}
-                extra="向 TeraBox 开放平台申请的 AppKey"
-              >
-                <Input placeholder="client_id" autoComplete="off" />
-              </Form.Item>
               <Form.Item
                 name="region"
                 label="Private Secret"
@@ -629,14 +624,6 @@ export default function StoragePolicies() {
           {policyType === 'baidu' && (
             <>
               <Form.Item
-                name="access_key"
-                label="AppKey"
-                rules={[{ required: true, message: '请输入 AppKey' }]}
-                extra="百度网盘开放平台应用的 AppKey"
-              >
-                <Input placeholder="AppKey" autoComplete="off" />
-              </Form.Item>
-              <Form.Item
                 name="endpoint"
                 label="回调地址"
                 extra={`OAuth 回调地址（redirect_uri），须与开放平台应用配置一致；本站可填 ${window.location.origin}/api/oauth/baidu/callback（授权后自动完成）。留空使用 oob 模式（授权后手动粘贴授权码）`}
@@ -655,14 +642,6 @@ export default function StoragePolicies() {
 
           {policyType === 'filen' && (
             <>
-              <Form.Item
-                name="access_key"
-                label="Filen 邮箱"
-                rules={[{ required: true, message: '请输入 Filen 账号邮箱' }]}
-                extra="用于登录 Filen 的账号邮箱"
-              >
-                <Input placeholder="you@example.com" autoComplete="off" />
-              </Form.Item>
               <Form.Item
                 name="base_path"
                 label="存储路径前缀"
@@ -702,31 +681,6 @@ export default function StoragePolicies() {
                 extra="WebDAV 服务的基础 URL，如坚果云：https://dav.jianguoyun.com/dav/"
               >
                 <Input placeholder="https://dav.example.com/dav/" />
-              </Form.Item>
-              <Form.Item label="用户名 / 密码" required style={{ marginBottom: 0 }}>
-                <Space.Compact style={{ width: '100%' }}>
-                  <Form.Item
-                    name="access_key"
-                    noStyle
-                    rules={[{ required: true, message: '请输入 WebDAV 用户名' }]}
-                  >
-                    <Input placeholder="用户名" autoComplete="off" style={{ width: '50%' }} />
-                  </Form.Item>
-                  <Form.Item
-                    name="secret_key"
-                    noStyle
-                    rules={[{ required: editingId == null, message: '请输入 WebDAV 密码' }]}
-                  >
-                    <Input.Password
-                      placeholder={editingId != null ? '密码（留空不修改）' : '密码'}
-                      autoComplete="new-password"
-                      style={{ width: '50%' }}
-                    />
-                  </Form.Item>
-                </Space.Compact>
-                <Typography.Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-                  WebDAV 认证的凭据
-                </Typography.Text>
               </Form.Item>
               <Form.Item
                 name="base_path"
@@ -777,12 +731,31 @@ export default function StoragePolicies() {
                     name="cloudreve_pass"
                     label="Cloudreve 密码"
                     rules={[{ required: cloudreveApiEnabled && editingId == null, message: '请输入 Cloudreve 登录密码' }]}
-                    extra={editingId != null ? '留空表示不修改' : 'Cloudreve 的登录密码（不是 WebDAV 密码）'}
                   >
                     <Input.Password placeholder="••••••••" autoComplete="new-password" />
                   </Form.Item>
                 </>
               )}
+            </>
+          )}
+
+          {policyType === 'cloudreve' && (
+            <>
+              <Form.Item
+                name="endpoint"
+                label="Cloudreve API 地址"
+                rules={[{ required: true, message: '请输入 Cloudreve API 地址' }]}
+                extra="Cloudreve 站点的 API 地址，如 https://pan.example.com"
+              >
+                <Input placeholder="https://pan.example.com" />
+              </Form.Item>
+              <Form.Item
+                name="base_path"
+                label="存储路径前缀"
+                extra="文件将存储在 Cloudreve 的这个目录下，留空表示根目录"
+              >
+                <Input placeholder="例如 cloudreve-eo" allowClear />
+              </Form.Item>
             </>
           )}
 
@@ -851,47 +824,78 @@ export default function StoragePolicies() {
             </>
           )}
 
-          <Form.Item
-            name="custom_host"
-            label="自定义域名"
-            extra="COS / 七牛等的 CDN 加速域名，如 https://cdn.example.com。配置后下载与预览链接改用该域名；留空则用 Endpoint。部分服务商需在 CDN 侧将回源 Host 设为 Bucket 域名。"
-          >
-            <Input placeholder="例如 https://cdn.example.com" allowClear />
-          </Form.Item>
-
-          {policyType === 's3' && (
+          {policyType !== 'github' && (
             <Form.Item
               name="access_key"
-              label="Access Key"
-              rules={[{ required: true, message: '请输入 Access Key' }]}
+              label={
+                policyType === 's3'
+                  ? 'Access Key'
+                  : policyType === 'terabox'
+                    ? 'Client ID'
+                    : policyType === 'baidu'
+                      ? 'AppKey'
+                      : policyType === 'filen'
+                        ? 'Filen 邮箱'
+                        : policyType === 'dropbox'
+                          ? 'App Key'
+                          : policyType === 'gdrive'
+                            ? 'Client ID'
+                            : policyType === 'webdav'
+                              ? '用户名'
+                              : '用户名' // cloudreve
+              }
+              rules={[{ required: true, message: `请输入${
+                policyType === 's3' ? 'Access Key'
+                : policyType === 'terabox' ? 'Client ID'
+                : policyType === 'baidu' ? 'AppKey'
+                : policyType === 'filen' ? 'Filen 邮箱'
+                : policyType === 'dropbox' ? 'App Key'
+                : policyType === 'gdrive' ? 'Client ID'
+                : policyType === 'webdav' ? '用户名'
+                : '用户名'
+              }` }]}
+              extra={
+                policyType === 's3'
+                  ? undefined
+                  : policyType === 'terabox'
+                    ? '向 TeraBox 开放平台申请的 AppKey'
+                    : policyType === 'baidu'
+                      ? '百度网盘开放平台应用的 AppKey'
+                      : policyType === 'filen'
+                        ? '用于登录 Filen 的账号邮箱'
+                        : policyType === 'dropbox'
+                          ? '在 Dropbox App Console 中获取'
+                          : policyType === 'gdrive'
+                            ? '在 Google Cloud Console 创建 OAuth 2.0 客户端 ID 获取'
+                            : policyType === 'webdav'
+                              ? 'WebDAV 认证的用户名'
+                              : 'Cloudreve 的登录邮箱'
+              }
             >
-              <Input placeholder="Access Key ID" autoComplete="off" />
+              <Input
+                placeholder={
+                  policyType === 's3'
+                    ? 'Access Key ID'
+                    : policyType === 'terabox'
+                      ? 'client_id'
+                      : policyType === 'baidu'
+                        ? 'AppKey'
+                        : policyType === 'filen'
+                          ? 'you@example.com'
+                          : policyType === 'dropbox'
+                            ? 'App Key'
+                            : policyType === 'gdrive'
+                              ? 'Client ID'
+                              : policyType === 'webdav'
+                                ? 'username'
+                                : 'user@example.com'
+                }
+                autoComplete="off"
+              />
             </Form.Item>
           )}
 
-          {policyType === 'dropbox' && (
-            <Form.Item
-              name="access_key"
-              label="App Key"
-              rules={[{ required: true, message: '请输入 Dropbox App Key' }]}
-              extra="在 Dropbox App Console 中获取"
-            >
-              <Input placeholder="App Key" autoComplete="off" />
-            </Form.Item>
-          )}
-
-          {policyType === 'gdrive' && (
-            <Form.Item
-              name="access_key"
-              label="Client ID"
-              rules={[{ required: true, message: '请输入 Google OAuth Client ID' }]}
-              extra="在 Google Cloud Console 创建 OAuth 2.0 客户端 ID 获取"
-            >
-              <Input placeholder="Client ID" autoComplete="off" />
-            </Form.Item>
-          )}
-
-          {policyType !== 'webdav' && (
+          {(
             <Form.Item
               name="secret_key"
               label={
@@ -907,14 +911,17 @@ export default function StoragePolicies() {
                           ? 'App Secret'
                           : policyType === 'gdrive'
                             ? 'Client Secret'
-                            : 'Secret Key'
+                            : policyType === 'cloudreve'
+                              ? '密码'
+                              : policyType === 'webdav'
+                                ? '密码'
+                                : 'Secret Key'
               }
               rules={
                 editingId == null
-                  ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'baidu' ? '请输入 SecretKey' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox App Secret' : policyType === 'gdrive' ? '请输入 Google Client Secret' : '请输入 Secret Key' }]
+                  ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'baidu' ? '请输入 SecretKey' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox App Secret' : policyType === 'gdrive' ? '请输入 Google Client Secret' : policyType === 'cloudreve' ? '请输入 Cloudreve 登录密码' : policyType === 'webdav' ? '请输入 WebDAV 密码' : '请输入 Secret Key' }]
                   : []
               }
-              extra={editingId != null ? '留空表示不修改原密钥' : undefined}
             >
               <Input.Password
                 placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'baidu' ? 'secret_key' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox App Secret' : policyType === 'gdrive' ? 'Google Client Secret' : 'Secret Access Key')}
@@ -922,6 +929,14 @@ export default function StoragePolicies() {
               />
             </Form.Item>
           )}
+
+          <Form.Item
+            name="custom_host"
+            label="自定义域名"
+            extra="COS / 七牛等的 CDN 加速域名，如 https://cdn.example.com。配置后下载与预览链接改用该域名；留空则用 Endpoint。部分服务商需在 CDN 侧将回源 Host 设为 Bucket 域名。"
+          >
+            <Input placeholder="例如 https://cdn.example.com" allowClear />
+          </Form.Item>
 
           <Form.Item
             label="每用户默认配额"

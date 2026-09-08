@@ -43,7 +43,7 @@ export interface StoragePolicyAdmin {
 export interface StoragePolicyDetail {
   id: number
   name: string
-  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav' | 'gdrive'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav' | 'gdrive' | 'cloudreve'
   endpoint: string
   region: string
   bucket: string
@@ -74,7 +74,7 @@ export interface StoragePolicyDetail {
 
 export interface PolicyForm {
   name: string
-  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav' | 'gdrive'
+  type: 's3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav' | 'gdrive' | 'cloudreve'
   endpoint: string
   region: string
   bucket: string

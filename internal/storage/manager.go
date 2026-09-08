@@ -176,6 +176,9 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 				authorized = bd.IsAuthorized()
 			}
 			driver = bd
+		case "cloudreve":
+			// Endpoint 复用为 Cloudreve API 地址，AccessKey 复用为登录邮箱，SecretKey 为登录密码
+			driver, err = NewCloudreveDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath)
 		case "webdav":
 			var wd *WebDAVDriver
 			wd, err = NewWebDAVDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath, p.CustomHost, p.ProxyEnabled, p.ProxyURL)

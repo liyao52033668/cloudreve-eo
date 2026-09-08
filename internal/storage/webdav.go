@@ -553,10 +553,19 @@ func (d *WebDAVDriver) GenerateUploadURL(key string, contentType string, expire 
 }
 
 // GenerateDownloadURL 返回浏览器可直接下载的 URL。
-// 1. 先对 WebDAV 发起 HEAD 请求：若服务器返回 302 重定向（如 Cloudreve 转发到 S3 预签名 URL），
-//    直接返回 Location 头的直链；
-// 2. 否则返回内嵌 Basic Auth 凭据的 WebDAV URL（浏览器原生支持，直连下载不经服务端中转）。
+// 如果配置了 Cloudreve API，优先使用 Cloudreve 的 /file/url 接口生成下载链接（带正确的文件名）；
+// 否则先对 WebDAV 发起 HEAD 请求：若服务器返回 302 重定向（如 Cloudreve 转发到 S3 预签名 URL），
+// 直接返回 Location 头的直链；否则返回内嵌 Basic Auth 凭据的 WebDAV URL。
 func (d *WebDAVDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
+	// 如果配置了 Cloudreve API，优先使用 Cloudreve 的下载链接接口
+	if d.cloudreveAPIURL != "" {
+		downloadURL, err := d.cloudreveGetDownloadURL(key)
+		if err == nil {
+			return downloadURL, nil
+		}
+		logx.Warn(logx.ModuleStorage, "Cloudreve 下载链接生成失败，回退到 WebDAV", logx.Err(err))
+	}
+
 	fullPath := d.webdavPathOf(key)
 	base := d.serverURL
 	if d.customHost != "" {
@@ -602,6 +611,53 @@ func (d *WebDAVDriver) GenerateDownloadURL(key string, fileName string, expire t
 	}
 	u.User = url.UserPassword(d.username, d.password)
 	return u.String(), nil
+}
+
+// cloudreveGetDownloadURL 调用 Cloudreve 的 POST /file/url 接口生成下载链接。
+func (d *WebDAVDriver) cloudreveGetDownloadURL(key string) (string, error) {
+	// 构建 Cloudreve URI
+	cloudreveURI := "cloudreve://my/" + d.webdavPathOf(key)
+
+	// 调用 POST /file/url
+	sessionURL := d.cloudreveAPIURL + "/api/v4/file/url"
+	reqBody := map[string]interface{}{
+		"uris": []string{cloudreveURI},
+	}
+	bodyJSON, _ := json.Marshal(reqBody)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := d.cloudreveAPIRequest(ctx, "POST", sessionURL, bytes.NewReader(bodyJSON))
+	if err != nil {
+		return "", fmt.Errorf("调用 Cloudreve 下载接口失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return "", fmt.Errorf("Cloudreve 下载接口失败: HTTP %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			URLs []string `json:"urls"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("解析 Cloudreve 下载响应失败: %w", err)
+	}
+	if result.Code != 0 {
+		return "", fmt.Errorf("Cloudreve 下载接口返回错误: %s", result.Msg)
+	}
+	if len(result.Data.URLs) == 0 {
+		return "", fmt.Errorf("Cloudreve 未返回下载链接")
+	}
+
+	logx.Info(logx.ModuleStorage, "Cloudreve 下载链接已生成", "key", key)
+	return result.Data.URLs[0], nil
 }
 
 // getManifest 尝试读取分片元数据，文件不存在或非分片文件时返回 nil。

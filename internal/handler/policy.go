@@ -243,6 +243,19 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "百度网盘 SecretKey 不能为空"})
 			return
 		}
+	case "cloudreve":
+		if req.Endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Cloudreve API 地址不能为空"})
+			return
+		}
+		if req.AccessKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Cloudreve 用户名不能为空"})
+			return
+		}
+		if req.SecretKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Cloudreve 密码不能为空"})
+			return
+		}
 	case "webdav":
 		if req.Endpoint == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "WebDAV 服务器地址不能为空"})
@@ -384,6 +397,9 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 			return
 		}
 		// SecretKey 在编辑时可以为空（表示不修改）
+	case "cloudreve":
+		// CloudreveAPIURL / CloudreveUser 在编辑时可以为空（表示不修改）
+		// CloudrevePass 在编辑时可以为空（表示不修改）
 	case "webdav":
 		if req.Endpoint == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "WebDAV 服务器地址不能为空"})
