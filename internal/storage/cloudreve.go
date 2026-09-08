@@ -352,6 +352,7 @@ func (d *CloudreveDriver) UploadFile(key string, content []byte) error {
 		Msg  string `json:"msg"`
 		Data struct {
 			SessionID      string   `json:"session_id"`
+			ChunkSize      int64    `json:"chunk_size"`
 			UploadURLs     []string `json:"upload_urls"`
 			CompleteURL    string   `json:"completeURL"`
 			CallbackSecret string   `json:"callback_secret"`
@@ -368,29 +369,64 @@ func (d *CloudreveDriver) UploadFile(key string, content []byte) error {
 		return fmt.Errorf("Cloudreve 未返回上传链接")
 	}
 
-	// 上传到 S3
-	uploadURL := session.Data.UploadURLs[0]
-	req, err := http.NewRequestWithContext(ctx, "PUT", uploadURL, bytes.NewReader(content))
-	if err != nil {
-		return fmt.Errorf("创建上传请求失败: %w", err)
+	// 按 chunk_size 分片上传
+	chunkSize := session.Data.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = int64(len(content)) // 单片上传
 	}
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(content)))
-
-	resp2, err := d.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("上传到 S3 失败: %w", err)
-	}
-	defer resp2.Body.Close()
-
-	if resp2.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp2.Body, 1024))
-		return fmt.Errorf("上传到 S3 失败: HTTP %d, body: %s", resp2.StatusCode, string(body))
+	partCount := (len(content) + int(chunkSize) - 1) / int(chunkSize)
+	if partCount == 0 {
+		partCount = 1
 	}
 
-	etag := resp2.Header.Get("ETag")
+	etags := make([]string, 0, partCount)
+	for i := 0; i < partCount; i++ {
+		start := i * int(chunkSize)
+		end := start + int(chunkSize)
+		if end > len(content) {
+			end = len(content)
+		}
+		chunk := content[start:end]
 
-	// 完成分片上传
-	completeXML := fmt.Sprintf(`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>%s</ETag></Part></CompleteMultipartUpload>`, etag)
+		uploadURL := session.Data.UploadURLs[i]
+		if uploadURL == "" && i > 0 {
+			uploadURL = session.Data.UploadURLs[0] // fallback
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "PUT", uploadURL, bytes.NewReader(chunk))
+		if err != nil {
+			return fmt.Errorf("创建分片 %d 上传请求失败: %w", i+1, err)
+		}
+		req.Header.Set("Content-Length", fmt.Sprintf("%d", len(chunk)))
+
+		resp2, err := d.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("分片 %d 上传到 S3 失败: %w", i+1, err)
+		}
+
+		if resp2.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp2.Body, 1024))
+			resp2.Body.Close()
+			return fmt.Errorf("分片 %d 上传到 S3 失败: HTTP %d, body: %s", i+1, resp2.StatusCode, string(body))
+		}
+
+		etag := resp2.Header.Get("ETag")
+		resp2.Body.Close()
+
+		if etag == "" {
+			return fmt.Errorf("分片 %d 未返回 ETag", i+1)
+		}
+		etags = append(etags, etag)
+	}
+
+	// 完成分片上传，声明所有分片
+	var partsXML strings.Builder
+	partsXML.WriteString(`<CompleteMultipartUpload>`)
+	for i, etag := range etags {
+		partsXML.WriteString(fmt.Sprintf(`<Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>`, i+1, etag))
+	}
+	partsXML.WriteString(`</CompleteMultipartUpload>`)
+	completeXML := partsXML.String()
 	req3, err := http.NewRequestWithContext(ctx, "POST", session.Data.CompleteURL, strings.NewReader(completeXML))
 	if err != nil {
 		return fmt.Errorf("创建完成请求失败: %w", err)

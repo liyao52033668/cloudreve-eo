@@ -336,16 +336,37 @@ export default function Files() {
             data.storage_policy,
           )
           const session = sessionRes.data.session
-          // 前端直传到 S3
-          const etag = await putWithProgress(session.upload_urls[0], file, contentType, (loaded) => {
-            onProgress(file.size === 0 ? 100 : Math.round((loaded / file.size) * 100))
-          })
-          // 完成分片上传
+          const chunkSize = session.chunk_size || file.size
+
+          // 按 chunk_size 分片上传到各自的 URL
+          const partCount = Math.max(1, Math.ceil(file.size / chunkSize))
+          const etags: string[] = []
+          let uploadedBytes = 0
+
+          for (let i = 0; i < partCount; i++) {
+            const start = i * chunkSize
+            const end = Math.min(start + chunkSize, file.size)
+            const chunk = file.slice(start, end)
+            const uploadUrl = session.upload_urls[i] || session.upload_urls[0]
+
+            const etag = await putWithProgress(uploadUrl, chunk, contentType, (loaded) => {
+              onProgress(file.size === 0 ? 100 : Math.round(((uploadedBytes + loaded) / file.size) * 100))
+            })
+            if (!etag) throw new Error(`分片 ${i + 1} 未返回 ETag`)
+            etags.push(etag.replace(/"/g, ''))
+            uploadedBytes += end - start
+          }
+
+          // 完成分片上传，声明所有分片
+          const partsXml = etags
+            .map((etag, idx) => `<Part><PartNumber>${idx + 1}</PartNumber><ETag>${etag}</ETag></Part>`)
+            .join('')
           await fetch(session.completeURL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/xml' },
-            body: `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>${etag}</ETag></Part></CompleteMultipartUpload>`,
+            body: `<CompleteMultipartUpload>${partsXml}</CompleteMultipartUpload>`,
           })
+
           // 后端代理调用 Cloudreve callback（后端有 Bearer Token）
           await cloudreveCallback(session.session_id, session.callback_secret, data.storage_policy)
           // 创建文件记录
