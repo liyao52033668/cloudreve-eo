@@ -284,8 +284,10 @@ func (d *WebDAVDriver) cloudreveUploadViaAPI(ctx context.Context, key string, co
 }
 
 // CreateCloudreveSession 创建 Cloudreve 上传会话，返回直传所需信息（供前端直传）。
-func (d *WebDAVDriver) CreateCloudreveSession(key string, size int64) (*CloudreveUploadSession, error) {
-	// 构建 Cloudreve URI: cloudreve://my/{basePath}/{key}
+// fileName 参数保留用于兼容接口，实际 URI 用 storage_key（已含原始文件名，Dropbox 式）。
+func (d *WebDAVDriver) CreateCloudreveSession(key string, size int64, fileName string) (*CloudreveUploadSession, error) {
+	// storage_key 已采用 Dropbox 式命名（名称-uuid.ext），直接作为 Cloudreve URI 末段
+	// 保证 Cloudreve 侧文件名可读且保留后缀，下载时 WebDAV 路径也一致。
 	cloudreveURI := "cloudreve://my/" + d.webdavPathOf(key)
 
 	// 创建上传会话

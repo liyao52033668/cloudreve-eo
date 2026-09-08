@@ -251,7 +251,7 @@ func (h *FileHandler) CloudreveSession(c *gin.Context) {
 		return
 	}
 
-	session, err := uploader.CreateCloudreveSession(req.StorageKey, req.Size)
+	session, err := uploader.CreateCloudreveSession(req.StorageKey, req.Size, req.FileName)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

@@ -71,7 +71,8 @@ type ServerChunkedUploader interface {
 // 完全不经服务端中转（无 EdgeOne 6MB 网关限制）。
 type CloudreveDirectUploader interface {
 	// CreateCloudreveSession 创建 Cloudreve 上传会话，返回直传所需信息。
-	CreateCloudreveSession(key string, size int64) (*CloudreveUploadSession, error)
+	// fileName 是原始文件名（用于 Cloudreve URI，保持文件名可读）。
+	CreateCloudreveSession(key string, size int64, fileName string) (*CloudreveUploadSession, error)
 	// CallCloudreveCallback 后端代理调用 Cloudreve callback（带 Bearer Token）。
 	CallCloudreveCallback(sessionID, callbackSecret string) error
 }

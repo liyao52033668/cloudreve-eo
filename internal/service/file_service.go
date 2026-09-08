@@ -33,32 +33,23 @@ func (s *FileService) StorageManager() *storage.StoragePolicyManager {
 	return s.storageMgr
 }
 
-// buildStorageKey 生成对象键：{basePath/}userID/uuid{.ext}，保留原文件扩展名便于在存储桶中识别与预览。
-// Dropbox 类型例外：其下载走 GetTemporaryLink 临时链接，文件名由 Dropbox 内路径末段决定，
-// 因此文件名用 名称-uuid.扩展名 格式（如 photo-3f2a....jpg），既保留原始文件名又避免同名覆盖。
+// buildStorageKey 生成对象键：{basePath/}userID/{名称-uuid.扩展名}。
+// 所有存储策略统一使用 名称-uuid.ext 格式（如 photo-3f2a....jpg），
+// 保证存储后端可见原始文件名（含后缀），便于识别预览，同时避免同名覆盖。
 func (s *FileService) buildStorageKey(userID int64, policy string, fileName string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(fileName))
 	if len(ext) > 16 || strings.ContainsAny(ext, "/\\?#%") {
 		ext = ""
 	}
-	// userID 已经是雪花 ID
-	var key string
-	if info, ok := s.storageMgr.GetPolicyInfo(policy); ok && info.Type == "dropbox" {
-		// 取 uuid 前 8 位即可保证唯一性，避免文件名过长
-		shortID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
-		name := sanitizeFileName(fileName)
-		if ext != "" {
-			name = strings.TrimSuffix(name, ext) + "-" + shortID + ext
-		} else {
-			name = name + "-" + shortID
-		}
-		key = fmt.Sprintf("%d/%s", userID, name)
-		if info.BasePath != "" {
-			key = strings.Trim(info.BasePath, "/") + "/" + key
-		}
-		return key, nil
+	// 取 uuid 前 8 位即可保证唯一性，避免文件名过长
+	shortID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	name := sanitizeFileName(fileName)
+	if ext != "" {
+		name = strings.TrimSuffix(name, ext) + "-" + shortID + ext
+	} else {
+		name = name + "-" + shortID
 	}
-	key = fmt.Sprintf("%d/%s%s", userID, uuid.New().String(), ext)
+	key := fmt.Sprintf("%d/%s", userID, name)
 	if info, ok := s.storageMgr.GetPolicyInfo(policy); ok && info.BasePath != "" {
 		key = strings.Trim(info.BasePath, "/") + "/" + key
 	}
