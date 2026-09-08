@@ -293,22 +293,39 @@ export default function Files() {
 
     // 使用 Cloudreve 返回的 chunk_size（预签名 URL 的签名包含 content-length）
     const chunkSize = session.chunk_size || Math.ceil(file.size / partCount)
-    const etags: string[] = []
-    let uploadedBytes = 0
+    // 各分片字节区间与 ETag（下标即分片号-1，保证 Complete 时顺序正确）
+    const partEnds: number[] = []
+    const etags: Array<string | null> = new Array(partCount).fill(null)
+    let nextPart = 0
 
-    for (let i = 0; i < partCount; i++) {
-      const start = i * chunkSize
-      const end = Math.min(start + chunkSize, file.size)
-      const chunk = file.slice(start, end)
-      const uploadUrl = session.upload_urls[i]
+    const worker = async () => {
+      while (true) {
+        const i = nextPart++
+        if (i >= partCount) return
+        const start = i * chunkSize
+        const end = Math.min(start + chunkSize, file.size)
+        partEnds[i] = end - start
 
-      const etag = await putWithProgress(uploadUrl, chunk, contentType, (loaded) => {
-        onProgress(file.size === 0 ? 100 : Math.round(((uploadedBytes + loaded) / file.size) * 100))
-      })
-      if (!etag) throw new Error(`分片 ${i + 1} 未返回 ETag`)
-      etags.push(etag.replace(/"/g, ''))
-      uploadedBytes += end - start
+        let lastErr: Error | null = null
+        for (let attempt = 1; attempt <= PART_RETRY; attempt++) {
+          try {
+            const etag = await putWithProgress(session.upload_urls[i], file.slice(start, end), contentType, (loaded) => {
+              const base = partEnds.reduce((sum, len, idx) => sum + (idx < i ? len : 0), 0)
+              onProgress(file.size === 0 ? 100 : Math.min(99, Math.round(((base + loaded) / file.size) * 100)))
+            })
+            if (!etag) throw new Error('未返回 ETag')
+            etags[i] = etag.replace(/"/g, '')
+            break
+          } catch (err: any) {
+            lastErr = new Error(`分片 ${i + 1} 上传失败: ${err?.message || err}`)
+            if (attempt < PART_RETRY) await new Promise(r => setTimeout(r, 1000 * attempt))
+          }
+        }
+        if (!etags[i]) throw lastErr
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_PARTS, partCount) }, () => worker()))
+    onProgress(100)
 
     // 完成分片上传，声明所有分片
     const partsXml = etags
