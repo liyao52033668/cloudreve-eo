@@ -291,8 +291,8 @@ export default function Files() {
       throw new Error('Cloudreve 未返回上传 URL')
     }
 
-    // 按分片数计算每片大小
-    const chunkSize = Math.ceil(file.size / partCount)
+    // 使用 Cloudreve 返回的 chunk_size（预签名 URL 的签名包含 content-length）
+    const chunkSize = session.chunk_size || Math.ceil(file.size / partCount)
     const etags: string[] = []
     let uploadedBytes = 0
 
