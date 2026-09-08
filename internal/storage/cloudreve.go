@@ -25,9 +25,6 @@ type CloudreveDriver struct {
 	basePath string // 存储路径前缀，如 cloudreve-eo
 	client   *http.Client
 
-	// proxyURL 生成带签名的服务端代理下载 URL（由 manager 注入）。
-	proxyURL func(storageKey, attachment string) (string, error)
-
 	// Token 缓存
 	mu       sync.Mutex
 	token    string
@@ -163,18 +160,8 @@ func (d *CloudreveDriver) GenerateUploadURL(key string, contentType string, expi
 }
 
 // GenerateDownloadURL 调用 Cloudreve POST /file/url 生成下载链接。
-// 如果配置了代理，返回带签名的服务端代理 URL（保证正确的文件名）。
+// 直接返回 Cloudreve API 的 S3 预签名 URL，不走服务端代理。
 func (d *CloudreveDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
-	// 如果配置了代理，返回代理下载 URL
-	if d.proxyURL != nil {
-		attachment := ""
-		if fileName != "" {
-			attachment = fileName
-		}
-		return d.proxyURL(key, attachment)
-	}
-
-	// 否则使用 Cloudreve API 生成下载链接
 	cloudreveURI := d.cloudreveURI(key)
 
 	reqBody := map[string]interface{}{
