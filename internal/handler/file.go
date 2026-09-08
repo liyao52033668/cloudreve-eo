@@ -121,10 +121,14 @@ func (h *FileHandler) Upload(c *gin.Context) {
 			}
 			// 驱动支持分块中转时（百度/TeraBox），告知前端大文件走分块通道，
 			// 避免整文件超过网关单次请求 body 上限（EdgeOne 为 6MB）。
+			// Cloudreve 直传也走这个通道（前端会优先尝试 createCloudreveSession）。
 			if driver, derr := h.fileService.GetDriver(policy); derr == nil {
 				if _, ok := driver.(storage.ServerChunkedUploader); ok {
 					resp["chunked"] = true
 					resp["chunk_size"] = service.ServerChunkSize
+				} else if _, ok := driver.(storage.CloudreveDirectUploader); ok {
+					// Cloudreve 直传：前端会优先尝试 createCloudreveSession
+					resp["chunked"] = true
 				}
 			}
 			c.JSON(http.StatusOK, resp)
@@ -259,8 +263,11 @@ func (h *FileHandler) CloudreveSession(c *gin.Context) {
 
 	// 获取 Cloudreve API 地址（用于前端回调）
 	cloudreveAPIURL := ""
-	if wd, ok := driver.(*storage.WebDAVDriver); ok {
-		cloudreveAPIURL = wd.GetCloudreveAPIURL()
+	switch d := driver.(type) {
+	case *storage.WebDAVDriver:
+		cloudreveAPIURL = d.GetCloudreveAPIURL()
+	case *storage.CloudreveDriver:
+		cloudreveAPIURL = d.GetCloudreveAPIURL()
 	}
 
 	c.JSON(http.StatusOK, gin.H{

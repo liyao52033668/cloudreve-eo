@@ -32,7 +32,8 @@ type CloudreveDriver struct {
 }
 
 // NewCloudreveDriver 创建 Cloudreve 存储驱动。
-func NewCloudreveDriver(apiURL, username, password, basePath string) (*CloudreveDriver, error) {
+// proxyEnabled/proxyURL 控制是否使用代理及代理地址。
+func NewCloudreveDriver(apiURL, username, password, basePath string, proxyEnabled bool, proxyURL string) (*CloudreveDriver, error) {
 	if apiURL == "" {
 		return nil, fmt.Errorf("Cloudreve API 地址不能为空")
 	}
@@ -49,14 +50,19 @@ func NewCloudreveDriver(apiURL, username, password, basePath string) (*Cloudreve
 	}
 	basePath = strings.Trim(basePath, "/")
 
+	client := &http.Client{
+		Timeout: 30 * time.Minute,
+	}
+	if transport := buildHTTPTransport(proxyEnabled, proxyURL); transport != nil {
+		client.Transport = transport
+	}
+
 	return &CloudreveDriver{
 		apiURL:   apiURL,
 		username: username,
 		password: password,
 		basePath: basePath,
-		client: &http.Client{
-			Timeout: 30 * time.Minute,
-		},
+		client:   client,
 	}, nil
 }
 
@@ -154,6 +160,7 @@ func (d *CloudreveDriver) GenerateUploadURL(key string, contentType string, expi
 }
 
 // GenerateDownloadURL 调用 Cloudreve POST /file/url 生成下载链接。
+// 直接返回 Cloudreve API 的 S3 预签名 URL，不走服务端代理。
 func (d *CloudreveDriver) GenerateDownloadURL(key string, fileName string, expire time.Duration) (string, error) {
 	cloudreveURI := d.cloudreveURI(key)
 
@@ -454,5 +461,103 @@ func (d *CloudreveDriver) SetBucketCORS() error {
 	return ErrBucketCORSNotSupported
 }
 
+// GetCloudreveAPIURL 返回 Cloudreve API 地址（用于前端回调）。
+func (d *CloudreveDriver) GetCloudreveAPIURL() string {
+	return d.apiURL
+}
+
+// CreateCloudreveSession 创建 Cloudreve 上传会话，返回直传所需信息（供前端直传 S3）。
+func (d *CloudreveDriver) CreateCloudreveSession(key string, size int64, fileName string) (*CloudreveUploadSession, error) {
+	cloudreveURI := d.cloudreveURI(key)
+
+	reqBody := map[string]interface{}{
+		"uri":  cloudreveURI,
+		"size": size,
+	}
+	bodyJSON, _ := json.Marshal(reqBody)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := d.apiRequest(ctx, "PUT", d.apiURL+"/api/v4/file/upload", bytes.NewReader(bodyJSON))
+	if err != nil {
+		return nil, fmt.Errorf("创建上传会话失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("创建上传会话失败: HTTP %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var session struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			SessionID      string   `json:"session_id"`
+			ChunkSize      int64    `json:"chunk_size"`
+			UploadURLs     []string `json:"upload_urls"`
+			CompleteURL    string   `json:"completeURL"`
+			CallbackSecret string   `json:"callback_secret"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return nil, fmt.Errorf("解析上传会话响应失败: %w", err)
+	}
+	if session.Code != 0 {
+		return nil, fmt.Errorf("创建上传会话失败: %s", session.Msg)
+	}
+
+	if len(session.Data.UploadURLs) == 0 {
+		return nil, fmt.Errorf("Cloudreve 未返回直传 URL")
+	}
+
+	logx.Info(logx.ModuleStorage, "Cloudreve 直传会话已创建",
+		"key", key, "size", size, "upload_urls", len(session.Data.UploadURLs))
+
+	return &CloudreveUploadSession{
+		SessionID:      session.Data.SessionID,
+		ChunkSize:      session.Data.ChunkSize,
+		UploadURLs:     session.Data.UploadURLs,
+		CompleteURL:    session.Data.CompleteURL,
+		CallbackSecret: session.Data.CallbackSecret,
+	}, nil
+}
+
+// CallCloudreveCallback 后端代理调用 Cloudreve callback（后端有 Bearer Token）。
+func (d *CloudreveDriver) CallCloudreveCallback(sessionID, callbackSecret string) error {
+	if err := d.login(); err != nil {
+		return err
+	}
+
+	callbackURL := fmt.Sprintf("%s/api/v4/callback/s3/%s/%s", d.apiURL, sessionID, callbackSecret)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", callbackURL, nil)
+	if err != nil {
+		return fmt.Errorf("创建回调请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+d.token)
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("回调失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("回调失败: HTTP %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	logx.Info(logx.ModuleStorage, "Cloudreve callback 成功", "session_id", sessionID)
+	return nil
+}
+
 // 确保 CloudreveDriver 实现 StorageDriver 接口
 var _ StorageDriver = (*CloudreveDriver)(nil)
+
+// 确保 CloudreveDriver 实现 CloudreveDirectUploader 接口
+var _ CloudreveDirectUploader = (*CloudreveDriver)(nil)

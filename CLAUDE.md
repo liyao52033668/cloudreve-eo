@@ -98,7 +98,3 @@ logx.With(logx.ModuleDB).Debug("SQL", "sql", sql)                // 带属性的
 - `package.json`、`go.mod`：依赖管理。
 
 此架构支持快速本地开发（`edgeone makers dev`）和 EdgeOne 部署。未来扩展应保持分层，避免直接跨层调用。
-
-## Git 操作规则
-- 未经用户明确允许（例如用户直接说 "push to github" 或 "推送到 GitHub"），**不得**执行任何 Git 推送、push、git push、git commit --amend 或类似操作。
-- 任何涉及 Git 的操作必须先经用户确认或明确授权。
