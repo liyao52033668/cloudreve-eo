@@ -178,7 +178,18 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 			driver = bd
 		case "cloudreve":
 			// Endpoint 复用为 Cloudreve API 地址，AccessKey 复用为登录邮箱，SecretKey 为登录密码
-			driver, err = NewCloudreveDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath, p.ProxyEnabled, p.ProxyURL)
+			var cd *CloudreveDriver
+			cd, err = NewCloudreveDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath, p.ProxyEnabled, p.ProxyURL)
+			if err == nil {
+				policyName := p.Name
+				mgr := m
+				// Cloudreve 直链是 S3 预签名 URL，文件名随机无后缀；
+				// 注入代理下载函数，保证浏览器下载时有正确的文件名。
+				cd.proxyURL = func(storageKey, attachment string) (string, error) {
+					return mgr.SignProxyURL(policyName, storageKey, attachment, 30*time.Minute)
+				}
+			}
+			driver = cd
 		case "webdav":
 			var wd *WebDAVDriver
 			wd, err = NewWebDAVDriver(p.Endpoint, p.AccessKey, p.SecretKey, p.BasePath, p.CustomHost, p.ProxyEnabled, p.ProxyURL)
