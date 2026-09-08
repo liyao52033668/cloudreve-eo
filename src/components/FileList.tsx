@@ -188,7 +188,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
         const reader = response.body?.getReader()
         if (!reader) throw new Error('无法读取响应流')
 
-        const chunks: Uint8Array[] = []
+        const chunks: BlobPart[] = []
         let loaded = 0
         while (true) {
           const { done, value } = await reader.read()
@@ -196,7 +196,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
           chunks.push(value)
           loaded += value.length
           if (total > 0) {
-            onProgress(Math.round((loaded / total) * 100))
+            onProgress(loaded, total)
           }
         }
 
