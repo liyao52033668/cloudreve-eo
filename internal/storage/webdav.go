@@ -102,6 +102,38 @@ func (d *WebDAVDriver) GetCloudreveAPIURL() string {
 	return d.cloudreveAPIURL
 }
 
+// CallCloudreveCallback 后端代理调用 Cloudreve callback（后端有 Bearer Token）。
+func (d *WebDAVDriver) CallCloudreveCallback(sessionID, callbackSecret string) error {
+	if d.cloudreveAPIURL == "" {
+		return fmt.Errorf("Cloudreve API 地址未配置")
+	}
+
+	callbackURL := fmt.Sprintf("%s/api/v4/callback/s3/%s/%s", d.cloudreveAPIURL, sessionID, callbackSecret)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", callbackURL, nil)
+	if err != nil {
+		return fmt.Errorf("创建回调请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+d.cloudreveToken)
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("回调失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("回调失败: HTTP %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	logx.Info(logx.ModuleStorage, "Cloudreve callback 成功", "session_id", sessionID)
+	return nil
+}
+
 // cloudrevLogin 登录 Cloudreve 获取 Bearer Token。
 func (d *WebDAVDriver) cloudrevLogin() error {
 	d.cloudreveMu.Lock()

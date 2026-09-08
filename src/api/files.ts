@@ -128,6 +128,18 @@ export const createCloudreveSession = (
     storage_policy: storagePolicy,
   })
 
+/** 后端代理调用 Cloudreve callback（后端有 Bearer Token） */
+export const cloudreveCallback = (
+  sessionId: string,
+  callbackSecret: string,
+  storagePolicy: string = '',
+) =>
+  client.post('/files/upload/cloudreve-callback', {
+    session_id: sessionId,
+    callback_secret: callbackSecret,
+    storage_policy: storagePolicy,
+  })
+
 /** 服务端中转分块上传会话（百度/TeraBox，网关单请求 body ≤6MB） */
 export interface ChunkedSession {
   upload_id: string

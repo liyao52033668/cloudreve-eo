@@ -269,6 +269,45 @@ func (h *FileHandler) CloudreveSession(c *gin.Context) {
 	})
 }
 
+type cloudreveCallbackRequest struct {
+	SessionID      string `json:"session_id" binding:"required"`
+	CallbackSecret string `json:"callback_secret" binding:"required"`
+	StoragePolicy  string `json:"storage_policy"`
+}
+
+// CloudreveCallback POST /api/files/upload/cloudreve-callback —— 后端代理调用 Cloudreve callback。
+func (h *FileHandler) CloudreveCallback(c *gin.Context) {
+	var req cloudreveCallbackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	policy := req.StoragePolicy
+	if policy == "" {
+		policy = h.fileService.StorageManager().DefaultPolicy()
+	}
+
+	driver, err := h.fileService.StorageManager().GetDriver(policy)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	uploader, ok := driver.(storage.CloudreveDirectUploader)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "该存储策略不支持 Cloudreve 直传"})
+		return
+	}
+
+	if err := uploader.CallCloudreveCallback(req.SessionID, req.CallbackSecret); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 type chunkedInitRequest struct {
 	FileName      string   `json:"file_name" binding:"required"`
 	ContentType   string   `json:"content_type" binding:"required"`

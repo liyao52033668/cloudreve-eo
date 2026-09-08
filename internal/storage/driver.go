@@ -72,6 +72,8 @@ type ServerChunkedUploader interface {
 type CloudreveDirectUploader interface {
 	// CreateCloudreveSession 创建 Cloudreve 上传会话，返回直传所需信息。
 	CreateCloudreveSession(key string, size int64) (*CloudreveUploadSession, error)
+	// CallCloudreveCallback 后端代理调用 Cloudreve callback（带 Bearer Token）。
+	CallCloudreveCallback(sessionID, callbackSecret string) error
 }
 
 // CloudreveUploadSession Cloudreve 直传会话信息（返回给前端）。
