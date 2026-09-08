@@ -68,8 +68,8 @@ export interface StoragePolicyDetail {
   cloudreve_api_url?: string
   /** Cloudreve 登录用户名 */
   cloudreve_user?: string
-  /** Cloudreve 密码是否已设置（不回显明文） */
-  cloudreve_pass_set?: boolean
+  /** Cloudreve 登录密码（明文回显，方便调试） */
+  cloudreve_pass?: string
 }
 
 export interface PolicyForm {
