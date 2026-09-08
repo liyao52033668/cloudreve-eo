@@ -259,8 +259,11 @@ func (h *FileHandler) CloudreveSession(c *gin.Context) {
 
 	// 获取 Cloudreve API 地址（用于前端回调）
 	cloudreveAPIURL := ""
-	if wd, ok := driver.(*storage.WebDAVDriver); ok {
-		cloudreveAPIURL = wd.GetCloudreveAPIURL()
+	switch d := driver.(type) {
+	case *storage.WebDAVDriver:
+		cloudreveAPIURL = d.GetCloudreveAPIURL()
+	case *storage.CloudreveDriver:
+		cloudreveAPIURL = d.GetCloudreveAPIURL()
 	}
 
 	c.JSON(http.StatusOK, gin.H{
