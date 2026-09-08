@@ -194,9 +194,17 @@ func (d *GDriveDriver) applyOAuthToken(tok *oauth2.Token) error {
 		return fmt.Errorf("Google Drive 返回的 access_token 为空")
 	}
 
+	// Google OAuth 刷新时通常不返回新的 refresh_token，保留原有的。
+	refreshToken := tok.RefreshToken
+	if refreshToken == "" {
+		d.mu.Lock()
+		refreshToken = d.token.RefreshToken
+		d.mu.Unlock()
+	}
+
 	token := GDriveToken{
 		AccessToken:    tok.AccessToken,
-		RefreshToken:   tok.RefreshToken,
+		RefreshToken:   refreshToken,
 		AccessExpireAt: tok.Expiry.Unix(),
 	}
 
