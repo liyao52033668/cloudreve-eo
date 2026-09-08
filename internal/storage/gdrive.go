@@ -49,7 +49,7 @@ type GDriveDriver struct {
 	onTokenRefreshed func(GDriveToken)
 
 	proxyEnabled bool
-	proxyURL     string
+	proxyURL     string // HTTP 代理地址
 }
 
 // NewGDriveDriver 创建 Google Drive 驱动。
@@ -584,7 +584,15 @@ func (d *GDriveDriver) GenerateDownloadURL(key string, fileName string, expire t
 		}
 	}
 
-	// 如果未返回重定向（某些文件可能直接返回内容），读取错误信息
+	// HTTP 200：Google Drive 直接返回文件内容（某些文件类型/大小不触发 302 重定向）。
+	// 使用 Google Drive 原生下载链接，前端可直接访问。
+	if resp.StatusCode == http.StatusOK {
+		nativeURL := fmt.Sprintf("https://drive.google.com/uc?export=download&id=%s", fileID)
+		logx.Info(logx.ModuleStorage, "Google Drive 返回 HTTP 200，使用原生下载链接", "fileID", fileID)
+		return nativeURL, nil
+	}
+
+	// 其他状态码：读取错误信息
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return "", fmt.Errorf("Google Drive 未返回临时下载链接 (HTTP %d): %s", resp.StatusCode, string(respBody))
 }
