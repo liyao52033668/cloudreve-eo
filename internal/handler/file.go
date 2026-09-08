@@ -126,11 +126,12 @@ func (h *FileHandler) Upload(c *gin.Context) {
 				if _, ok := driver.(storage.ServerChunkedUploader); ok {
 					resp["chunked"] = true
 					resp["chunk_size"] = service.ServerChunkSize
-				} else if _, ok := driver.(storage.CloudreveDirectUploader); ok {
-					// Cloudreve 直传：前端会优先尝试 createCloudreveSession
-					// 设置 chunk_size 供 fallback 路径使用（Cloudreve 默认分片大小）
+				}
+				if _, ok := driver.(storage.CloudreveDirectUploader); ok {
+					// Cloudreve 直传：前端优先 createCloudreveSession 直传 S3（不经网关）
+					// 标记 cloudreve_direct，前端跳过 MULTIPART_THRESHOLD 逻辑
+					resp["cloudreve_direct"] = true
 					resp["chunked"] = true
-					resp["chunk_size"] = service.DefaultMultipartChunkSize
 				}
 			}
 			c.JSON(http.StatusOK, resp)

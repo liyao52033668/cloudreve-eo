@@ -379,19 +379,25 @@ func (d *CloudreveDriver) UploadFile(key string, content []byte) error {
 		partCount = 1
 	}
 
-	etags := make([]string, 0, partCount)
-	for i := 0; i < partCount; i++ {
-		start := i * int(chunkSize)
-		end := start + int(chunkSize)
-		if end > len(content) {
-			end = len(content)
-		}
-		chunk := content[start:end]
+		etags := make([]string, 0, partCount)
+		for i := 0; i < partCount; i++ {
+			start := i * int(chunkSize)
+			end := start + int(chunkSize)
+			if end > len(content) {
+				end = len(content)
+			}
+			chunk := content[start:end]
 
-		uploadURL := session.Data.UploadURLs[i]
-		if uploadURL == "" && i > 0 {
-			uploadURL = session.Data.UploadURLs[0] // fallback
-		}
+			var uploadURL string
+			if i < len(session.Data.UploadURLs) {
+				uploadURL = session.Data.UploadURLs[i]
+			}
+			if uploadURL == "" {
+				if i == 0 {
+					return fmt.Errorf("Cloudreve 未返回分片 %d 的上传链接", i+1)
+				}
+				uploadURL = session.Data.UploadURLs[0] // fallback
+			}
 
 		req, err := http.NewRequestWithContext(ctx, "PUT", uploadURL, bytes.NewReader(chunk))
 		if err != nil {
@@ -465,6 +471,44 @@ func (d *CloudreveDriver) UploadFile(key string, content []byte) error {
 
 	logx.Info(logx.ModuleStorage, "Cloudreve 文件已上传", "key", key, "size", len(content))
 	return nil
+}
+
+// InitChunkedUpload 服务端中转分块上传：本地缓冲各块，complete 时整体经 Cloudreve API 上传。
+// Cloudreve 无法跨请求流式转发，各块先按序追加到临时文件。
+func (d *CloudreveDriver) InitChunkedUpload(key string, size int64, blockMD5s []string) (string, bool, error) {
+	sweepStaleChunkBuffers()
+	uploadID, err := newChunkUploadID()
+	if err != nil {
+		return "", false, err
+	}
+	if err := createChunkBuffer(uploadID); err != nil {
+		return "", false, err
+	}
+	return uploadID, false, nil
+}
+
+// UploadChunk 按序追加一块到缓冲文件。
+func (d *CloudreveDriver) UploadChunk(key string, uploadID string, partSeq int, offset int64, data []byte) (string, error) {
+	if err := appendChunkBuffer(uploadID, data); err != nil {
+		return "", err
+	}
+	return uploadID, nil
+}
+
+// CompleteChunkedUpload 合并缓冲并整体上传（UploadFile 内部按 Cloudreve 会话分片直传 S3）。
+func (d *CloudreveDriver) CompleteChunkedUpload(key string, uploadID string, size int64, blockMD5s []string) error {
+	defer removeChunkBuffer(uploadID)
+	f, err := openChunkBuffer(uploadID)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return fmt.Errorf("读取缓冲文件失败: %w", err)
+	}
+	return d.UploadFile(key, data)
 }
 
 // InitMultipartUpload 不支持客户端分片直传。
@@ -597,3 +641,6 @@ var _ StorageDriver = (*CloudreveDriver)(nil)
 
 // 确保 CloudreveDriver 实现 CloudreveDirectUploader 接口
 var _ CloudreveDirectUploader = (*CloudreveDriver)(nil)
+
+// 确保 CloudreveDriver 实现 ServerChunkedUploader 接口
+var _ ServerChunkedUploader = (*CloudreveDriver)(nil)

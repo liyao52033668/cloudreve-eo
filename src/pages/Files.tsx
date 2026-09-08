@@ -275,6 +275,68 @@ export default function Files() {
     return md5s
   }
 
+  /** Cloudreve 直传：前端分片直传到 S3 预签名 URL，不经 EdgeOne 网关 */
+  const uploadCloudreveDirect = async (
+    file: File,
+    storageKey: string,
+    storagePolicy: string,
+    contentType: string,
+    parentId: number,
+    onProgress: (percent: number) => void,
+  ) => {
+    const sessionRes = await createCloudreveSession(
+      file.name,
+      file.size,
+      storageKey,
+      storagePolicy,
+    )
+    const session = sessionRes.data.session
+
+    // 分片数等于 upload_urls 数量（Cloudreve 返回的预签名 URL 数量）
+    const partCount = session.upload_urls.length
+    if (partCount === 0) {
+      throw new Error('Cloudreve 未返回上传 URL')
+    }
+
+    // 按分片数计算每片大小
+    const chunkSize = Math.ceil(file.size / partCount)
+    const etags: string[] = []
+    let uploadedBytes = 0
+
+    for (let i = 0; i < partCount; i++) {
+      const start = i * chunkSize
+      const end = Math.min(start + chunkSize, file.size)
+      const chunk = file.slice(start, end)
+      const uploadUrl = session.upload_urls[i]
+
+      const etag = await putWithProgress(uploadUrl, chunk, contentType, (loaded) => {
+        onProgress(file.size === 0 ? 100 : Math.round(((uploadedBytes + loaded) / file.size) * 100))
+      })
+      if (!etag) throw new Error(`分片 ${i + 1} 未返回 ETag`)
+      etags.push(etag.replace(/"/g, ''))
+      uploadedBytes += end - start
+    }
+
+    // 完成分片上传，声明所有分片
+    const partsXml = etags
+      .map((etag, idx) => `<Part><PartNumber>${idx + 1}</PartNumber><ETag>${etag}</ETag></Part>`)
+      .join('')
+    const completeRes = await fetch(session.completeURL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/xml' },
+      body: `<CompleteMultipartUpload>${partsXml}</CompleteMultipartUpload>`,
+    })
+    if (!completeRes.ok) {
+      const errText = await completeRes.text()
+      throw new Error(`完成上传失败: HTTP ${completeRes.status}, ${errText}`)
+    }
+
+    // 后端代理调用 Cloudreve callback（后端有 Bearer Token）
+    await cloudreveCallback(session.session_id, session.callback_secret, storagePolicy)
+    // 创建文件记录
+    await uploadCallback(file.name, storageKey, file.size, contentType, parentId, storagePolicy)
+  }
+
   /** 服务端中转分块上传：客户端切块逐块提交（每块 ≤5MB 满足网关 6MB 上限），
    * 服务端逐块转发存储端 superfile2。百度/TeraBox 等不支持预签名直传且受网关 body 限制的存储用。 */
   const uploadChunked = async (
@@ -320,57 +382,17 @@ export default function Files() {
     file: File,
     onProgress: (percent: number) => void,
     parentId: number = currentDir,
+    preloadedData?: Awaited<ReturnType<typeof getUploadURL>>['data'],
   ) => {
     const contentType = file.type || 'application/octet-stream'
-    const { data } = await getUploadURL(file.name, contentType, parentId)
+    const data = preloadedData ?? (await getUploadURL(file.name, contentType, parentId)).data
 
     // 检查是否需要服务端上传（如 GitHub 存储）
     if (data.server_upload) {
       // 优先尝试 Cloudreve 直传（绕过 6MB 网关限制）
       if (data.chunked) {
         try {
-          const sessionRes = await createCloudreveSession(
-            file.name,
-            file.size,
-            data.storage_key,
-            data.storage_policy,
-          )
-          const session = sessionRes.data.session
-          const chunkSize = session.chunk_size || file.size
-
-          // 按 chunk_size 分片上传到各自的 URL
-          const partCount = Math.max(1, Math.ceil(file.size / chunkSize))
-          const etags: string[] = []
-          let uploadedBytes = 0
-
-          for (let i = 0; i < partCount; i++) {
-            const start = i * chunkSize
-            const end = Math.min(start + chunkSize, file.size)
-            const chunk = file.slice(start, end)
-            const uploadUrl = session.upload_urls[i] || session.upload_urls[0]
-
-            const etag = await putWithProgress(uploadUrl, chunk, contentType, (loaded) => {
-              onProgress(file.size === 0 ? 100 : Math.round(((uploadedBytes + loaded) / file.size) * 100))
-            })
-            if (!etag) throw new Error(`分片 ${i + 1} 未返回 ETag`)
-            etags.push(etag.replace(/"/g, ''))
-            uploadedBytes += end - start
-          }
-
-          // 完成分片上传，声明所有分片
-          const partsXml = etags
-            .map((etag, idx) => `<Part><PartNumber>${idx + 1}</PartNumber><ETag>${etag}</ETag></Part>`)
-            .join('')
-          await fetch(session.completeURL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/xml' },
-            body: `<CompleteMultipartUpload>${partsXml}</CompleteMultipartUpload>`,
-          })
-
-          // 后端代理调用 Cloudreve callback（后端有 Bearer Token）
-          await cloudreveCallback(session.session_id, session.callback_secret, data.storage_policy)
-          // 创建文件记录
-          await uploadCallback(file.name, data.storage_key, file.size, contentType, parentId, data.storage_policy)
+          await uploadCloudreveDirect(file, data.storage_key, data.storage_policy, contentType, parentId, onProgress)
           return
         } catch (err: any) {
           // Cloudreve 直传失败，回退到 chunked
@@ -488,12 +510,20 @@ export default function Files() {
       const { data } = await initMultipartUpload(file.name, contentType, file.size, parentId)
       session = data.session
     } catch (err: any) {
-      // 策略不支持客户端分片直传（如 TeraBox/GitHub）时，回退到服务端中转上传
+      // 策略不支持客户端分片直传（如 TeraBox/GitHub/Cloudreve）时，回退到服务端中转上传
       const errMsg: string = err?.response?.data?.error || ''
       if (errMsg.includes('不支持客户端')) {
         const { data } = await getUploadURL(file.name, contentType, parentId)
         if (data.server_upload) {
           if (data.chunked) {
+            // Cloudreve 策略：优先前端直传 S3（大文件分片，不经网关）
+            try {
+              await uploadCloudreveDirect(file, data.storage_key, data.storage_policy, contentType, parentId, onProgress)
+              return
+            } catch (directErr: any) {
+              // 非 Cloudreve 存储会话创建失败，或直传出错，回退到分块中转
+              console.warn('Cloudreve 直传失败，回退到服务端中转:', directErr)
+            }
             // 百度/TeraBox：网关限单请求 body ≤6MB，切块逐块提交
             await uploadChunked(file, data.storage_key, data.storage_policy, contentType, parentId, data.chunk_size!, onProgress)
           } else {
@@ -527,10 +557,19 @@ export default function Files() {
     setTask(key, { name: taskName, percent: 0, status: 'uploading' })
     const onProgress = (percent: number) => setTask(key, { name: taskName, percent })
     try {
-      if (file.size > MULTIPART_THRESHOLD) {
+      // 先获取上传 URL，根据策略决定路径
+      const contentType = file.type || 'application/octet-stream'
+      const { data } = await getUploadURL(file.name, contentType, parentId)
+
+      // Cloudreve 策略：始终使用直传（不经过 EdgeOne 网关，不受 25MB 阈值限制）
+      if (data.cloudreve_direct) {
+        await uploadCloudreveDirect(file, data.storage_key, data.storage_policy, contentType, parentId, onProgress)
+      } else if (file.size > MULTIPART_THRESHOLD && !data.server_upload) {
+        // S3 等策略：大文件使用客户端分片上传
         await uploadMultipart(file, onProgress, parentId)
       } else {
-        await uploadSimple(file, onProgress, parentId)
+        // 小文件或服务端上传策略
+        await uploadSimple(file, onProgress, parentId, data)
       }
       setTask(key, { name: taskName, percent: 100, status: 'done' })
       if (showSuccess) message.success(`${taskName} 上传成功`)

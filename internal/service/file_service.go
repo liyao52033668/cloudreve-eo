@@ -340,7 +340,7 @@ type ServerChunkedSession struct {
 
 // InitChunkedUpload 初始化服务端中转分块上传。
 // storageKey/policy 沿用上传入口（getUploadURL）已解析的结果，保证策略与 key 一致；
-// blockMD5s 为客户端按 chunk_size 切块计算的各块 MD5。
+// blockMD5s 为客户端按 ServerChunkSize 切块计算的各块 MD5。
 func (s *FileService) InitChunkedUpload(userID int64, fileName, contentType, storageKey, policy string, size int64, parentID uint, blockMD5s []string) (*ServerChunkedSession, error) {
 	if size < 0 {
 		return nil, errors.New("文件大小无效")

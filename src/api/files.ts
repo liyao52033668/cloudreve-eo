@@ -59,6 +59,8 @@ export const getUploadURL = (
     /** 驱动支持分块中转时为 true：大文件需切块走 /upload/chunked 通道 */
     chunked?: boolean
     chunk_size?: number
+    /** Cloudreve 直传：前端优先 createCloudreveSession 直传 S3（不经网关），跳过 MULTIPART_THRESHOLD */
+    cloudreve_direct?: boolean
   }>('/files/upload', {
     file_name: fileName,
     content_type: contentType,
