@@ -293,28 +293,47 @@ export default function Files() {
 
     // 使用 Cloudreve 返回的 chunk_size（预签名 URL 的签名包含 content-length）
     const chunkSize = session.chunk_size || Math.ceil(file.size / partCount)
-    // 各分片字节区间与 ETag（下标即分片号-1，保证 Complete 时顺序正确）
-    const partEnds: number[] = []
+    // ETag 按分片号存（下标即分片号-1，保证 Complete 时顺序正确）
     const etags: Array<string | null> = new Array(partCount).fill(null)
     let nextPart = 0
+    // 共享进度：doneBytes 为已完成片字节，各 worker 把自己当前片的已传字节
+    // 存进 activeMap，总进度 = doneBytes + 各 activeMap 值之和。
+    // 只在增长时上报，进度条单调递增不回跳。
+    let doneBytes = 0
+    const activeMap = new Map<number, number>()
+    let reportedPercent = 0
 
-    const worker = async () => {
+    const report = () => {
+      if (file.size === 0) return
+      let active = 0
+      for (const v of activeMap.values()) active += v
+      const percent = Math.min(99, Math.round(((doneBytes + active) / file.size) * 100))
+      if (percent > reportedPercent) {
+        reportedPercent = percent
+        onProgress(percent)
+      }
+    }
+
+    const worker = async (workerId: number) => {
       while (true) {
         const i = nextPart++
         if (i >= partCount) return
         const start = i * chunkSize
         const end = Math.min(start + chunkSize, file.size)
-        partEnds[i] = end - start
+        const chunkLen = end - start
 
         let lastErr: Error | null = null
         for (let attempt = 1; attempt <= PART_RETRY; attempt++) {
           try {
             const etag = await putWithProgress(session.upload_urls[i], file.slice(start, end), contentType, (loaded) => {
-              const base = partEnds.reduce((sum, len, idx) => sum + (idx < i ? len : 0), 0)
-              onProgress(file.size === 0 ? 100 : Math.min(99, Math.round(((base + loaded) / file.size) * 100)))
+              activeMap.set(workerId, Math.min(loaded, chunkLen))
+              report()
             })
             if (!etag) throw new Error('未返回 ETag')
             etags[i] = etag.replace(/"/g, '')
+            doneBytes += chunkLen
+            activeMap.delete(workerId)
+            report()
             break
           } catch (err: any) {
             lastErr = new Error(`分片 ${i + 1} 上传失败: ${err?.message || err}`)
@@ -324,7 +343,7 @@ export default function Files() {
         if (!etags[i]) throw lastErr
       }
     }
-    await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_PARTS, partCount) }, () => worker()))
+    await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_PARTS, partCount) }, (_, idx) => worker(idx)))
     onProgress(100)
 
     // 完成分片上传，声明所有分片
@@ -336,13 +355,20 @@ export default function Files() {
       headers: { 'Content-Type': 'application/xml' },
       body: `<CompleteMultipartUpload>${partsXml}</CompleteMultipartUpload>`,
     })
+    const completeText = await completeRes.text()
     if (!completeRes.ok) {
-      const errText = await completeRes.text()
-      throw new Error(`完成上传失败: HTTP ${completeRes.status}, ${errText}`)
+      throw new Error(`完成上传失败: HTTP ${completeRes.status}, ${completeText}`)
+    }
+    // S3 有时返回 200 但 body 包含错误（如 InvalidPart）
+    if (completeText.includes('<Error>') || completeText.includes('<Code>')) {
+      throw new Error(`完成上传失败: ${completeText}`)
     }
 
     // 后端代理调用 Cloudreve callback（后端有 Bearer Token）
-    await cloudreveCallback(session.session_id, session.callback_secret, storagePolicy)
+    const callbackRes = await cloudreveCallback(session.session_id, session.callback_secret, storagePolicy)
+    if (!callbackRes.data?.success) {
+      throw new Error(`Cloudreve callback 失败: ${JSON.stringify(callbackRes.data)}`)
+    }
     // 创建文件记录
     await uploadCallback(file.name, storageKey, file.size, contentType, parentId, storagePolicy)
   }
