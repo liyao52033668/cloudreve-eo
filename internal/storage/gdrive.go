@@ -66,7 +66,7 @@ func NewGDriveDriver(clientID, clientSecret, basePath, tokenJSON string, proxyEn
 	d := &GDriveDriver{
 		clientID:     clientID,
 		clientSecret: clientSecret,
-		basePath:     strings.Trim(basePath, "/"),
+		basePath:     "", // basePath 已由 buildStorageKey 拼入 key，驱动不再使用
 		proxyEnabled: proxyEnabled,
 		proxyURL:     proxyURL,
 	}
@@ -120,12 +120,9 @@ func (d *GDriveDriver) IsAuthorized() bool {
 var errGDriveUnauthorized = errors.New("Google Drive 尚未授权，请到「存储策略」完成授权")
 
 // gdrivePathOf 由对象键得到 Google Drive 内完整路径（相对根目录）。
+// key 已由 buildStorageKey 拼入 basePath，驱动不再重复拼接。
 func (d *GDriveDriver) gdrivePathOf(key string) string {
-	k := strings.TrimPrefix(key, "/")
-	if d.basePath == "" {
-		return k
-	}
-	return d.basePath + "/" + k
+	return strings.TrimPrefix(key, "/")
 }
 
 // GetAuthURL 生成 OAuth 授权 URL。

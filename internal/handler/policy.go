@@ -59,6 +59,14 @@ type adminPolicyView struct {
 	ProxyEnabled bool `json:"proxy_enabled"`
 	// ProxyURL 策略专用代理地址。
 	ProxyURL string `json:"proxy_url"`
+	// CloudreveAPIEnabled 仅 WebDAV：是否启用 Cloudreve API 优化上传。
+	CloudreveAPIEnabled bool `json:"cloudreve_api_enabled"`
+	// CloudreveAPIURL Cloudreve API 地址。
+	CloudreveAPIURL string `json:"cloudreve_api_url"`
+	// CloudreveUser Cloudreve 登录用户名。
+	CloudreveUser string `json:"cloudreve_user"`
+	// CloudrevePass Cloudreve 登录密码（明文回显，方便调试）。
+	CloudrevePass string `json:"cloudreve_pass"`
 }
 
 func toAdminView(p *model.StoragePolicy) adminPolicyView {
@@ -90,9 +98,13 @@ func toAdminView(p *model.StoragePolicy) adminPolicyView {
 		DefaultQuota:   p.DefaultQuota,
 		CreatedAt:      p.CreatedAt.Format("2006-01-02 15:04:05"),
 		Authorized:     (p.Type == "terabox" || p.Type == "baidu" || p.Type == "dropbox" || p.Type == "gdrive") && p.OAuthToken != "",
-		WebDAVDirect:   p.WebDAVDirect,
-		ProxyEnabled:   p.ProxyEnabled,
-		ProxyURL:       p.ProxyURL,
+		WebDAVDirect:        p.WebDAVDirect,
+		ProxyEnabled:        p.ProxyEnabled,
+		ProxyURL:            p.ProxyURL,
+		CloudreveAPIEnabled: p.CloudreveAPIEnabled,
+		CloudreveAPIURL:     p.CloudreveAPIURL,
+		CloudreveUser:       p.CloudreveUser,
+		CloudrevePass:       p.CloudrevePass, // 直接回显明文密码，方便调试
 	}
 }
 
@@ -144,9 +156,13 @@ type policyBody struct {
 	ChunkSize      int64  `json:"chunk_size"`
 	IsDefault      bool   `json:"is_default"`
 	DefaultQuota   int64  `json:"default_quota"`
-	WebDAVDirect   bool   `json:"webdav_direct"`
-	ProxyEnabled   bool   `json:"proxy_enabled"`
-	ProxyURL       string `json:"proxy_url"`
+	WebDAVDirect        bool   `json:"webdav_direct"`
+	ProxyEnabled        bool   `json:"proxy_enabled"`
+	ProxyURL            string `json:"proxy_url"`
+	CloudreveAPIEnabled bool   `json:"cloudreve_api_enabled"`
+	CloudreveAPIURL     string `json:"cloudreve_api_url"`
+	CloudreveUser       string `json:"cloudreve_user"`
+	CloudrevePass       string `json:"cloudreve_pass"`
 }
 
 // Create POST /api/admin/storage/policies
@@ -291,9 +307,13 @@ func (h *PolicyHandler) Create(c *gin.Context) {
 		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,
-		WebDAVDirect:   req.WebDAVDirect,
-		ProxyEnabled:   req.ProxyEnabled,
-		ProxyURL:       storage.NormalizeProxyURL(req.ProxyURL),
+		WebDAVDirect:        req.WebDAVDirect,
+		ProxyEnabled:        req.ProxyEnabled,
+		ProxyURL:            storage.NormalizeProxyURL(req.ProxyURL),
+		CloudreveAPIEnabled: req.CloudreveAPIEnabled,
+		CloudreveAPIURL:     strings.TrimSpace(req.CloudreveAPIURL),
+		CloudreveUser:       strings.TrimSpace(req.CloudreveUser),
+		CloudrevePass:       req.CloudrevePass,
 	}
 	if err := model.CreateStoragePolicy(p); err != nil {
 		msg := err.Error()
@@ -428,9 +448,13 @@ func (h *PolicyHandler) Update(c *gin.Context) {
 		ChunkSize:      req.ChunkSize,
 		IsDefault:      req.IsDefault,
 		DefaultQuota:   req.DefaultQuota,
-		WebDAVDirect:   req.WebDAVDirect,
-		ProxyEnabled:   req.ProxyEnabled,
-		ProxyURL:       storage.NormalizeProxyURL(req.ProxyURL),
+		WebDAVDirect:        req.WebDAVDirect,
+		ProxyEnabled:        req.ProxyEnabled,
+		ProxyURL:            storage.NormalizeProxyURL(req.ProxyURL),
+		CloudreveAPIEnabled: req.CloudreveAPIEnabled,
+		CloudreveAPIURL:     strings.TrimSpace(req.CloudreveAPIURL),
+		CloudreveUser:       strings.TrimSpace(req.CloudreveUser),
+		CloudrevePass:       req.CloudrevePass,
 	}
 	if err := model.UpdateStoragePolicy(uint(id), updates, req.SecretKey != ""); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

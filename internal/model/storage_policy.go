@@ -44,6 +44,14 @@ type StoragePolicy struct {
 	ProxyEnabled bool `gorm:"not null;default:false" json:"proxy_enabled"`
 	// ProxyURL 策略专用代理地址；为空时使用全局代理（若全局也未配置则直连）。
 	ProxyURL string `gorm:"size:512" json:"proxy_url"`
+
+	// CloudreveAPI 仅 WebDAV 类型：Cloudreve API 优化上传配置（可选）。
+	// 当后端是 Cloudreve 时，配置后可实现文件直达对象存储，绕过 WebDAV 中转。
+	CloudreveAPIEnabled bool   `gorm:"column:cloudreve_api_enabled;not null;default:false" json:"cloudreve_api_enabled"`
+	CloudreveAPIURL     string `gorm:"column:cloudreve_api_url;size:512" json:"cloudreve_api_url"`
+	CloudreveUser       string `gorm:"column:cloudreve_user;size:255" json:"cloudreve_user"`
+	CloudrevePass       string `gorm:"column:cloudreve_pass;size:255" json:"cloudreve_pass"`
+
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
@@ -134,6 +142,13 @@ func UpdateStoragePolicy(id uint, updates *StoragePolicy, updateSecret bool) err
 	existing.WebDAVDirect = updates.WebDAVDirect
 	existing.ProxyEnabled = updates.ProxyEnabled
 	existing.ProxyURL = updates.ProxyURL
+	existing.CloudreveAPIEnabled = updates.CloudreveAPIEnabled
+	existing.CloudreveAPIURL = updates.CloudreveAPIURL
+	existing.CloudreveUser = updates.CloudreveUser
+	// Cloudreve 密码独立判断：非空即更新，不依赖 WebDAV 密码（secret_key）是否修改。
+	if updates.CloudrevePass != "" {
+		existing.CloudrevePass = updates.CloudrevePass
+	}
 	if updateSecret && updates.SecretKey != "" {
 		existing.SecretKey = updates.SecretKey
 	}

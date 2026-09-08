@@ -62,6 +62,14 @@ export interface StoragePolicyDetail {
   proxy_enabled: boolean
   /** 策略专用代理地址 */
   proxy_url: string
+  /** 仅 WebDAV：是否启用 Cloudreve API 优化上传 */
+  cloudreve_api_enabled?: boolean
+  /** Cloudreve API 地址 */
+  cloudreve_api_url?: string
+  /** Cloudreve 登录用户名 */
+  cloudreve_user?: string
+  /** Cloudreve 密码是否已设置（不回显明文） */
+  cloudreve_pass_set?: boolean
 }
 
 export interface PolicyForm {
@@ -91,6 +99,14 @@ export interface PolicyForm {
   proxy_enabled: boolean
   /** 策略专用代理地址（空则使用全局代理） */
   proxy_url: string
+  /** 仅 WebDAV：是否启用 Cloudreve API 优化上传（直达对象存储） */
+  cloudreve_api_enabled?: boolean
+  /** Cloudreve API 地址 */
+  cloudreve_api_url?: string
+  /** Cloudreve 登录用户名 */
+  cloudreve_user?: string
+  /** Cloudreve 登录密码（编辑时空表示不修改） */
+  cloudreve_pass?: string
 }
 
 export const listPublicPolicies = () =>

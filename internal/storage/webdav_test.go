@@ -72,7 +72,7 @@ func TestWebDAVDriver_DirectDownloadURL_200Fallback(t *testing.T) {
 	if pass, _ := u.User.Password(); pass != "testpass" {
 		t.Errorf("下载 URL 应内嵌密码，实际: %s", downloadURL)
 	}
-	if !strings.Contains(u.Path, "/cloudreve/user123/file.txt") {
+	if !strings.Contains(u.Path, "/user123/file.txt") {
 		t.Errorf("下载 URL 路径应包含文件路径，实际: %s", u.Path)
 	}
 }
@@ -133,8 +133,8 @@ func TestWebDAVDriver_DirectDownloadURLCustomHost(t *testing.T) {
 	if u.Host != "cdn.example.com" {
 		t.Errorf("下载 URL 主机应为 cdn.example.com，实际: %s", u.Host)
 	}
-	if u.Path != "/dav/cloudreve/user123/file.txt" {
-		t.Errorf("下载 URL 路径应为 /dav/cloudreve/user123/file.txt，实际: %s", u.Path)
+	if u.Path != "/dav/user123/file.txt" {
+		t.Errorf("下载 URL 路径应为 /dav/user123/file.txt，实际: %s", u.Path)
 	}
 }
 
@@ -164,9 +164,9 @@ func TestWebDAVDriver_NewValidation(t *testing.T) {
 		t.Error("IsConfigured 应返回 true")
 	}
 
-	// 验证 basePath 默认值
-	if d.basePath != "cloudreve" {
-		t.Errorf("basePath 应为 cloudreve，实际: %s", d.basePath)
+	// 验证 basePath 不再由驱动使用（已由 buildStorageKey 拼入 key）
+	if d.basePath != "" {
+		t.Errorf("basePath 应为空（驱动不再使用），实际: %s", d.basePath)
 	}
 
 	// 验证 serverURL 末尾斜杠被清理

@@ -67,7 +67,7 @@ func NewDropboxDriver(clientID, clientSecret, basePath, tokenJSON string, proxyE
 	d := &DropboxDriver{
 		clientID:     clientID,
 		clientSecret: clientSecret,
-		basePath:     strings.Trim(basePath, "/"),
+		basePath:     "", // basePath 已由 buildStorageKey 拼入 key，驱动不再使用
 		proxyEnabled: proxyEnabled,
 		proxyURL:     proxyURL,
 	}
@@ -126,12 +126,9 @@ func (d *DropboxDriver) IsAuthorized() bool {
 var errDropboxUnauthorized = errors.New("Dropbox 尚未授权，请到「存储策略」完成授权")
 
 // dropboxPathOf 由对象键得到 Dropbox 内完整路径（以 / 开头）。
+// key 已由 buildStorageKey 拼入 basePath，驱动不再重复拼接。
 func (d *DropboxDriver) dropboxPathOf(key string) string {
-	k := strings.TrimPrefix(key, "/")
-	if d.basePath == "" {
-		return "/" + k
-	}
-	return "/" + d.basePath + "/" + k
+	return "/" + strings.TrimPrefix(key, "/")
 }
 
 // GetAuthURL 生成 OAuth 授权 URL。

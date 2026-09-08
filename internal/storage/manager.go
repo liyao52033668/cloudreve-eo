@@ -187,6 +187,18 @@ func (m *StoragePolicyManager) ReloadFromDB() error {
 				wd.proxyURL = func(storageKey, attachment string) (string, error) {
 					return mgr.SignProxyURL(policyName, storageKey, attachment, 30*time.Minute)
 				}
+				// Cloudreve API 优化上传（可选，需开关开启）
+				if p.CloudreveAPIEnabled {
+					if p.CloudreveAPIURL != "" && p.CloudreveUser != "" && p.CloudrevePass != "" {
+						wd.SetCloudreveAPI(p.CloudreveAPIURL, p.CloudreveUser, p.CloudrevePass)
+					} else {
+						logx.Warn(logx.ModuleStorage, "Cloudreve API 优化上传已开启但配置不完整，请检查 API 地址、用户名和密码",
+							"policy", p.Name,
+							"api_url_set", p.CloudreveAPIURL != "",
+							"user_set", p.CloudreveUser != "",
+							"pass_set", p.CloudrevePass != "")
+					}
+				}
 			}
 			driver = wd
 		default: // s3

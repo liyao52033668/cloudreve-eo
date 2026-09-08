@@ -36,7 +36,7 @@ type FilenDriver struct {
 }
 
 // NewFilenDriver 创建 Filen 驱动。
-// AccessKey=email、SecretKey=账号密码、BasePath=存储路径前缀（空则 cloudreve-eo）。
+// AccessKey=email、SecretKey=账号密码、BasePath=存储路径前缀（buildStorageKey 已拼入 key，驱动不再使用）。
 // 注意：Filen SDK 使用 rclone 的 fshttp，代理通过环境变量控制，不支持按策略独立代理。
 func NewFilenDriver(email, password, basePath string) (*FilenDriver, error) {
 	if email == "" {
@@ -45,14 +45,11 @@ func NewFilenDriver(email, password, basePath string) (*FilenDriver, error) {
 	if password == "" {
 		return nil, fmt.Errorf("Filen 密码不能为空")
 	}
-	if basePath == "" {
-		basePath = "cloudreve-eo"
-	}
 
 	return &FilenDriver{
 		email:    email,
 		password: password,
-		basePath: strings.Trim(basePath, "/"),
+		basePath: "", // basePath 已由 buildStorageKey 拼入 key，驱动不再使用
 	}, nil
 }
 
@@ -88,8 +85,9 @@ func filenCtx(d time.Duration) (context.Context, context.CancelFunc) {
 }
 
 // filenPathOf 由对象键得到 Filen 内完整路径。
+// key 已由 buildStorageKey 拼入 basePath，驱动不再重复拼接。
 func (d *FilenDriver) filenPathOf(key string) string {
-	return d.basePath + "/" + strings.TrimPrefix(key, "/")
+	return "/" + strings.TrimPrefix(key, "/")
 }
 
 // UploadFile 通过 SDK 分片加密上传。

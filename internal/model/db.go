@@ -74,6 +74,26 @@ func InitDB(cfg *config.Config) error {
 				return fmt.Errorf("添加 webdav_direct 字段失败: %w", err)
 			}
 		}
+		if !db.Migrator().HasColumn(&StoragePolicy{}, "cloudreve_api_enabled") {
+			if err := db.Migrator().AddColumn(&StoragePolicy{}, "CloudreveAPIEnabled"); err != nil {
+				return fmt.Errorf("添加 cloudreve_api_enabled 字段失败: %w", err)
+			}
+		}
+		if !db.Migrator().HasColumn(&StoragePolicy{}, "cloudreve_api_url") {
+			if err := db.Migrator().AddColumn(&StoragePolicy{}, "CloudreveAPIURL"); err != nil {
+				return fmt.Errorf("添加 cloudreve_api_url 字段失败: %w", err)
+			}
+		}
+		if !db.Migrator().HasColumn(&StoragePolicy{}, "cloudreve_user") {
+			if err := db.Migrator().AddColumn(&StoragePolicy{}, "CloudreveUser"); err != nil {
+				return fmt.Errorf("添加 cloudreve_user 字段失败: %w", err)
+			}
+		}
+		if !db.Migrator().HasColumn(&StoragePolicy{}, "cloudreve_pass") {
+			if err := db.Migrator().AddColumn(&StoragePolicy{}, "CloudrevePass"); err != nil {
+				return fmt.Errorf("添加 cloudreve_pass 字段失败: %w", err)
+			}
+		}
 		// secret_key 早期为 varchar(255)，Dropbox 等 OAuth token 超长，需升级为 text。
 		// AutoMigrate 不会变更已存在列的类型，这里显式迁移。
 		if err := migrateSecretKeyType(db); err != nil {

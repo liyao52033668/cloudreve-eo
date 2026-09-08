@@ -16,6 +16,7 @@ import {
   Typography,
   Select,
   Table,
+  Divider,
 } from 'antd'
 import type { TableColumnsType } from 'antd'
 import {
@@ -73,6 +74,10 @@ const emptyForm: PolicyForm = {
   webdav_direct: false,
   proxy_enabled: false,
   proxy_url: '',
+  cloudreve_api_enabled: false,
+  cloudreve_api_url: '',
+  cloudreve_user: '',
+  cloudreve_pass: '',
 }
 
 function formatBytes(n: number): string {
@@ -109,6 +114,8 @@ export default function StoragePolicies() {
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm<PolicyForm & { default_quota_gib?: number | null; chunk_size_mib?: number | null }>()
   const [policyType, setPolicyType] = useState<'s3' | 'github' | 'terabox' | 'filen' | 'dropbox' | 'baidu' | 'webdav' | 'gdrive'>('s3')
+  // Cloudreve API 优化上传开关：控制 WebDAV 表单中 Cloudreve 配置区的显隐
+  const [cloudreveApiEnabled, setCloudreveApiEnabled] = useState(false)
   const [filterType, setFilterType] = useState<string | undefined>(undefined)
   const [searchKeyword, setSearchKeyword] = useState('')
   const [authTarget, setAuthTarget] = useState<{ id: number; type: string; appKey?: string } | null>(null)
@@ -197,6 +204,7 @@ export default function StoragePolicies() {
   const openCreate = () => {
     setEditingId(null)
     setPolicyType('s3')
+    setCloudreveApiEnabled(false)
     form.setFieldsValue({
       ...emptyForm,
       region: '',
@@ -213,6 +221,7 @@ export default function StoragePolicies() {
       const p = res.data.policy
       setEditingId(id)
       setPolicyType(p.type || 's3')
+      setCloudreveApiEnabled(!!p.cloudreve_api_enabled)
       // 根据配额大小自动选择合适单位
       const quotaBytes = p.default_quota || 0
       if (quotaBytes >= GiB * 1024) {
@@ -230,7 +239,7 @@ export default function StoragePolicies() {
         region: p.type === 'terabox' || p.type === 'filen' || p.type === 'dropbox' || p.type === 'gdrive' || p.type === 'baidu' || p.type === 'webdav' ? '' : p.region || 'us-east-1',
         bucket: p.bucket,
         access_key: p.access_key,
-        secret_key: '', // 留空表示不修改
+        secret_key: p.secret_key || '', // 回显已保存的密码
         force_path_style: p.force_path_style !== false,
         custom_host: p.custom_host || '',
         base_path: p.base_path || '',
@@ -240,6 +249,10 @@ export default function StoragePolicies() {
         webdav_direct: p.webdav_direct || false,
         proxy_enabled: p.proxy_enabled || false,
         proxy_url: p.proxy_url || '',
+        cloudreve_api_enabled: p.cloudreve_api_enabled || false,
+        cloudreve_api_url: p.cloudreve_api_url || '',
+        cloudreve_user: p.cloudreve_user || '',
+        cloudreve_pass: p.cloudreve_pass || '', // 回显已保存的密码
       })
       setModalOpen(true)
     } catch (err: any) {
@@ -284,6 +297,10 @@ export default function StoragePolicies() {
         webdav_direct: !!values.webdav_direct,
         proxy_enabled: !!values.proxy_enabled,
         proxy_url: (values.proxy_url || '').trim(),
+        cloudreve_api_enabled: !!values.cloudreve_api_enabled,
+        cloudreve_api_url: (values.cloudreve_api_url || '').trim(),
+        cloudreve_user: (values.cloudreve_user || '').trim(),
+        cloudreve_pass: (values.cloudreve_pass || '').trim(),
       }
       if (editingId == null) {
         if (!payload.secret_key) {
@@ -533,6 +550,9 @@ export default function StoragePolicies() {
             if (changedValues.type) {
               setPolicyType(changedValues.type)
             }
+            if (changedValues.cloudreve_api_enabled !== undefined) {
+              setCloudreveApiEnabled(!!changedValues.cloudreve_api_enabled)
+            }
           }}
         >
           <Form.Item
@@ -626,7 +646,7 @@ export default function StoragePolicies() {
               <Form.Item
                 name="base_path"
                 label="存储路径前缀"
-                extra="文件存储在网盘的该目录下，留空默认 /apps/cloudreve-eo"
+                extra="文件存储在网盘的该目录下，留空表示网盘根目录"
               >
                 <Input placeholder="apps/cloudreve-eo" allowClear />
               </Form.Item>
@@ -646,9 +666,9 @@ export default function StoragePolicies() {
               <Form.Item
                 name="base_path"
                 label="存储路径前缀"
-                extra="文件将存储在该目录下（相对 Filen 根目录），留空默认 cloudreve-eo"
+                extra="文件将存储在该目录下（相对 Filen 根目录），留空表示根目录"
               >
-                <Input placeholder="cloudreve-eo" allowClear />
+                <Input placeholder="例如 cloudreve-eo" allowClear />
               </Form.Item>
             </>
           )}
@@ -683,13 +703,30 @@ export default function StoragePolicies() {
               >
                 <Input placeholder="https://dav.example.com/dav/" />
               </Form.Item>
-              <Form.Item
-                name="access_key"
-                label="用户名"
-                rules={[{ required: true, message: '请输入 WebDAV 用户名' }]}
-                extra="WebDAV 认证的用户名"
-              >
-                <Input placeholder="username" autoComplete="off" />
+              <Form.Item label="用户名 / 密码" required style={{ marginBottom: 0 }}>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Form.Item
+                    name="access_key"
+                    noStyle
+                    rules={[{ required: true, message: '请输入 WebDAV 用户名' }]}
+                  >
+                    <Input placeholder="用户名" autoComplete="off" style={{ width: '50%' }} />
+                  </Form.Item>
+                  <Form.Item
+                    name="secret_key"
+                    noStyle
+                    rules={[{ required: editingId == null, message: '请输入 WebDAV 密码' }]}
+                  >
+                    <Input.Password
+                      placeholder={editingId != null ? '密码（留空不修改）' : '密码'}
+                      autoComplete="new-password"
+                      style={{ width: '50%' }}
+                    />
+                  </Form.Item>
+                </Space.Compact>
+                <Typography.Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+                  WebDAV 认证的凭据
+                </Typography.Text>
               </Form.Item>
               <Form.Item
                 name="base_path"
@@ -706,6 +743,46 @@ export default function StoragePolicies() {
               >
                 <Switch />
               </Form.Item>
+
+              <Divider />
+
+              <Form.Item
+                name="cloudreve_api_enabled"
+                label="Cloudreve API 优化上传"
+                valuePropName="checked"
+                extra="开启后上传时调用 Cloudreve API，文件直达对象存储，绕过 WebDAV 中转（需对方是 Cloudreve 后端）"
+              >
+                <Switch />
+              </Form.Item>
+
+              {cloudreveApiEnabled && (
+                <>
+                  <Form.Item
+                    name="cloudreve_api_url"
+                    label="Cloudreve API 地址"
+                    rules={[{ required: cloudreveApiEnabled, message: '请输入 Cloudreve API 地址' }]}
+                    extra="Cloudreve 站点的地址，通常和 WebDAV 同域名，如 https://pan.example.com"
+                  >
+                    <Input placeholder="https://pan.example.com" />
+                  </Form.Item>
+                  <Form.Item
+                    name="cloudreve_user"
+                    label="Cloudreve 用户名"
+                    rules={[{ required: cloudreveApiEnabled, message: '请输入 Cloudreve 登录用户名' }]}
+                    extra="Cloudreve 的登录邮箱或用户名（不是 WebDAV 用户名）"
+                  >
+                    <Input placeholder="user@example.com" autoComplete="off" />
+                  </Form.Item>
+                  <Form.Item
+                    name="cloudreve_pass"
+                    label="Cloudreve 密码"
+                    rules={[{ required: cloudreveApiEnabled && editingId == null, message: '请输入 Cloudreve 登录密码' }]}
+                    extra={editingId != null ? '留空表示不修改' : 'Cloudreve 的登录密码（不是 WebDAV 密码）'}
+                  >
+                    <Input.Password placeholder="••••••••" autoComplete="new-password" />
+                  </Form.Item>
+                </>
+              )}
             </>
           )}
 
@@ -814,37 +891,37 @@ export default function StoragePolicies() {
             </Form.Item>
           )}
 
-          <Form.Item
-            name="secret_key"
-            label={
-              policyType === 'github'
-                ? 'GitHub Token'
-                : policyType === 'terabox'
-                  ? 'Client Secret'
-                  : policyType === 'baidu'
-                    ? 'SecretKey'
-                    : policyType === 'filen'
-                      ? 'Filen 密码'
-                      : policyType === 'dropbox'
-                        ? 'App Secret'
-                        : policyType === 'gdrive'
-                          ? 'Client Secret'
-                          : policyType === 'webdav'
-                            ? '密码'
+          {policyType !== 'webdav' && (
+            <Form.Item
+              name="secret_key"
+              label={
+                policyType === 'github'
+                  ? 'GitHub Token'
+                  : policyType === 'terabox'
+                    ? 'Client Secret'
+                    : policyType === 'baidu'
+                      ? 'SecretKey'
+                      : policyType === 'filen'
+                        ? 'Filen 密码'
+                        : policyType === 'dropbox'
+                          ? 'App Secret'
+                          : policyType === 'gdrive'
+                            ? 'Client Secret'
                             : 'Secret Key'
-            }
-            rules={
-              editingId == null
-                ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'baidu' ? '请输入 SecretKey' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox App Secret' : policyType === 'gdrive' ? '请输入 Google Client Secret' : policyType === 'webdav' ? '请输入密码' : '请输入 Secret Key' }]
-                : []
-            }
-            extra={editingId != null ? '留空表示不修改原密钥' : undefined}
-          >
-            <Input.Password
-              placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'baidu' ? 'secret_key' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox App Secret' : policyType === 'gdrive' ? 'Google Client Secret' : policyType === 'webdav' ? 'WebDAV 密码' : 'Secret Access Key')}
-              autoComplete="new-password"
-            />
-          </Form.Item>
+              }
+              rules={
+                editingId == null
+                  ? [{ required: true, message: policyType === 'github' ? '请输入 GitHub Token' : policyType === 'terabox' ? '请输入 Client Secret' : policyType === 'baidu' ? '请输入 SecretKey' : policyType === 'filen' ? '请输入 Filen 密码' : policyType === 'dropbox' ? '请输入 Dropbox App Secret' : policyType === 'gdrive' ? '请输入 Google Client Secret' : '请输入 Secret Key' }]
+                  : []
+              }
+              extra={editingId != null ? '留空表示不修改原密钥' : undefined}
+            >
+              <Input.Password
+                placeholder={editingId != null ? '留空则不修改' : (policyType === 'github' ? 'GitHub Personal Access Token' : policyType === 'terabox' ? 'client_secret' : policyType === 'baidu' ? 'secret_key' : policyType === 'filen' ? 'Filen 账号密码' : policyType === 'dropbox' ? 'Dropbox App Secret' : policyType === 'gdrive' ? 'Google Client Secret' : 'Secret Access Key')}
+                autoComplete="new-password"
+              />
+            </Form.Item>
+          )}
 
           <Form.Item
             label="每用户默认配额"

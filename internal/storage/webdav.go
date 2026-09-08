@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudreve-eo/cloudreve-eo/internal/logx"
@@ -35,12 +36,21 @@ type WebDAVDriver struct {
 
 	// proxyURL 生成带签名的服务端代理下载 URL（由 manager 注入）。
 	proxyURL func(storageKey, attachment string) (string, error)
+
+	// Cloudreve API 优化上传（可选）
+	// 当后端是 Cloudreve 时，可配置 API 地址和登录凭据，实现文件直达对象存储。
+	cloudreveMu       sync.Mutex // 保护 token 的并发刷新
+	cloudreveAPIURL   string     // Cloudreve API 地址，如 https://pan.cdn.ad
+	cloudreveUsername string     // Cloudreve 登录用户名
+	cloudrevePassword string     // Cloudreve 登录密码
+	cloudreveToken    string     // 缓存的 Bearer Token
+	cloudreveTokenExp time.Time  // Token 过期时间
 }
 
 // NewWebDAVDriver 创建 WebDAV 存储驱动。
 // serverURL: WebDAV 服务器地址，如 https://dav.example.com 或 https://dav.example.com/remote.php/dav/files/user
 // username/password: 认证凭据
-// basePath: 存储路径前缀，空则默认 cloudreve-eo
+// basePath: 存储路径前缀（buildStorageKey 已拼入 key，驱动不再重复拼接）
 // customHost: 自定义下载域名（可选），空则使用 serverURL
 // proxyEnabled/proxyURL 控制是否使用代理及代理地址。
 func NewWebDAVDriver(serverURL, username, password, basePath, customHost string, proxyEnabled bool, proxyURL string) (*WebDAVDriver, error) {
@@ -57,10 +67,7 @@ func NewWebDAVDriver(serverURL, username, password, basePath, customHost string,
 	// 清理 serverURL 末尾斜杠
 	serverURL = strings.TrimRight(serverURL, "/")
 
-	if basePath == "" {
-		basePath = "cloudreve-eo"
-	}
-	basePath = strings.Trim(basePath, "/")
+	// basePath 由 buildStorageKey 拼入 key，驱动不再使用，仅保留字段兼容
 
 	client := &http.Client{
 		Timeout: 30 * time.Minute, // 大文件上传需要较长超时
@@ -73,15 +80,285 @@ func NewWebDAVDriver(serverURL, username, password, basePath, customHost string,
 		serverURL:  serverURL,
 		username:   username,
 		password:   password,
-		basePath:   basePath,
+		basePath:   "", // basePath 已由 buildStorageKey 拼入 key，驱动不再使用
 		customHost: strings.TrimRight(customHost, "/"),
 		client:     client,
 	}, nil
 }
 
+// SetCloudreveAPI 配置 Cloudreve API 优化上传。
+// 当后端是 Cloudreve 时，配置后可实现文件直达对象存储，绕过 WebDAV 中转。
+// apiURL: Cloudreve API 地址（通常和 WebDAV 同域名）
+// username/password: Cloudreve 登录凭据（不是 WebDAV 凭据）。
+func (d *WebDAVDriver) SetCloudreveAPI(apiURL, username, password string) {
+	d.cloudreveAPIURL = strings.TrimRight(apiURL, "/")
+	d.cloudreveUsername = username
+	d.cloudrevePassword = password
+	logx.Info(logx.ModuleStorage, "已配置 Cloudreve API 优化上传", "api", apiURL)
+}
+
+// cloudrevLogin 登录 Cloudreve 获取 Bearer Token。
+func (d *WebDAVDriver) cloudrevLogin() error {
+	d.cloudreveMu.Lock()
+	defer d.cloudreveMu.Unlock()
+
+	// 检查 token 是否仍然有效（提前 5 分钟刷新）
+	if d.cloudreveToken != "" && time.Now().Add(5*time.Minute).Before(d.cloudreveTokenExp) {
+		return nil
+	}
+
+	loginURL := d.cloudreveAPIURL + "/api/v4/session/token"
+	reqBody := map[string]string{
+		"email":    d.cloudreveUsername,
+		"password": d.cloudrevePassword,
+	}
+	bodyJSON, _ := json.Marshal(reqBody)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", loginURL, bytes.NewReader(bodyJSON))
+	if err != nil {
+		return fmt.Errorf("创建登录请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("登录请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("登录失败: HTTP %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			Token struct {
+				AccessToken  string `json:"access_token"`
+				RefreshToken string `json:"refresh_token"`
+				AccessExpires  string `json:"access_expires"`
+				RefreshExpires string `json:"refresh_expires"`
+			} `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("解析登录响应失败: %w", err)
+	}
+	if result.Code != 0 {
+		return fmt.Errorf("登录失败: %s", result.Msg)
+	}
+
+	d.cloudreveToken = result.Data.Token.AccessToken
+	// 解析过期时间（RFC3339 格式），提前 5 分钟刷新
+	if t, err := time.Parse(time.RFC3339, result.Data.Token.AccessExpires); err == nil {
+		d.cloudreveTokenExp = t
+	} else {
+		// 解析失败则默认 1 小时后过期
+		d.cloudreveTokenExp = time.Now().Add(1 * time.Hour)
+	}
+	logx.Info(logx.ModuleStorage, "Cloudreve 登录成功", "expires", result.Data.Token.AccessExpires)
+	return nil
+}
+
+// cloudreveAPIRequest 执行带 Bearer Token 认证的 Cloudreve API 请求。
+func (d *WebDAVDriver) cloudreveAPIRequest(ctx context.Context, method, url string, body io.Reader) (*http.Response, error) {
+	if err := d.cloudrevLogin(); err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+d.cloudreveToken)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return d.client.Do(req)
+}
+
+// cloudreveUploadViaAPI 通过 Cloudreve API 上传文件（直达对象存储）。
+// 返回 error 表示失败，调用方应回退到 WebDAV 上传。
+func (d *WebDAVDriver) cloudreveUploadViaAPI(ctx context.Context, key string, content []byte) error {
+	// 构建 Cloudreve URI: cloudreve://my/{basePath}/{key}
+	cloudreveURI := "cloudreve://my/" + d.webdavPathOf(key)
+
+	// 创建上传会话
+	sessionURL := d.cloudreveAPIURL + "/api/v4/file/upload"
+	reqBody := map[string]interface{}{
+		"uri":  cloudreveURI,
+		"size": len(content),
+	}
+	bodyJSON, _ := json.Marshal(reqBody)
+
+	resp, err := d.cloudreveAPIRequest(ctx, "PUT", sessionURL, bytes.NewReader(bodyJSON))
+	if err != nil {
+		return fmt.Errorf("创建上传会话失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("创建上传会话失败: HTTP %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var session struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			SessionID     string   `json:"session_id"`
+			UploadID      string   `json:"upload_id"`
+			ChunkSize     int64    `json:"chunk_size"`
+			UploadURLs    []string `json:"upload_urls"`
+			CompleteURL   string   `json:"completeURL"`
+			CallbackSecret string  `json:"callback_secret"`
+			StoragePolicy struct {
+				Type string `json:"type"`
+			} `json:"storage_policy"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return fmt.Errorf("解析上传会话响应失败: %w", err)
+	}
+	if session.Code != 0 {
+		return fmt.Errorf("创建上传会话失败: %s", session.Msg)
+	}
+
+	logx.Info(logx.ModuleStorage, "Cloudreve 上传会话已创建",
+		"storage_type", session.Data.StoragePolicy.Type,
+		"upload_urls", len(session.Data.UploadURLs),
+		"chunk_size", session.Data.ChunkSize,
+	)
+
+	// 只要 Cloudreve 返回了直传 URL，无论底层存储类型，都直接上传
+	if len(session.Data.UploadURLs) > 0 {
+		return d.cloudreveUploadToS3(ctx, key, content, session.Data)
+	}
+
+	// 无直传 URL（如本地存储策略），回退到 WebDAV
+	logx.Warn(logx.ModuleStorage, "Cloudreve API 未返回直传 URL，回退到 WebDAV",
+		"storage_type", session.Data.StoragePolicy.Type)
+	return fmt.Errorf("Cloudreve 未返回直传 URL（存储类型 %s），回退到 WebDAV 上传", session.Data.StoragePolicy.Type)
+}
+
+// cloudreveUploadToS3 上传到 S3 兼容存储（Cloudreve 返回预签名 URL）。
+func (d *WebDAVDriver) cloudreveUploadToS3(ctx context.Context, key string, content []byte, session struct {
+	SessionID     string   `json:"session_id"`
+	UploadID      string   `json:"upload_id"`
+	ChunkSize     int64    `json:"chunk_size"`
+	UploadURLs    []string `json:"upload_urls"`
+	CompleteURL   string   `json:"completeURL"`
+	CallbackSecret string  `json:"callback_secret"`
+	StoragePolicy struct {
+		Type string `json:"type"`
+	} `json:"storage_policy"`
+}) error {
+	// 计算分片数
+	chunkSize := session.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = 25 * 1024 * 1024 // 默认 25MB
+	}
+	totalSize := int64(len(content))
+	numParts := (totalSize + chunkSize - 1) / chunkSize
+
+	// 上传每个分片
+	etags := make([]string, numParts)
+	for i := int64(0); i < numParts; i++ {
+		start := i * chunkSize
+		end := start + chunkSize
+		if end > totalSize {
+			end = totalSize
+		}
+		chunk := content[start:end]
+
+		uploadURL := session.UploadURLs[i]
+		if uploadURL == "" {
+			// 如果 URL 不够，使用第一个 URL（单分片情况）
+			uploadURL = session.UploadURLs[0]
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "PUT", uploadURL, bytes.NewReader(chunk))
+		if err != nil {
+			return fmt.Errorf("创建分片上传请求失败: %w", err)
+		}
+		req.Header.Set("Content-Length", fmt.Sprintf("%d", len(chunk)))
+
+		resp, err := d.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("分片 %d 上传失败: %w", i+1, err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode >= 300 {
+			return fmt.Errorf("分片 %d 上传失败: HTTP %d", i+1, resp.StatusCode)
+		}
+
+		// 从响应头获取 ETag
+		etags[i] = resp.Header.Get("ETag")
+		if etags[i] == "" {
+			etags[i] = fmt.Sprintf("\"%x\"", i+1) // 兜底
+		}
+
+		logx.Info(logx.ModuleStorage, "分片已上传到 S3", "part", i+1, "size", len(chunk), "etag", etags[i])
+	}
+
+	// 完成分片上传
+	completeXML := "<CompleteMultipartUpload>\n"
+	for i, etag := range etags {
+		completeXML += fmt.Sprintf("  <Part><PartNumber>%d</PartNumber><ETag>%s</ETag></Part>\n", i+1, etag)
+	}
+	completeXML += "</CompleteMultipartUpload>"
+
+	req, err := http.NewRequestWithContext(ctx, "POST", session.CompleteURL, strings.NewReader(completeXML))
+	if err != nil {
+		return fmt.Errorf("创建完成请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/xml")
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("完成上传失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("完成上传失败: HTTP %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	// 通知 Cloudreve 上传完成
+	callbackURL := fmt.Sprintf("%s/api/v4/callback/s3/%s/%s",
+		d.cloudreveAPIURL, session.SessionID, session.CallbackSecret)
+	req, err = http.NewRequestWithContext(ctx, "GET", callbackURL, nil)
+	if err != nil {
+		return fmt.Errorf("创建回调请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+d.cloudreveToken)
+
+	resp, err = d.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("回调失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("回调失败: HTTP %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	logx.Info(logx.ModuleStorage, "Cloudreve API 上传完成（直达 S3）", "key", key, "size", len(content), "parts", numParts)
+	return nil
+}
+
 // webdavPathOf 由对象键得到 WebDAV 完整路径。
+// key 已由 buildStorageKey 拼入 basePath，驱动不再重复拼接。
 func (d *WebDAVDriver) webdavPathOf(key string) string {
-	return d.basePath + "/" + strings.TrimPrefix(key, "/")
+	return strings.TrimPrefix(key, "/")
 }
 
 // doRequest 执行带 Basic Auth 的 HTTP 请求。
@@ -99,14 +376,12 @@ func (d *WebDAVDriver) doRequest(ctx context.Context, method, url string, body i
 
 // ensureParentDirs 递归创建父目录（MKCOL）。
 func (d *WebDAVDriver) ensureParentDirs(ctx context.Context, fullPath string) error {
-	// 从 basePath 之后开始逐级创建
-	relPath := strings.TrimPrefix(fullPath, d.basePath)
-	relPath = strings.TrimPrefix(relPath, "/")
-	parts := strings.Split(relPath, "/")
+	// fullPath 已包含 basePath（由 buildStorageKey 拼入），直接从根开始创建
+	parts := strings.Split(fullPath, "/")
 	// 最后一段是文件名，跳过
 	parts = parts[:len(parts)-1]
 
-	current := d.serverURL + "/" + d.basePath
+	current := d.serverURL
 	for _, part := range parts {
 		if part == "" {
 			continue
@@ -136,6 +411,15 @@ const webdavChunkSize = 5 * 1024 * 1024
 func (d *WebDAVDriver) UploadFile(key string, content []byte) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+
+	// 如果配置了 Cloudreve API，优先使用 API 上传（直达对象存储）
+	if d.cloudreveAPIURL != "" {
+		if err := d.cloudreveUploadViaAPI(ctx, key, content); err == nil {
+			return nil
+		} else {
+			logx.Warn(logx.ModuleStorage, "Cloudreve API 上传失败，回退到 WebDAV", logx.Err(err), "key", key)
+		}
+	}
 
 	fullPath := d.webdavPathOf(key)
 
@@ -658,12 +942,26 @@ func (d *WebDAVDriver) CompleteChunkedUpload(key string, uploadID string, size i
 	}
 	defer f.Close()
 
+	// 读取完整文件内容
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return fmt.Errorf("读取缓冲文件失败: %w", err)
+	}
+
+	// 如果配置了 Cloudreve API，优先使用 API 上传（支持大文件直达 S3）
+	if d.cloudreveAPIURL != "" {
+		logx.Info(logx.ModuleStorage, "尝试 Cloudreve API 上传", "key", key, "size", size, "api_url", d.cloudreveAPIURL)
+		ctx := context.Background()
+		if err := d.cloudreveUploadViaAPI(ctx, key, data); err == nil {
+			logx.Info(logx.ModuleStorage, "Cloudreve API 上传成功", "key", key)
+			return nil
+		} else {
+			logx.Warn(logx.ModuleStorage, "Cloudreve API 上传失败，回退到 WebDAV 分片", logx.Err(err), "key", key, "size", size)
+		}
+	}
+
 	// 小文件直接整体上传
 	if size <= int64(webdavChunkSize) {
-		data, err := io.ReadAll(f)
-		if err != nil {
-			return fmt.Errorf("读取缓冲文件失败: %w", err)
-		}
 		return d.UploadFile(key, data)
 	}
 
@@ -671,9 +969,10 @@ func (d *WebDAVDriver) CompleteChunkedUpload(key string, uploadID string, size i
 	ctx := context.Background()
 	buffer := make([]byte, webdavChunkSize)
 	var partNum int
+	reader := bytes.NewReader(data)
 
 	for {
-		n, readErr := f.Read(buffer)
+		n, readErr := reader.Read(buffer)
 		if n > 0 {
 			partNum++
 			partKey := fmt.Sprintf("%s.part%d", key, partNum)
