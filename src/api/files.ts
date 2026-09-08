@@ -121,7 +121,7 @@ export const createCloudreveSession = (
   storageKey: string,
   storagePolicy: string = '',
 ) =>
-  client.post<{ session: CloudreveSession }>('/files/upload/cloudreve-session', {
+  client.post<{ session: CloudreveSession; cloudreve_api_url: string }>('/files/upload/cloudreve-session', {
     file_name: fileName,
     size,
     storage_key: storageKey,

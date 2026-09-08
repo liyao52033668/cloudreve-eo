@@ -97,6 +97,11 @@ func (d *WebDAVDriver) SetCloudreveAPI(apiURL, username, password string) {
 	logx.Info(logx.ModuleStorage, "已配置 Cloudreve API 优化上传", "api", apiURL)
 }
 
+// GetCloudreveAPIURL 返回 Cloudreve API 地址（用于前端回调）。
+func (d *WebDAVDriver) GetCloudreveAPIURL() string {
+	return d.cloudreveAPIURL
+}
+
 // cloudrevLogin 登录 Cloudreve 获取 Bearer Token。
 func (d *WebDAVDriver) cloudrevLogin() error {
 	d.cloudreveMu.Lock()

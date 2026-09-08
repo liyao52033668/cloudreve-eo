@@ -335,6 +335,7 @@ export default function Files() {
             data.storage_policy,
           )
           const session = sessionRes.data.session
+          const cloudreveAPIURL = sessionRes.data.cloudreve_api_url
           // 前端直传到 S3
           const etag = await putWithProgress(session.upload_urls[0], file, contentType, (loaded) => {
             onProgress(file.size === 0 ? 100 : Math.round((loaded / file.size) * 100))
@@ -345,8 +346,15 @@ export default function Files() {
             headers: { 'Content-Type': 'application/xml' },
             body: `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>${etag}</ETag></Part></CompleteMultipartUpload>`,
           })
-          // 回调 Cloudreve
-          await fetch(`${import.meta.env.VITE_API_BASE || ''}/api/v4/callback/s3/${session.session_id}/${session.callback_secret}`)
+          // 回调 Cloudreve（不需要认证，直接调用）
+          if (cloudreveAPIURL) {
+            const callbackResp = await fetch(`${cloudreveAPIURL}/api/v4/callback/s3/${session.session_id}/${session.callback_secret}`)
+            if (!callbackResp.ok) {
+              const callbackBody = await callbackResp.text()
+              console.error('Cloudreve callback 失败:', callbackResp.status, callbackBody)
+              throw new Error(`Cloudreve callback 失败: ${callbackResp.status}`)
+            }
+          }
           // 创建文件记录
           await uploadCallback(file.name, data.storage_key, file.size, contentType, parentId, data.storage_policy)
           return
