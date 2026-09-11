@@ -7,7 +7,7 @@ import { getShare, getShareDownload, getShareFiles, getShareChildDownload, type 
 import type { FileItem } from '../api/files'
 import { formatDateTime } from '../utils/time'
 import { runDownload } from '../store/downloadManager'
-import { proxySegmentDownload, saveBlob } from '../utils/proxyDownload'
+import { downloadFileByURL } from '../utils/fileDownload'
 import { collectEntries, downloadEntriesAsZip } from '../utils/zipDownload'
 
 const { Title, Text } = Typography
@@ -91,43 +91,13 @@ export default function ShareView() {
   // 当前是否浏览单个普通文件（非文件夹）分享
   const singleFile = roots.length === 1 && !roots[0].is_dir ? roots[0] : null
 
-  /** 代理存储分段下载：浏览器 JS 按 Range 分段拉取并拼接 Blob（绕开云函数/边缘函数限制）。
-   * 走全局下载管理器，切页不丢进度。 */
-  const handleProxyDownload = async (fileName: string, streamUrl: string) => {
-    try {
-      await runDownload(fileName, async ({ onProgress, signal }) => {
-        const blob = await proxySegmentDownload(streamUrl, onProgress, signal)
-        saveBlob(blob, fileName)
-      })
-      message.success({ content: `${fileName} 下载完成`, key: 'download' })
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        message.info({ content: '下载已取消', key: 'download' })
-      } else {
-        message.error({ content: err?.message || '下载失败', key: 'download' })
-      }
-    }
-  }
-
   const handleDownload = async () => {
     if (!code || !singleFile) return
     try {
       const res = await getShareDownload(code, password || undefined)
-      const url = res.data.download_url
-      if (url.startsWith('/api/files/stream') || url.startsWith('/api/files/proxy')) {
-        await handleProxyDownload(singleFile.name, url)
-      } else {
-        // S3 等有外链直链：交给浏览器下载管理器
-        const a = document.createElement('a')
-        a.href = url
-        a.download = singleFile.name
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
-      }
-    } catch {
-      message.error({ content: '下载失败', key: 'download' })
+      await downloadFileByURL(singleFile.name, res.data.download_url)
+    } catch (err: any) {
+      message.error({ content: err.response?.data?.error || '下载失败', key: 'download' })
     }
   }
 
@@ -197,18 +167,7 @@ export default function ShareView() {
     if (!code) return
     try {
       const res = await getShareChildDownload(code, f.id, password || undefined)
-      const url = res.data.download_url
-      if (url.startsWith('/api/files/stream') || url.startsWith('/api/files/proxy')) {
-        await handleProxyDownload(f.name, url)
-      } else {
-        const a = document.createElement('a')
-        a.href = url
-        a.download = f.name
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
-      }
+      await downloadFileByURL(f.name, res.data.download_url)
     } catch (err: any) {
       message.error({ content: err.response?.data?.error || '下载失败', key: 'download' })
     }

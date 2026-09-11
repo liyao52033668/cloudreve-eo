@@ -8,7 +8,8 @@ import { isImage, isVideo, isText, isMarkdown, isJson } from '../utils/fileType'
 import { formatDateTime } from '../utils/time'
 import ShareModal from './ShareModal'
 import { runDownload } from '../store/downloadManager'
-import { proxySegmentDownload, saveBlob, toProxyUrl } from '../utils/proxyDownload'
+import { proxySegmentDownload, toProxyUrl } from '../utils/proxyDownload'
+import { downloadFileByURL } from '../utils/fileDownload'
 import { collectDirFiles, collectSelectedEntries, downloadEntriesAsZip } from '../utils/zipDownload'
 import { marked } from 'marked'
 
@@ -141,95 +142,9 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
   const handleDownload = async (file: FileItem) => {
     try {
       const res = await getDownloadURL(file.id)
-      const url = res.data.download_url
-      if (url.startsWith('/api/files/stream') || url.startsWith('/api/files/proxy')) {
-        // 代理存储（Filen/百度等）：云函数响应有 6MB 缓冲上限、边缘函数有时长限制，
-        // 改由前端 JS 按 Range 分段拉取并拼接 Blob，避开平台限制。
-        await handleProxyDownload(file, url)
-      } else if (isCrossOrigin(url) && !url.includes('response-content-disposition')) {
-        // 跨域 URL 且没有 Content-Disposition 参数：
-        // <a download> 对跨域无效，浏览器会用 URL 路径作为文件名（随机无后缀）。
-        // 改用 blob 方式下载，保证文件名正确。
-        // 但如果 URL 包含 response-content-disposition 参数（如 Cloudreve/S3），
-        // 浏览器会使用 header 里的文件名，可以直接下载。
-        await handleCrossOriginDownload(file, url)
-      } else {
-        // 同源外链或带 Content-Disposition 的跨域 URL：直接交给浏览器下载管理器
-        const a = document.createElement('a')
-        a.href = url
-        a.download = file.name
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        message.success({ content: '下载已开始，进度见浏览器下载列表', key: 'download' })
-      }
+      await downloadFileByURL(file.name, res.data.download_url)
     } catch {
       message.error({ content: '下载失败', key: 'download' })
-    }
-  }
-
-  /** 判断 URL 是否跨域 */
-  const isCrossOrigin = (url: string): boolean => {
-    try {
-      const urlObj = new URL(url)
-      return urlObj.origin !== window.location.origin
-    } catch {
-      return false
-    }
-  }
-
-  /** 跨域下载：fetch → blob → saveAs，保证文件名正确 */
-  const handleCrossOriginDownload = async (file: FileItem, url: string) => {
-    try {
-      await runDownload(file.name, async ({ onProgress, signal }) => {
-        const response = await fetch(url, { signal })
-        if (!response.ok) throw new Error(`下载失败: HTTP ${response.status}`)
-
-        const contentLength = response.headers.get('content-length')
-        const total = contentLength ? parseInt(contentLength, 10) : 0
-        const reader = response.body?.getReader()
-        if (!reader) throw new Error('无法读取响应流')
-
-        const chunks: BlobPart[] = []
-        let loaded = 0
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          chunks.push(value)
-          loaded += value.length
-          if (total > 0) {
-            onProgress(loaded, total)
-          }
-        }
-
-        const blob = new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' })
-        saveBlob(blob, file.name)
-      })
-      message.success({ content: `${file.name} 下载完成`, key: 'download' })
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        message.info({ content: '下载已取消', key: 'download' })
-      } else {
-        message.error({ content: err?.message || '下载失败', key: 'download' })
-      }
-    }
-  }
-
-  /** 代理存储分段下载：浏览器 JS 按 Range 分段拉取并拼接 Blob（绕开云函数/边缘函数限制）。
-   * 走全局下载管理器，切页不丢进度。 */
-  const handleProxyDownload = async (file: FileItem, streamUrl: string) => {
-    try {
-      await runDownload(file.name, async ({ onProgress, signal }) => {
-        const blob = await proxySegmentDownload(streamUrl, onProgress, signal)
-        saveBlob(blob, file.name)
-      })
-      message.success({ content: `${file.name} 下载完成`, key: 'download' })
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        message.info({ content: '下载已取消', key: 'download' })
-      } else {
-        message.error({ content: err?.message || '下载失败', key: 'download' })
-      }
     }
   }
 
