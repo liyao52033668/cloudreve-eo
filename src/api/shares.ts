@@ -4,9 +4,20 @@ import type { FileItem } from './files'
 export interface ShareInfo {
   id: number
   code: string
+  file_ids: string
   expire_at: string | null
   views: number
   created_at: string
+}
+
+export interface ShareWithFiles {
+  id: number
+  code: string
+  file_ids: string
+  expire_at: string | null
+  views: number
+  created_at: string
+  files: FileItem[]
 }
 
 /** 创建分享：支持单个或多个文件（多文件分享访问者看到文件列表） */
@@ -47,3 +58,21 @@ export const getShareZipSelectedURL = (code: string, ids: number[], password?: s
   if (password) params.set('password', password)
   return `/api/shares/${code}/zip?${params.toString()}`
 }
+
+// ─── 分享管理（需登录） ───
+
+/** 列出当前用户的全部分享 */
+export const listMyShares = () =>
+  client.get<{ shares: ShareWithFiles[] }>('/shares')
+
+/** 取消分享 */
+export const deleteShare = (id: number) =>
+  client.delete(`/shares/${id}`)
+
+/** 向分享中添加文件 */
+export const addShareFiles = (id: number, fileIds: number[]) =>
+  client.put(`/shares/${id}/files`, { file_ids: fileIds })
+
+/** 从分享中移除文件 */
+export const removeShareFiles = (id: number, fileIds: number[]) =>
+  client.delete(`/shares/${id}/files`, { data: { file_ids: fileIds } })

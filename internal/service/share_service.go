@@ -297,6 +297,155 @@ func (s *ShareService) GetDownloadURL(code string, password string) (string, err
 	return driver.GenerateDownloadURL(file.StorageKey, file.Name, 30*time.Minute)
 }
 
+// ShareWithFiles 分享及其关联的文件列表（管理页面用）。
+type ShareWithFiles struct {
+	model.Share
+	Files []model.File `json:"files"`
+}
+
+// List 返回当前用户的全部分享（含关联文件），按创建时间倒序。
+func (s *ShareService) List(userID int64) ([]ShareWithFiles, error) {
+	var shares []model.Share
+	if err := model.DB.Where("user_id = ?", userID).Order("created_at DESC").Find(&shares).Error; err != nil {
+		return nil, err
+	}
+	if len(shares) == 0 {
+		return []ShareWithFiles{}, nil
+	}
+
+	// 收集全部文件 ID，一次查询拿到所有文件
+	allFileIDs := make(map[uint]struct{})
+	shareFileIDs := make([][]uint, len(shares))
+	for i, share := range shares {
+		ids, err := RootFileIDs(&share)
+		if err != nil {
+			continue
+		}
+		shareFileIDs[i] = ids
+		for _, id := range ids {
+			allFileIDs[id] = struct{}{}
+		}
+	}
+
+	fileMap := make(map[uint]model.File)
+	if len(allFileIDs) > 0 {
+		idList := make([]uint, 0, len(allFileIDs))
+		for id := range allFileIDs {
+			idList = append(idList, id)
+		}
+		var files []model.File
+		model.DB.Where("id IN ?", idList).Find(&files)
+		for _, f := range files {
+			fileMap[f.ID] = f
+		}
+	}
+
+	result := make([]ShareWithFiles, len(shares))
+	for i, share := range shares {
+		result[i].Share = share
+		for _, id := range shareFileIDs[i] {
+			if f, ok := fileMap[id]; ok {
+				result[i].Files = append(result[i].Files, f)
+			}
+		}
+		if result[i].Files == nil {
+			result[i].Files = []model.File{}
+		}
+	}
+	return result, nil
+}
+
+// Delete 删除分享（校验所有权）。
+func (s *ShareService) Delete(shareID uint, userID int64) error {
+	var share model.Share
+	if err := model.DB.Where("id = ?", shareID).First(&share).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("分享不存在")
+		}
+		return err
+	}
+	if share.UserID != userID {
+		return errors.New("无权操作")
+	}
+	return model.DB.Delete(&share).Error
+}
+
+// AddFiles 向分享中添加文件（去重，校验所有权）。
+func (s *ShareService) AddFiles(shareID uint, userID int64, fileIDs []uint) error {
+	if len(fileIDs) == 0 {
+		return errors.New("请选择要添加的文件")
+	}
+	var share model.Share
+	if err := model.DB.Where("id = ?", shareID).First(&share).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("分享不存在")
+		}
+		return err
+	}
+	if share.UserID != userID {
+		return errors.New("无权操作")
+	}
+
+	// 校验文件属于当前用户
+	var files []model.File
+	if err := model.DB.Where("id IN ? AND user_id = ?", fileIDs, userID).Find(&files).Error; err != nil {
+		return err
+	}
+	if len(files) != len(fileIDs) {
+		return errors.New("部分文件不存在")
+	}
+
+	// 解析已有 ID，去重后追加
+	existing, _ := RootFileIDs(&share)
+	existingSet := make(map[uint]struct{}, len(existing))
+	for _, id := range existing {
+		existingSet[id] = struct{}{}
+	}
+	for _, id := range fileIDs {
+		existingSet[id] = struct{}{}
+	}
+
+	idStrs := make([]string, 0, len(existingSet))
+	for id := range existingSet {
+		idStrs = append(idStrs, strconv.FormatUint(uint64(id), 10))
+	}
+	return model.DB.Model(&share).Update("file_ids", strings.Join(idStrs, ",")).Error
+}
+
+// RemoveFiles 从分享中移除文件（校验所有权；不允许全部移除，至少保留一个）。
+func (s *ShareService) RemoveFiles(shareID uint, userID int64, fileIDs []uint) error {
+	if len(fileIDs) == 0 {
+		return errors.New("请选择要移除的文件")
+	}
+	var share model.Share
+	if err := model.DB.Where("id = ?", shareID).First(&share).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("分享不存在")
+		}
+		return err
+	}
+	if share.UserID != userID {
+		return errors.New("无权操作")
+	}
+
+	existing, _ := RootFileIDs(&share)
+	removeSet := make(map[uint]struct{}, len(fileIDs))
+	for _, id := range fileIDs {
+		removeSet[id] = struct{}{}
+	}
+
+	remaining := make([]string, 0, len(existing))
+	for _, id := range existing {
+		if _, remove := removeSet[id]; !remove {
+			remaining = append(remaining, strconv.FormatUint(uint64(id), 10))
+		}
+	}
+	if len(remaining) == 0 {
+		return errors.New("分享中至少保留一个文件")
+	}
+	return model.DB.Model(&share).Update("file_ids", strings.Join(remaining, ",")).Error
+}
+
 // GetChildDownloadURL 生成分享内某个文件的下载 URL（校验其在分享根子树内或是根文件本身）。
 func (s *ShareService) GetChildDownloadURL(code string, password string, fileID uint) (string, error) {
 	share, err := validateShare(code, password)

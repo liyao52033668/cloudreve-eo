@@ -7,6 +7,7 @@ import {
   LogoutOutlined,
   MenuOutlined,
   SettingOutlined,
+  ShareAltOutlined,
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -107,6 +108,15 @@ export default function AppHeader({ title, onHome }: { title?: string; onHome?: 
         {/* 桌面端导航 */}
         <div className="app-header__desktop-nav">
           <Space>
+            <Button
+              type="text"
+              icon={<ShareAltOutlined />}
+              style={{ color: '#fff' }}
+              disabled={location.pathname === '/shares'}
+              onClick={() => navigate('/shares')}
+            >
+              我的分享
+            </Button>
             {isAdmin &&
               navItems.map((item) => (
                 <Button
@@ -161,6 +171,11 @@ export default function AppHeader({ title, onHome }: { title?: string; onHome?: 
               key: '/',
               icon: <ArrowLeftOutlined style={{ transform: 'rotate(45deg)' }} />,
               label: '我的文件',
+            },
+            {
+              key: '/shares',
+              icon: <ShareAltOutlined />,
+              label: '我的分享',
             },
             ...(isAdmin
               ? navItems.map((item) => ({

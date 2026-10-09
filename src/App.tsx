@@ -3,6 +3,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Files from './pages/Files'
 import ShareView from './pages/ShareView'
+import Shares from './pages/Shares'
 import Settings from './pages/Settings'
 import StoragePolicies from './pages/StoragePolicies'
 import UserGroups from './pages/UserGroups'
@@ -24,6 +25,14 @@ function App() {
           element={
             <RequireAuth>
               <Files />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/shares"
+          element={
+            <RequireAuth>
+              <Shares />
             </RequireAuth>
           }
         />

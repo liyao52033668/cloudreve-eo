@@ -240,7 +240,11 @@ func buildApp(cfg *config.Config, syncer *persist.Syncer) (*gin.Engine, error) {
 		protected.GET("/storage/policies", policyHandler.ListPublic)
 
 		shares := protected.Group("/shares")
+		shares.GET("", shareHandler.ListMyShares)
 		shares.POST("", shareHandler.Create)
+		shares.DELETE("/:id", shareHandler.Delete)
+		shares.PUT("/:id/files", shareHandler.AddFiles)
+		shares.DELETE("/:id/files", shareHandler.RemoveFiles)
 
 		user := protected.Group("/user")
 		user.GET("/profile", userHandler.Profile)
