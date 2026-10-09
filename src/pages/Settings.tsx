@@ -481,9 +481,10 @@ export default function Settings() {
       <AppHeader title="参数设置" />
       {/* 侧边栏固定：内层 Layout 高度锁定为视口剩余高度，Sider 不随内容滚动，
           仅 Content 区域内部滚动 */}
-      <Layout style={{ background: '#fff', height: 'calc(100vh - 64px)' }}>
+      <Layout className="settings-layout" style={{ background: '#fff', height: 'calc(100vh - 64px)' }}>
         <Sider
           width={200}
+          className="settings-sider"
           style={{ background: '#fff', borderRight: '1px solid #f0f0f0', position: 'sticky', top: 0, height: '100%' }}
         >
           <Menu
@@ -494,7 +495,7 @@ export default function Settings() {
             style={{ height: '100%', borderRight: 0 }}
           />
         </Sider>
-        <Content style={{ padding: 24, maxWidth: 900, margin: '0 auto', width: '100%', overflow: 'auto' }}>
+        <Content className="settings-content page-content" style={{ padding: 24, maxWidth: 900, margin: '0 auto', width: '100%', overflow: 'auto' }}>
           {renderContent()}
         </Content>
       </Layout>
@@ -504,6 +505,7 @@ export default function Settings() {
         title="WebDAV 连接信息"
         open={connInfoOpen}
         onCancel={() => setConnInfoOpen(false)}
+        width="min(520px, 94vw)"
         footer={[
           <Button key="copy" type="primary" onClick={handleCopyConnInfo}>
             复制全部

@@ -474,15 +474,15 @@ export default function StoragePolicies() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <AppHeader title="存储策略" />
-      <Content style={{ padding: 24, maxWidth: 1308, margin: '0 auto', width: '100%' }}>
-        <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+      <Content className="page-content" style={{ padding: 24, maxWidth: 1308, margin: '0 auto', width: '100%' }}>
+        <Space style={{ marginBottom: 16, flexWrap: 'wrap', width: '100%' }}>
           <Input
             allowClear
             placeholder="搜索策略名称 / Endpoint"
             prefix={<SearchOutlined />}
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
-            style={{ width: 220 }}
+            style={{ minWidth: 160, maxWidth: 220, flex: '1 1 auto' }}
           />
           <Select
             allowClear
@@ -490,7 +490,7 @@ export default function StoragePolicies() {
             options={categoryOptions}
             value={filterType}
             onChange={(v) => setFilterType(v)}
-            style={{ width: 160 }}
+            style={{ minWidth: 120, maxWidth: 160, flex: '1 1 auto' }}
             disabled={categoryOptions.length === 0}
           />
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
@@ -541,7 +541,7 @@ export default function StoragePolicies() {
         confirmLoading={saving}
         okText="保存"
         cancelText="取消"
-        width={560}
+        width="min(600px, 94vw)"
         destroyOnHidden
       >
         <Form

@@ -284,15 +284,15 @@ export default function Users() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <AppHeader title="用户" />
-      <Content style={{ padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
-        <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+      <Content className="page-content" style={{ padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
+        <Space style={{ marginBottom: 16, flexWrap: 'wrap', width: '100%' }}>
           <Input
             allowClear
             placeholder="搜索用户名"
             prefix={<SearchOutlined />}
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
-            style={{ width: 220 }}
+            style={{ minWidth: 160, maxWidth: 220, flex: '1 1 auto' }}
           />
           <Select
             allowClear
@@ -300,7 +300,7 @@ export default function Users() {
             options={groupOptions}
             value={filterGroupId}
             onChange={(v) => setFilterGroupId(v)}
-            style={{ width: 180 }}
+            style={{ minWidth: 140, maxWidth: 180, flex: '1 1 auto' }}
           />
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
             刷新
@@ -319,6 +319,7 @@ export default function Users() {
           columns={columns}
           dataSource={filteredUsers}
           loading={loading}
+          scroll={{ x: 'max-content' }}
           pagination={{ defaultPageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 个用户` }}
           locale={{
             emptyText: users.length === 0 ? (
@@ -342,7 +343,7 @@ export default function Users() {
         confirmLoading={saving}
         okText="保存"
         cancelText="取消"
-        width={560}
+        width="min(560px, 94vw)"
         destroyOnHidden
       >
         <Form form={form} layout="vertical" initialValues={emptyForm}>

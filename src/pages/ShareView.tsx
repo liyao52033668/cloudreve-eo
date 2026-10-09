@@ -201,8 +201,8 @@ export default function ShareView() {
 
   if (needPassword && roots.length === 0) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
-        <Card title="输入提取码" style={{ width: 360 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '16px' }}>
+        <Card title="输入提取码" style={{ width: '100%', maxWidth: 360 }}>
           <Space orientation="vertical" style={{ width: '100%' }}>
             <Input.Password value={password} onChange={(e) => setPassword(e.target.value)} placeholder="提取码" />
             <Button type="primary" block onClick={() => loadShare(password)}>确认</Button>
@@ -221,9 +221,9 @@ export default function ShareView() {
   // 单个普通文件分享：简洁卡片 + 下载按钮
   if (singleFile) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5' }}>
-        <Card title="分享文件" style={{ width: 400 }}>
-          <Title level={4}>{singleFile.name}</Title>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5', padding: '16px' }}>
+        <Card title="分享文件" style={{ width: '100%', maxWidth: 400 }}>
+          <Title level={4} style={{ wordBreak: 'break-all' }}>{singleFile.name}</Title>
           <Text type="secondary">大小: {formatSize(singleFile.size)}</Text>
           <div style={{ marginTop: 8 }}>
             <Text type="secondary">{expireText}</Text>
@@ -239,7 +239,7 @@ export default function ShareView() {
   // 文件夹或多文件分享：文件列表 + 勾选下载 + 全部打包下载
   const listTitle = roots.length === 1 ? `分享文件夹：${roots[0].name}` : `分享了 ${roots.length} 个文件`
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', minHeight: '100vh', background: '#f0f2f5', padding: '48px 16px' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', minHeight: '100vh', background: '#f0f2f5', padding: '24px 12px' }}>
       <Card title={listTitle} style={{ width: '100%', maxWidth: 760 }}>
         <Space orientation="vertical" style={{ width: '100%' }} size="middle">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
@@ -273,6 +273,7 @@ export default function ShareView() {
               rowKey="id"
               pagination={false}
               size="small"
+              scroll={{ x: 'max-content' }}
               rowSelection={{
                 selectedRowKeys: selectedIds,
                 onChange: (keys) => setSelectedIds(keys.map(Number)),

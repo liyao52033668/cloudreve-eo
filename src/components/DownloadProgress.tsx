@@ -95,8 +95,9 @@ export default function DownloadProgress() {
       const d = dragRef.current
       if (!d) return
       // 边界 clamp：卡片不能拖出屏幕（顶部/左侧 ≥0，底部/右侧留一点可见）
+      const cardWidth = Math.min(CARD_WIDTH, window.innerWidth - 24)
       const next = {
-        left: Math.max(0, Math.min(d.origLeft + (e.clientX - d.startX), window.innerWidth - CARD_WIDTH)),
+        left: Math.max(0, Math.min(d.origLeft + (e.clientX - d.startX), window.innerWidth - cardWidth)),
         top: Math.max(0, Math.min(d.origTop + (e.clientY - d.startY), window.innerHeight - 40)),
       }
       posRef.current = next
@@ -114,7 +115,7 @@ export default function DownloadProgress() {
   const baseStyle: CSSProperties = {
     position: 'fixed',
     zIndex: 1000,
-    ...(pos ? { left: pos.left, top: pos.top } : { right: 24, bottom: 24 }),
+    ...(pos ? { left: pos.left, top: pos.top } : { right: 12, bottom: 16 }),
   }
 
   const el = minimized ? (
@@ -133,7 +134,7 @@ export default function DownloadProgress() {
     <div
       style={{
         ...baseStyle,
-        width: CARD_WIDTH,
+        width: 'min(320px, calc(100vw - 24px))',
         minHeight: 0,
         maxHeight: CARD_MAX_HEIGHT,
         overflowY: 'auto',

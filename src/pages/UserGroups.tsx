@@ -240,15 +240,15 @@ export default function UserGroups() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <AppHeader title="用户组" />
-      <Content style={{ padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
-        <Space style={{ marginBottom: 16, flexWrap: 'wrap' }}>
+      <Content className="page-content" style={{ padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
+        <Space style={{ marginBottom: 16, flexWrap: 'wrap', width: '100%' }}>
           <Input
             allowClear
             placeholder="搜索用户组名称"
             prefix={<SearchOutlined />}
             value={searchKeyword}
             onChange={(e) => setSearchKeyword(e.target.value)}
-            style={{ width: 220 }}
+            style={{ minWidth: 160, maxWidth: 220, flex: '1 1 auto' }}
           />
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
             刷新
@@ -352,7 +352,7 @@ export default function UserGroups() {
         confirmLoading={saving}
         okText="保存"
         cancelText="取消"
-        width={560}
+        width="min(560px, 94vw)"
         destroyOnHidden
       >
         <Form form={form} layout="vertical" initialValues={{ ...emptyForm }}>

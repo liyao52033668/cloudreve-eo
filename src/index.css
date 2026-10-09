@@ -41,6 +41,27 @@ body {
   width: 100%;
 }
 
+/* 顶部导航响应式布局 */
+.app-header__desktop-nav {
+  display: flex;
+  align-items: center;
+}
+
+.app-header__mobile-nav {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .app-header__desktop-nav {
+    display: none !important;
+  }
+
+  .app-header__mobile-nav {
+    display: flex !important;
+    align-items: center;
+  }
+}
+
 /* 文件管理页：两层响应式工具栏 */
 .files-toolbar {
   margin-bottom: 16px;
@@ -205,6 +226,23 @@ body {
   outline-offset: 2px;
 }
 
+/* 页面主内容响应式容器 */
+.page-content {
+  padding: 24px;
+}
+
+@media (max-width: 768px) {
+  .page-content {
+    padding: 12px !important;
+  }
+}
+
+.files-toolbar__action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 @media (max-width: 992px) {
   .files-toolbar__top {
     align-items: flex-start;
@@ -221,6 +259,7 @@ body {
   .files-toolbar__bottom {
     flex-direction: column;
     align-items: stretch;
+    padding: 10px 12px;
   }
 
   .files-toolbar__context,
@@ -230,17 +269,40 @@ body {
   }
 
   .files-toolbar__actions {
-    justify-content: flex-start;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
   }
 
-  .files-toolbar__action-divider.ant-divider-vertical {
-    display: none;
-  }
-
-  .files-toolbar__action-group + .files-toolbar__action-group {
+  .files-toolbar__quota {
     width: 100%;
-    padding-top: 8px;
-    border-top: 1px solid #f0f0f0;
+    justify-content: space-between;
+    padding: 6px 10px;
+  }
+
+  .files-toolbar__quota-progress {
+    flex: 1;
+    min-width: 50px;
+    margin: 0 8px;
+  }
+
+  .files-toolbar__action-buttons {
+    width: 100%;
+    display: flex;
+    gap: 8px;
+  }
+
+  .files-toolbar__action-group {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .files-toolbar__action-group .ant-upload-wrapper,
+  .files-toolbar__action-group .ant-upload,
+  .files-toolbar__action-group .files-toolbar__btn {
+    width: 100%;
+    display: flex;
+    justify-content: center;
   }
 
   .files-toolbar__select-browse,
@@ -262,11 +324,73 @@ body {
   }
 }
 
+/* 批量操作工具栏 */
+.file-list-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: rgba(22, 119, 255, 0.06);
+  border-radius: 8px;
+  border: 1px solid rgba(22, 119, 255, 0.15);
+}
+
+.file-list-batch-bar__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-list-batch-bar__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 576px) {
+  .file-list-batch-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .file-list-batch-bar__actions {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+}
+
+@media (max-width: 768px) {
+  .file-table-responsive .ant-table-cell {
+    padding: 10px 8px !important;
+    font-size: 13px;
+  }
+}
+
 /* 文件网格视图 */
 .file-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 600px) {
+  .file-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .file-grid__card {
+    padding: 8px;
+  }
+  .file-grid__thumb {
+    height: 80px;
+  }
+  .file-grid__name {
+    font-size: 12px;
+  }
 }
 
 .file-grid__item {
@@ -344,6 +468,15 @@ body {
 .file-grid__item:hover .file-grid__select,
 .file-grid__select:has(.ant-checkbox-checked) {
   opacity: 1;
+}
+
+@media (hover: none), (max-width: 768px) {
+  .file-grid__more {
+    opacity: 1 !important;
+  }
+  .file-grid__select {
+    opacity: 0.9;
+  }
 }
 
 /* 分享过期时间选择器：把 presets 快捷项移到底部 footer 行左侧（原 Now 位置），与确定按钮同行
@@ -435,3 +568,43 @@ body {
   word-break: break-word;
   tab-size: 4;
 }
+
+/* 设置页移动端响应式布局 */
+@media (max-width: 768px) {
+  .settings-layout {
+    flex-direction: column !important;
+    height: auto !important;
+  }
+
+  .settings-sider {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 auto !important;
+    height: auto !important;
+    position: static !important;
+    border-right: none !important;
+    border-bottom: 1px solid #f0f0f0 !important;
+    overflow-x: auto;
+  }
+
+  .settings-sider .ant-menu {
+    display: flex !important;
+    flex-direction: row !important;
+    white-space: nowrap;
+    border-bottom: none !important;
+    border-right: none !important;
+  }
+
+  .settings-sider .ant-menu-item {
+    margin: 4px 6px !important;
+    padding: 0 12px !important;
+    height: 38px !important;
+    line-height: 38px !important;
+  }
+
+  .settings-content {
+    padding: 14px 12px !important;
+    max-width: 100% !important;
+  }
+}
+

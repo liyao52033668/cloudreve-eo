@@ -92,7 +92,13 @@ export default function ShareModal({ open, fileIds, onClose }: Props) {
   const title = fileIds.length > 1 ? `分享 ${fileIds.length} 个文件` : '创建分享'
 
   return (
-    <Modal title={title} open={open} onCancel={() => { onClose(); setShareLink(''); setPassword(''); setExpireAt(undefined); setShareFiles([]) }} footer={null}>
+    <Modal
+      title={title}
+      open={open}
+      onCancel={() => { onClose(); setShareLink(''); setPassword(''); setExpireAt(undefined); setShareFiles([]) }}
+      footer={null}
+      width="min(460px, 94vw)"
+    >
       <Space orientation="vertical" style={{ width: '100%' }}>
         <Space.Compact style={{ width: '100%' }}>
           <Input placeholder="提取码（可选）" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" style={{ flex: 1 }} />

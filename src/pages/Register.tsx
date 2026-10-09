@@ -42,8 +42,8 @@ export default function Register() {
 
   if (checking) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5' }}>
-        <Card style={{ width: 400 }} loading />
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5', padding: '16px' }}>
+        <Card style={{ width: '100%', maxWidth: 400 }} loading />
       </div>
     )
   }
@@ -51,8 +51,8 @@ export default function Register() {
   // 关闭注册：直接不展示注册表单
   if (!allowRegister) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5' }}>
-        <Card style={{ width: 400 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5', padding: '16px' }}>
+        <Card style={{ width: '100%', maxWidth: 400 }}>
           <Result
             status="403"
             title="暂未开放注册"
@@ -69,8 +69,8 @@ export default function Register() {
   }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5' }}>
-      <Card title="Cloudreve-EO 注册" style={{ width: 400 }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f0f2f5', padding: '16px' }}>
+      <Card title="Cloudreve-EO 注册" style={{ width: '100%', maxWidth: 400 }}>
         <Form onFinish={onFinish}>
           <Form.Item name="username" rules={[{ required: true, min: 3, message: '用户名至少3个字符' }]}>
             <Input prefix={<UserOutlined />} placeholder="用户名" />

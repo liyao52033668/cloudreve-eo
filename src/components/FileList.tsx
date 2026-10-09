@@ -532,20 +532,12 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
 
   // 批量操作工具栏（选中任意项时显示）
   const batchBar = someSelected && (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '8px 12px',
-        marginBottom: 12,
-        background: 'rgba(22,119,255,0.06)',
-        borderRadius: 8,
-      }}
-    >
-      <Checkbox checked={allSelected} indeterminate={someSelected && !allSelected} onChange={toggleSelectAll} />
-      <span>已选 {selectedIds.size} 项</span>
-      <Space>
+    <div className="file-list-batch-bar">
+      <div className="file-list-batch-bar__info">
+        <Checkbox checked={allSelected} indeterminate={someSelected && !allSelected} onChange={toggleSelectAll} />
+        <span style={{ fontWeight: 500 }}>已选 {selectedIds.size} 项</span>
+      </div>
+      <div className="file-list-batch-bar__actions">
         <Button size="small" icon={<DownloadOutlined />} onClick={handleBatchDownload} disabled={batchBusy}>
           下载(zip)
         </Button>
@@ -561,7 +553,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
         <Button size="small" type="link" onClick={clearSelection} disabled={batchBusy}>
           取消选择
         </Button>
-      </Space>
+      </div>
     </div>
   )
 
@@ -573,9 +565,23 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
       ) : viewMode === 'grid' ? (
         gridView
       ) : (
-        <Table columns={columns} dataSource={files} rowKey="id" pagination={false} rowSelection={rowSelection} />
+        <Table
+          columns={columns}
+          dataSource={files}
+          rowKey="id"
+          pagination={false}
+          rowSelection={rowSelection}
+          scroll={{ x: 'max-content' }}
+          className="file-table-responsive"
+        />
       )}
-      <Modal title="重命名" open={renameModal.visible} onOk={handleRename} onCancel={() => setRenameModal({ visible: false })}>
+      <Modal
+        title="重命名"
+        open={renameModal.visible}
+        onOk={handleRename}
+        onCancel={() => setRenameModal({ visible: false })}
+        width="min(420px, 92vw)"
+      >
         <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
       </Modal>
       <Modal
@@ -586,6 +592,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
         okText="移动到这里"
         confirmLoading={moveSubmitting}
         destroyOnHidden
+        width="min(500px, 94vw)"
       >
         <Breadcrumb
           style={{ marginBottom: 12 }}
@@ -652,7 +659,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
           setVideoPreview({ open: false, url: '' })
         }}
         footer={null}
-        width={800}
+        width="min(860px, 96vw)"
         destroyOnHidden
       >
         <video
@@ -667,7 +674,7 @@ export default function FileList({ files, onRefresh, onOpenDir, viewMode }: Prop
         open={textPreview.open}
         onCancel={() => setTextPreview({ open: false })}
         footer={null}
-        width={820}
+        width="min(860px, 96vw)"
         destroyOnHidden
       >
         {textPreview.loading ? (

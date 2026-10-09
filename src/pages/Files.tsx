@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Segmented, Alert, Card, Progress, Typography, Divider, Dropdown } from 'antd'
+import { Layout, Breadcrumb, Button, Upload, Modal, Input, message, Space, Select, Segmented, Alert, Card, Progress, Typography, Dropdown } from 'antd'
 import { UploadOutlined, FolderAddOutlined, FileAddOutlined, FolderOpenOutlined, CloseOutlined, ArrowLeftOutlined, SearchOutlined, BarsOutlined, AppstoreOutlined, DownOutlined, CloudOutlined } from '@ant-design/icons'
 import FileList from '../components/FileList'
 import AppHeader from '../components/AppHeader'
@@ -775,7 +775,7 @@ export default function Files() {
   return (
     <Layout style={{ minHeight: '100vh', width: '100%' }}>
       <AppHeader onHome={handleGoHome} />
-      <Content style={{ padding: 24, width: '100%', maxWidth: 1400, margin: '0 auto', flex: 1 }}>
+      <Content className="page-content" style={{ padding: 24, width: '100%', maxWidth: 1400, margin: '0 auto', flex: 1 }}>
         <section className="files-toolbar" aria-label="文件浏览工具栏">
           <div className="files-toolbar__top">
             <div className="files-toolbar__context">
@@ -874,8 +874,7 @@ export default function Files() {
                 </span>
               </div>
               {!viewPolicy && (
-                <>
-                  <Divider orientation="vertical" className="files-toolbar__action-divider" />
+                <div className="files-toolbar__action-buttons">
                   <div className="files-toolbar__action-group" role="group" aria-label="上传">
                     <Dropdown
                       menu={{
@@ -891,13 +890,12 @@ export default function Files() {
                       trigger={['hover']}
                     >
                       <Upload beforeUpload={beforeUpload} showUploadList={false} multiple>
-                        <Button icon={<UploadOutlined />} type="primary">
+                        <Button icon={<UploadOutlined />} type="primary" className="files-toolbar__btn">
                           上传文件 <DownOutlined />
                         </Button>
                       </Upload>
                     </Dropdown>
                   </div>
-                  <Divider orientation="vertical" className="files-toolbar__action-divider" />
                   <div className="files-toolbar__action-group" role="group" aria-label="新建">
                     <Dropdown
                       menu={{
@@ -912,12 +910,12 @@ export default function Files() {
                       }}
                       trigger={['hover']}
                     >
-                      <Button icon={<FileAddOutlined />} onClick={() => setNewFileModal(true)}>
+                      <Button icon={<FileAddOutlined />} className="files-toolbar__btn" onClick={() => setNewFileModal(true)}>
                         新建文件 <DownOutlined />
                       </Button>
                     </Dropdown>
                   </div>
-                </>
+                </div>
               )}
             </div>
           </div>
@@ -1035,7 +1033,13 @@ export default function Files() {
         />
         <FileList files={visibleFiles} viewMode={viewMode} onRefresh={loadFiles} onOpenDir={handleOpenDir} />
       </Content>
-      <Modal title="新建文件夹" open={mkdirModal} onOk={handleMkdir} onCancel={() => setMkdirModal(false)}>
+      <Modal
+        title="新建文件夹"
+        open={mkdirModal}
+        onOk={handleMkdir}
+        onCancel={() => setMkdirModal(false)}
+        width="min(480px, 92vw)"
+      >
         <Input value={dirName} onChange={(e) => setDirName(e.target.value)} placeholder="文件夹名称" />
       </Modal>
       <Modal
@@ -1043,6 +1047,7 @@ export default function Files() {
         open={newFileModal}
         onOk={handleCreateTextFile}
         confirmLoading={newFileSubmitting}
+        width="min(640px, 94vw)"
         onCancel={() => {
           if (newFileSubmitting) return
           setNewFileModal(false)
