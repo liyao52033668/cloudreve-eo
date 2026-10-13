@@ -132,8 +132,8 @@ edgeone makers deploy -t <token>
 
 默认推荐edgeone-blob，完整环境变量参考[环境变量](./sqlite.md)
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
+| 变量 | 说明 |
+|------|------|
 | `DB_PERSIST` |  `edgeone-blob` |
 | `DB_PERSIST_EDGEONE_SECRET` | 共享密钥（必填） |
 | `DB_PERSIST_EDGEONE_BASE_URL` | 站点地址（可选，末尾不带 `/`）；留空时由首个请求的 `Host` 头自动推导 |

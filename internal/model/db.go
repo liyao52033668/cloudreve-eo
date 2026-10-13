@@ -52,6 +52,15 @@ func InitDB(cfg *config.Config) error {
 	sqlDB.SetMaxIdleConns(5)               // 最大空闲连接数
 	sqlDB.SetConnMaxLifetime(30 * time.Minute) // 连接最大存活时间，避免长时间占用
 
+	// PostgreSQL 迁移修复：SQLite 迁移过来的数据中，时间戳列可能存有空字符串 ""，
+	// AutoMigrate 尝试 ALTER COLUMN TYPE timestamptz 时 PostgreSQL 无法将 "" 转为时间戳。
+	// 在 AutoMigrate 之前将这些空字符串清理为 NULL。
+	if db.Dialector.Name() == "postgres" {
+		if err := fixEmptyTimestamps(db); err != nil {
+			return fmt.Errorf("清理时间戳脏数据失败: %w", err)
+		}
+	}
+
 	if err := db.AutoMigrate(&User{}, &UserGroup{}, &File{}, &Share{}, &Setting{}, &StoragePolicy{}, &UploadSession{}); err != nil {
 		return fmt.Errorf("数据库迁移失败: %w", err)
 	}
@@ -132,6 +141,60 @@ func migrateSecretKeyType(db *gorm.DB) error {
 		}
 		table := tablePrefix + "storage_policies"
 		return db.Exec(fmt.Sprintf("ALTER TABLE %s ALTER COLUMN secret_key TYPE text", table)).Error
+	}
+	return nil
+}
+
+// fixEmptyTimestamps 清理 PostgreSQL 中时间戳列的空字符串为 NULL。
+// SQLite 对列类型不做强制约束，早期版本可能将空字符串写入时间戳字段；
+// PostgreSQL 的 timestamptz 不接受空字符串，AutoMigrate 变更列类型时会报错。
+// 此函数在 AutoMigrate 之前调用，仅处理已存在的表和列，幂等安全。
+func fixEmptyTimestamps(db *gorm.DB) error {
+	// 需要清理的表和时间戳列（使用结构体让 GORM 自动解析表名）
+	type col struct {
+		model  interface{}
+		column string
+	}
+	cols := []col{
+		{model: &Share{}, column: "expire_at"},
+	}
+	for _, c := range cols {
+		if !db.Migrator().HasTable(c.model) {
+			continue
+		}
+		if !db.Migrator().HasColumn(c.model, c.column) {
+			continue
+		}
+		// 检查列的实际数据库类型：如果已经是时间戳类型则无需清理
+		colTypes, err := db.Migrator().ColumnTypes(c.model)
+		if err != nil {
+			continue
+		}
+		isText := false
+		for _, ct := range colTypes {
+			if ct.Name() == c.column {
+				dbType := strings.ToLower(ct.DatabaseTypeName())
+				// 文本类型（varchar/text）才可能存有空字符串，需要清理
+				if strings.Contains(dbType, "char") || strings.Contains(dbType, "text") {
+					isText = true
+				}
+				break
+			}
+		}
+		if !isText {
+			continue // 已是 timestamp/timestamptz 等类型，跳过
+		}
+		// 解析出实际表名（含前缀）
+		stmt := &gorm.Statement{DB: db}
+		_ = stmt.Parse(c.model)
+		table := stmt.Schema.Table
+		colName := c.column
+		// 将空字符串和仅含空白的值设为 NULL
+		if err := db.Exec(
+			fmt.Sprintf("UPDATE %s SET %s = NULL WHERE TRIM(%s) = ''", table, colName, colName),
+		).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
