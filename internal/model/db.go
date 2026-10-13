@@ -227,6 +227,11 @@ func fixPostgresSequences(db *gorm.DB) error {
 			continue
 		}
 
+		// 检查表是否有 id 列（某些表如 settings 使用其他列作为主键）
+		if !db.Migrator().HasColumn(table, pkCol) {
+			continue
+		}
+
 		// 检查 id 列是否有 DEFAULT 值（序列）
 		var hasDefault bool
 		err := db.Raw(`
