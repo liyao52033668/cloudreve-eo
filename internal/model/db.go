@@ -117,6 +117,13 @@ func InitDB(cfg *config.Config) error {
 		}
 	}
 
+	// PostgreSQL 序列修复：从 SQLite 迁移过来的表，自增主键的序列可能未正确设置
+	if db.Dialector.Name() == "postgres" {
+		if err := fixPostgresSequences(db); err != nil {
+			return fmt.Errorf("修复数据库序列失败: %w", err)
+		}
+	}
+
 	DB = db
 	return nil
 }
@@ -194,6 +201,77 @@ func fixEmptyTimestamps(db *gorm.DB) error {
 			fmt.Sprintf("UPDATE %s SET %s = NULL WHERE TRIM(%s) = ''", table, colName, colName),
 		).Error; err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// fixPostgresSequences 修复 PostgreSQL 自增主键的序列。
+// 从 SQLite 迁移过来的表，主键列可能缺少 DEFAULT nextval('sequence') 设置，
+// 导致插入新记录时 ID 为 NULL，违反非空约束。
+// 此函数为每个表的 id 列确保序列存在并正确关联，幂等安全。
+func fixPostgresSequences(db *gorm.DB) error {
+	// 需要修复序列的模型列表
+	models := []interface{}{&User{}, &UserGroup{}, &File{}, &Share{}, &Setting{}, &StoragePolicy{}, &UploadSession{}}
+
+	for _, model := range models {
+		stmt := &gorm.Statement{DB: db}
+		if err := stmt.Parse(model); err != nil {
+			continue
+		}
+		table := stmt.Schema.Table
+		pkCol := "id"
+
+		// 检查表是否存在
+		if !db.Migrator().HasTable(table) {
+			continue
+		}
+
+		// 检查 id 列是否有 DEFAULT 值（序列）
+		var hasDefault bool
+		err := db.Raw(`
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name = ? AND column_name = 'id'
+				AND column_default IS NOT NULL
+			)`, table).Scan(&hasDefault).Error
+		if err != nil {
+			continue
+		}
+
+		if !hasDefault {
+			// 创建序列（如果不存在）
+			seqName := table + "_id_seq"
+			if err := db.Exec(fmt.Sprintf(`CREATE SEQUENCE IF NOT EXISTS "%s"`, seqName)).Error; err != nil {
+				return fmt.Errorf("创建序列 %s 失败: %w", seqName, err)
+			}
+
+			// 设置列的 DEFAULT 为 nextval
+			if err := db.Exec(fmt.Sprintf(`
+				ALTER TABLE "%s" ALTER COLUMN "%s" SET DEFAULT nextval('%s')`,
+				table, pkCol, seqName)).Error; err != nil {
+				return fmt.Errorf("设置 %s.%s 默认值失败: %w", table, pkCol, err)
+			}
+
+			// 关联序列到列（这样删除列时序列也会删除）
+			if err := db.Exec(fmt.Sprintf(`
+				ALTER SEQUENCE "%s" OWNED BY "%s"."%s"`,
+				seqName, table, pkCol)).Error; err != nil {
+				// 这个失败不致命，继续
+				continue
+			}
+		}
+
+		// 将序列的当前值设置为表中 max(id)，确保新插入的 ID 不会冲突
+		var maxID int64
+		if err := db.Raw(fmt.Sprintf(`SELECT COALESCE(MAX(id), 0) FROM "%s"`, table)).Scan(&maxID).Error; err != nil {
+			continue
+		}
+		if maxID > 0 {
+			seqName := table + "_id_seq"
+			if err := db.Exec(fmt.Sprintf(`SELECT setval('%s', %d)`, seqName, maxID)).Error; err != nil {
+				return fmt.Errorf("设置序列 %s 值失败: %w", seqName, err)
+			}
 		}
 	}
 	return nil
