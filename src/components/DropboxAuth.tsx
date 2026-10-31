@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal, Button, Input, Space, Typography, message, Alert } from 'antd'
 import { LinkOutlined } from '@ant-design/icons'
 import { getDropboxAuthURL, dropboxAuthByCode, getDropboxAuthStatus } from '../api/policies'
+import { copyText } from '../utils/clipboard'
 
 const { Paragraph } = Typography
 
@@ -131,8 +132,7 @@ export default function DropboxAuth({ policyId, appKey, open, onClose, onAuthori
                 <code
                   onClick={() => {
                     const url = `${window.location.origin}/api/oauth/dropbox/callback`
-                    navigator.clipboard.writeText(url)
-                    message.success('回调地址已复制')
+                    copyText(url).then(() => message.success('回调地址已复制'))
                   }}
                   style={{
                     fontSize: 12,
