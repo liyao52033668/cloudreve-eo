@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Layout, Card, Button, Typography, Space, message, Modal, Input, Alert, Switch, Divider, Menu } from 'antd'
+import { Layout, Card, Button, Typography, Space, message, Modal, Input, Alert, Switch, Divider, Menu, Tabs } from 'antd'
 import { ReloadOutlined, CopyOutlined, LinkOutlined, UserOutlined, SafetyOutlined, CloudOutlined, GlobalOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -21,6 +21,9 @@ const { Text, Paragraph } = Typography
 export default function Settings() {
   const navigate = useNavigate()
   const [activeKey, setActiveKey] = useState('register')
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 768px)').matches : false,
+  )
   const [secret, setSecret] = useState('')
   const [allowRegister, setAllowRegister] = useState(true)
   const [loading, setLoading] = useState(false)
@@ -93,6 +96,13 @@ export default function Settings() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 768px)')
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
 
   const handleCopy = async () => {
     try {
@@ -303,7 +313,7 @@ export default function Settings() {
                 复制
               </Button>
             </Space.Compact>
-            <Space>
+            <Space wrap>
               <Button
                 type="primary"
                 danger
@@ -479,22 +489,39 @@ export default function Settings() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <AppHeader title="参数设置" />
-      {/* 侧边栏固定：内层 Layout 高度锁定为视口剩余高度，Sider 不随内容滚动，
-          仅 Content 区域内部滚动 */}
-      <Layout className="settings-layout" style={{ background: '#fff', height: 'calc(100vh - 64px)' }}>
-        <Sider
-          width={200}
-          className="settings-sider"
-          style={{ background: '#fff', borderRight: '1px solid #f0f0f0', position: 'sticky', top: 0, height: '100%' }}
-        >
-          <Menu
-            mode="inline"
-            selectedKeys={[activeKey]}
-            items={menuItems}
-            onClick={({ key }) => setActiveKey(key)}
-            style={{ height: '100%', borderRight: 0 }}
-          />
-        </Sider>
+      {/* 桌面端左侧边栏固定，移动端切换为顶部 Tabs 横向导航 */}
+      <Layout
+        className="settings-layout"
+        style={{ background: '#fff', height: isMobile ? 'auto' : 'calc(100vh - 64px)' }}
+      >
+        {isMobile ? (
+          <div className="settings-mobile-nav">
+            <Tabs
+              activeKey={activeKey}
+              onChange={setActiveKey}
+              tabBarGutter={20}
+              items={menuItems.map((item) => ({
+                key: item.key,
+                icon: item.icon,
+                label: item.label,
+              }))}
+            />
+          </div>
+        ) : (
+          <Sider
+            width={200}
+            className="settings-sider"
+            style={{ background: '#fff', borderRight: '1px solid #f0f0f0', position: 'sticky', top: 0, height: '100%' }}
+          >
+            <Menu
+              mode="inline"
+              selectedKeys={[activeKey]}
+              items={menuItems}
+              onClick={({ key }) => setActiveKey(key)}
+              style={{ height: '100%', borderRight: 0 }}
+            />
+          </Sider>
+        )}
         <Content className="settings-content page-content" style={{ padding: 24, maxWidth: 900, margin: '0 auto', width: '100%', overflow: 'auto' }}>
           {renderContent()}
         </Content>

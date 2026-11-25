@@ -570,41 +570,42 @@ body {
 }
 
 /* 设置页移动端响应式布局 */
+.settings-mobile-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #fff;
+  padding: 0 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.settings-mobile-nav .ant-tabs-nav {
+  margin: 0 !important;
+}
+
+.settings-mobile-nav .ant-tabs-nav::before {
+  border-bottom: none;
+}
+
+.settings-mobile-nav .ant-tabs-tab {
+  padding: 12px 2px;
+  font-size: 14px;
+}
+
+.settings-mobile-nav .ant-tabs-tab-active .ant-tabs-tab-btn {
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .settings-layout {
     flex-direction: column !important;
     height: auto !important;
   }
 
-  .settings-sider {
-    width: 100% !important;
-    max-width: 100% !important;
-    flex: 0 0 auto !important;
-    height: auto !important;
-    position: static !important;
-    border-right: none !important;
-    border-bottom: 1px solid #f0f0f0 !important;
-    overflow-x: auto;
-  }
-
-  .settings-sider .ant-menu {
-    display: flex !important;
-    flex-direction: row !important;
-    white-space: nowrap;
-    border-bottom: none !important;
-    border-right: none !important;
-  }
-
-  .settings-sider .ant-menu-item {
-    margin: 4px 6px !important;
-    padding: 0 12px !important;
-    height: 38px !important;
-    line-height: 38px !important;
-  }
-
   .settings-content {
     padding: 14px 12px !important;
     max-width: 100% !important;
+    overflow: visible !important;
   }
 }
 
